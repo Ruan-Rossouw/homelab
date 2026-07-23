@@ -56,6 +56,44 @@ Runtime data (databases, media, container state) lives on the server under
 `/DATA/AppData/<service>/`, never inside the repo — the repo defines
 infrastructure, it doesn't store state.
 
+### Documented Exception: SMB Uses ZimaOS's Native Samba
+
+SMB (`services/smb/`) is deployed via ZimaOS's built-in Samba toggle, not a
+container — the one deliberate exception to "everything through Docker
+Compose" so far. The reasoning is specific to *this* service, not a general
+loosening of the rule:
+
+- SMB fundamentally requires mapping network users/permissions onto the
+  underlying ownership of `/DATA`. That's precisely the category of problem
+  that has already caused friction twice (Portainer and AdGuard both ended
+  up running as root partly because containerized permission-mapping
+  against `/DATA` is genuinely fiddly). ZimaOS's native Samba is built by
+  the OS vendor for its own storage layout and user accounts, and already
+  handles that mapping correctly.
+- Unlike Portainer or AdGuard — generic tools ZimaOS has no special
+  competency in — file sharing tied to storage is the one thing a NAS
+  appliance OS is actually specialized for. Refusing the native option here
+  to preserve Docker purity would mean fighting the platform on the exact
+  thing it's built to do well — the mirror image of the lesson from the
+  `/DATA` permission model below, not an application of it.
+- A second, containerized Samba server alongside would risk the same class
+  of port conflict already hit once with AdGuard (port 80 vs. 3000), this
+  time on 445.
+
+The real cost, stated plainly: native Samba's configuration lives in
+ZimaOS's own database, not Git. Losing the server means shares aren't
+restored by `git clone` + `docker compose up` — someone has to manually
+re-enable Samba and recreate them. `services/smb/README.md` exists to keep
+that recoverable anyway, as a precise manual runbook (exact folders, exact
+permissions) — documented-but-manual for this one service, rather than
+automated, while still meeting the "recoverable from Git and documentation"
+bar this whole project is built around.
+
+**This exception is scoped to staying on ZimaOS.** If the platform is ever
+migrated away from ZimaOS, this decision gets revisited from scratch — it
+was made because ZimaOS specifically is good at this, not because native
+OS integrations are generally preferable to containers.
+
 ## The ZimaOS Permission Model and the Developer Environment
 
 Early on, we discovered ZimaOS is an **appliance OS**, not a general-purpose
