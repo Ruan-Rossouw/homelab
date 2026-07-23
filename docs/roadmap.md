@@ -58,7 +58,7 @@ recreated from scratch. ✅
 - [x] Define directory conventions (`docs/conventions.md`)
 - [x] Create `docs/architecture.md`
 - [x] Create `docs/networking.md`
-- [ ] Create `docs/storage.md`
+- [x] Create `docs/storage.md`
 - [x] Define commit conventions (`docs/conventions.md`)
 - [x] Define branching strategy (`docs/conventions.md`; CI + branch protection on `main`)
 - [x] Define Compose conventions (`docs/conventions.md`)
