@@ -56,7 +56,7 @@ recreated from scratch. ✅
 - [ ] Complete `README.md`
 - [x] Define documentation standards (`docs/conventions.md`)
 - [x] Define directory conventions (`docs/conventions.md`)
-- [ ] Create `docs/architecture.md`
+- [x] Create `docs/architecture.md`
 - [ ] Create `docs/networking.md`
 - [ ] Create `docs/storage.md`
 - [x] Define commit conventions (`docs/conventions.md`)
