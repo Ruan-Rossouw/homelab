@@ -57,7 +57,7 @@ recreated from scratch. ✅
 - [x] Define documentation standards (`docs/conventions.md`)
 - [x] Define directory conventions (`docs/conventions.md`)
 - [x] Create `docs/architecture.md`
-- [ ] Create `docs/networking.md`
+- [x] Create `docs/networking.md`
 - [ ] Create `docs/storage.md`
 - [x] Define commit conventions (`docs/conventions.md`)
 - [x] Define branching strategy (`docs/conventions.md`; CI + branch protection on `main`)
