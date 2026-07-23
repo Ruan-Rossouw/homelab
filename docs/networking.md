@@ -43,14 +43,20 @@ that setup implied.
 - No inbound WAN access is configured — nothing on this network is
   port-forwarded from the internet today, and that's a deliberate default,
   not just an unconfigured gap.
+- **Remote access is live via Tailscale** (`services/tailscale/`), running
+  with `network_mode: host` so every service on the server — not just
+  Tailscale itself — is reachable at the server's tailnet address. Verified
+  working: Portainer (`:9443`) reachable from a phone on cellular data, off
+  the home network entirely. No subnet routing and no exit node are
+  advertised — see `services/tailscale/README.md` for that scoping decision.
 
 ## Principle: No Direct WAN Exposure
 
-Remote access to homelab services will go through an overlay network
-(Tailscale, Phase 2) rather than router port-forwarding. Port-forwarding
-means every exposed service is directly reachable by anything on the
-internet and becomes a standalone attack surface; an overlay network means
-the only thing exposed is the VPN endpoint itself, and access is tied to
+Remote access to homelab services goes through an overlay network
+(Tailscale) rather than router port-forwarding. Port-forwarding means every
+exposed service is directly reachable by anything on the internet and
+becomes a standalone attack surface; an overlay network means the only
+thing exposed is the VPN endpoint itself, and access is tied to
 authenticated devices rather than a port being open. This is a standing
 security decision, not an implementation detail — future services should
 assume they'll be reached over Tailscale, not by forwarding a port on the
@@ -64,12 +70,9 @@ Deco.
 
 ## Planned (Phase 2, not yet implemented)
 
-- **Tailscale** — remote access via overlay network, replacing any need for
-  port-forwarding.
 - **AdGuard Home** — network-wide DNS filtering and local DNS resolution for
   homelab services.
 
-Configuration details for both belong in `services/tailscale/README.md` and
-`services/adguard/README.md` respectively once those services exist — this
-document will be updated to reflect the resulting topology, not to
-pre-specify it.
+Configuration details belong in `services/adguard/README.md` once that
+service exists — this document will be updated to reflect the resulting
+topology, not to pre-specify it.

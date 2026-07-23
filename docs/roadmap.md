@@ -83,7 +83,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 **Services:**
 
 - [x] Portainer
-- [ ] Tailscale
+- [x] Tailscale
 - [ ] AdGuard Home
 - [ ] SMB
 
