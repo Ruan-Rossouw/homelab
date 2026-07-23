@@ -46,14 +46,14 @@ recreated from scratch. ✅
 
 ---
 
-## Phase 1 – Repository & Standards (Current)
+## Phase 1 – Repository & Standards (Complete)
 
 **Goal:** Establish engineering standards before infrastructure grows.
 
 **Tasks:**
 
 - [x] Create `docs/roadmap.md` (this document)
-- [ ] Complete `README.md`
+- [x] Complete `README.md`
 - [x] Define documentation standards (`docs/conventions.md`)
 - [x] Define directory conventions (`docs/conventions.md`)
 - [x] Create `docs/architecture.md`
@@ -64,7 +64,7 @@ recreated from scratch. ✅
 - [x] Define Compose conventions (`docs/conventions.md`)
 
 **Deliverable:** A fully documented repository with clear engineering
-standards.
+standards. ✅
 
 **Deliberately deferred:** `docs/backup.md` and `docs/disaster-recovery.md`.
 `storage.md` flagged that `/DATA/AppData/` — the only thing that would
@@ -76,7 +76,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 ---
 
-## Phase 2 – Core Infrastructure
+## Phase 2 – Core Infrastructure (Current)
 
 **Goal:** Deploy the essential infrastructure that everything else depends on.
 
