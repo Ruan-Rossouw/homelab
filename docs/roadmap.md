@@ -62,11 +62,17 @@ recreated from scratch. ✅
 - [x] Define commit conventions (`docs/conventions.md`)
 - [x] Define branching strategy (`docs/conventions.md`; CI + branch protection on `main`)
 - [x] Define Compose conventions (`docs/conventions.md`)
-- [ ] Define backup strategy (`docs/backup.md`)
-- [ ] Define disaster recovery documentation (`docs/disaster-recovery.md`)
 
 **Deliverable:** A fully documented repository with clear engineering
 standards.
+
+**Deliberately deferred:** `docs/backup.md` and `docs/disaster-recovery.md`.
+`storage.md` flagged that `/DATA/AppData/` — the only thing that would
+actually need backing up — is currently empty; the repo itself is already
+implicitly multi-copy via Git (Mac + GitHub + server clone). Writing a
+backup strategy for data that doesn't exist yet would be speculative. These
+become a **hard gate before Phase 4** instead (see below), since Immich and
+Home Assistant are where irreplaceable data starts accumulating.
 
 ---
 
@@ -97,6 +103,13 @@ standards.
 ## Phase 4 – Application Services
 
 **Goal:** Deploy end-user applications.
+
+**Gate:** `docs/backup.md` and `docs/disaster-recovery.md` must exist
+*before* Immich or Home Assistant are deployed — this is the phase where
+irreplaceable data (photos, automation history) starts accumulating on a
+single HDD with no redundancy (see `storage.md`). Jellyfin doesn't carry the
+same urgency (media is typically re-acquirable) but ordering the gate before
+the whole phase is simpler than tracking it per-service.
 
 **Services:** Jellyfin, Home Assistant, Immich
 
