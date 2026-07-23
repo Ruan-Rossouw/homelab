@@ -1,0 +1,12 @@
+services:
+  adguard:
+    image: adguard/adguardhome:v0.107.78
+    container_name: adguard
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "${ADGUARD_WEBUI_PORT:-3000}:3000/tcp"
+    volumes:
+      - /DATA/AppData/adguard/work:/opt/adguardhome/work
+      - /DATA/AppData/adguard/conf:/opt/adguardhome/conf
