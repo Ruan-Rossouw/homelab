@@ -44,8 +44,8 @@ homelab/
 
 ## Status
 
-Foundation and standards (Phases 0–1) are complete. Currently in
-**Phase 2 – Core Infrastructure**: Portainer, Tailscale, AdGuard Home, SMB.
-See [`docs/roadmap.md`](docs/roadmap.md) for the full phase breakdown,
-including platform services, applications, and ongoing operations still
-ahead.
+Foundation, standards, and core infrastructure (Phases 0–2) are complete:
+Portainer, Tailscale, AdGuard Home, and SMB are all deployed. Currently in
+**Phase 3 – Platform Services**: Uptime Kuma, Prometheus, Grafana. See
+[`docs/roadmap.md`](docs/roadmap.md) for the full phase breakdown, including
+applications and ongoing operations still ahead.

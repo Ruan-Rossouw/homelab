@@ -76,7 +76,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 ---
 
-## Phase 2 – Core Infrastructure (Current)
+## Phase 2 – Core Infrastructure (Complete)
 
 **Goal:** Deploy the essential infrastructure that everything else depends on.
 
@@ -85,15 +85,15 @@ Home Assistant are where irreplaceable data starts accumulating.
 - [x] Portainer
 - [x] Tailscale
 - [x] AdGuard Home
-- [ ] SMB
+- [x] SMB
 
 **Focus:** Networking, remote access, DNS, file storage, container management.
 
-**Deliverable:** A secure and manageable infrastructure platform.
+**Deliverable:** A secure and manageable infrastructure platform. ✅
 
 ---
 
-## Phase 3 – Platform Services
+## Phase 3 – Platform Services (Current)
 
 **Goal:** Deploy the services that provide ongoing monitoring and management.
 
