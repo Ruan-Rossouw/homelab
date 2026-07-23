@@ -11,10 +11,10 @@ reality, not services that don't exist yet.
 Internet
    │
    ▼
-Vodacom (Openserve) — ISP
+ONT (Openserve fiber termination)
    │
    ▼
-TP-Link Deco — mesh Wi-Fi / router
+TP-Link Deco — router + mesh Wi-Fi
    │
    ▼
 LAN  192.168.68.0/24
@@ -23,12 +23,19 @@ LAN  192.168.68.0/24
 Server  192.168.68.110  (ZimaOS)
 ```
 
-- **ISP:** Vodacom, over Openserve infrastructure.
-- **LAN:** TP-Link Deco mesh system, subnet `192.168.68.0/24`.
+- **ISP:** Vodacom, over Openserve fiber, terminated at an ONT.
+- **LAN:** the Deco connects directly to the ONT and handles routing itself
+  (not sitting behind a separate ISP-supplied router) — one router hop
+  between the ONT and the LAN, subnet `192.168.68.0/24`.
 - **Server:** reachable at `192.168.68.110`, a DHCP reservation on the Deco
   tied to the server's MAC address — stable across reboots and lease
   renewals, so services (e.g. AdGuard Home in Phase 2) can point at it
   directly.
+
+This is a change from the original setup, which had a Vodacom-supplied
+router between the ONT and the Deco. Removing that hop simplifies the path
+and avoids the double-NAT / two-router-configs-to-keep-in-sync situation
+that setup implied.
 
 ## Server Reachability
 
