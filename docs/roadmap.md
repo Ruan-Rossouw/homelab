@@ -84,7 +84,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 - [x] Portainer
 - [x] Tailscale
-- [ ] AdGuard Home
+- [x] AdGuard Home
 - [ ] SMB
 
 **Focus:** Networking, remote access, DNS, file storage, container management.
