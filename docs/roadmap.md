@@ -80,7 +80,12 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 **Goal:** Deploy the essential infrastructure that everything else depends on.
 
-**Services:** Portainer, Tailscale, AdGuard Home, SMB
+**Services:**
+
+- [ ] Portainer
+- [ ] Tailscale
+- [ ] AdGuard Home
+- [ ] SMB
 
 **Focus:** Networking, remote access, DNS, file storage, container management.
 
