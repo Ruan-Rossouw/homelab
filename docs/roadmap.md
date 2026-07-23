@@ -52,14 +52,14 @@ recreated from scratch. ✅
 **Tasks:**
 - [x] Create `docs/roadmap.md` (this document)
 - [ ] Complete `README.md`
-- [ ] Define documentation standards
-- [ ] Define directory conventions
+- [x] Define documentation standards (`docs/conventions.md`)
+- [x] Define directory conventions (`docs/conventions.md`)
 - [ ] Create `docs/architecture.md`
 - [ ] Create `docs/networking.md`
 - [ ] Create `docs/storage.md`
-- [ ] Define commit conventions
-- [ ] Define branching strategy (incl. branch protection, required CI checks)
-- [ ] Define Compose conventions
+- [x] Define commit conventions (`docs/conventions.md`)
+- [x] Define branching strategy (`docs/conventions.md`; CI + branch protection on `main`)
+- [x] Define Compose conventions (`docs/conventions.md`)
 - [ ] Define backup strategy (`docs/backup.md`)
 - [ ] Define disaster recovery documentation (`docs/disaster-recovery.md`)
 
