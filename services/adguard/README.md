@@ -45,11 +45,67 @@ docker compose up -d
 
 ## First Run
 
-Browse to `http://192.168.68.110:3000` for the setup wizard: choose the
-listen interfaces/ports (defaults are fine — DNS on 53, web UI stays on
-3000) and create the admin account. Unlike Portainer, there's no
-setup-token/timeout mechanic here — the wizard just runs until you complete
-it.
+Browse to `http://192.168.68.110:3000` for the setup wizard. DNS on port 53
+defaults correctly — **but on the admin web interface step, explicitly set
+the port to `3000`, don't accept whatever the wizard suggests.** It has been
+observed suggesting port `80` here, which `compose.yml` doesn't publish to
+the host at all; accepting it silently moves AdGuard's UI somewhere
+unreachable. See "Known Gotcha" below if this has already happened to you.
+Unlike Portainer, there's no setup-token/timeout mechanic here — the wizard
+just runs until you complete it.
+
+## Known Gotcha: Wizard Defaults the Admin Port to 80
+
+**Symptom:** setup wizard completes, then you land on ZimaOS's own
+dashboard (`http://192.168.68.110/#/`) instead of AdGuard, and
+`http://192.168.68.110:3000` gives "unable to connect."
+
+**Cause:** the wizard reconfigured AdGuard's admin interface to listen on
+port 80 inside the container (confirm via `docker logs adguard`, look for
+`starting plain server server=plain addr=0.0.0.0:80`). Port 80 was never
+published to the host, so nothing answers on `:3000` anymore, and port 80
+on the host resolves to ZimaOS's own service instead, not AdGuard.
+
+**Fix:**
+
+```bash
+docker compose stop adguard
+sudo sed -i 's/address: 0.0.0.0:80/address: 0.0.0.0:3000/' \
+  /DATA/AppData/adguard/conf/AdGuardHome.yaml
+docker compose up -d adguard
+```
+
+Confirm with `docker logs adguard --tail 5` — it should show
+`addr=0.0.0.0:3000` — then `http://192.168.68.110:3000` loads normally.
+
+## Recommended Configuration (Post-Setup)
+
+Changes worth making from AdGuard's defaults, in Settings:
+
+- **DNS Settings → Upstream DNS servers:** switch from plain DNS to an
+  encrypted upstream, e.g. `https://dns.cloudflare.com/dns-query` (DoH) or
+  `tls://1.1.1.1` (DoT). By default, AdGuard forwards unresolved queries as
+  plain DNS, meaning the ISP can see every domain every device visits at
+  the DNS level. This closes that specific leak — it doesn't hide traffic
+  in general (TLS SNI still reveals the domain over the connection itself),
+  but it's a real, free improvement, consistent with preferring HTTPS/
+  Tailscale over cleartext elsewhere in this repo.
+- **DNS Settings → Enable DNSSEC.** Validates DNS responses haven't been
+  tampered with in transit. Low-cost, rarely breaks anything.
+- **Filters → DNS blocklists:** keep the default AdGuard filter, optionally
+  add one well-curated list like **OISD** rather than stacking several
+  overlapping ones. Every blocklist is checked on every query from every
+  device on an 8 GB RAM box that's about to host more services — one good
+  list plus the default is the right amount for a home network.
+- **Settings → Encryption: leave disabled.** This exposes AdGuard as a
+  public DoH/DoT server — i.e. accepting encrypted DNS queries from
+  *outside* the network. Enabling it would reopen exactly the WAN exposure
+  `docs/networking.md` commits against. Not needed: devices reach AdGuard
+  over the LAN or Tailscale, never the open internet.
+
+Left at default deliberately: query log / statistics retention (useful for
+troubleshooting later, DNS logs are tiny) and per-client settings (no need
+for per-device rules yet — YAGNI until there's an actual reason).
 
 ## Making It Actually Used
 
