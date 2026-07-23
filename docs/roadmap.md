@@ -28,6 +28,7 @@ gratification for long-term rework, so we avoid it deliberately.
 deploying any services.
 
 **Completed:**
+
 - Install ZimaOS, enable Developer Mode
 - Configure SSH, Docker CLI
 - Resolve ZimaOS's root-owned `/DATA` permission model
@@ -50,6 +51,7 @@ recreated from scratch. ✅
 **Goal:** Establish engineering standards before infrastructure grows.
 
 **Tasks:**
+
 - [x] Create `docs/roadmap.md` (this document)
 - [ ] Complete `README.md`
 - [x] Define documentation standards (`docs/conventions.md`)
