@@ -1,0 +1,10 @@
+services:
+  grafana:
+    image: grafana/grafana:13.1.1
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3002}:3000"
+    volumes:
+      - /DATA/AppData/grafana:/var/lib/grafana
+      - ./config/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
