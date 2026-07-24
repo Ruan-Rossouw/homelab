@@ -93,7 +93,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 ---
 
-## Phase 3 – Platform Services (Current)
+## Phase 3 – Platform Services (Complete)
 
 **Goal:** Deploy the services that provide ongoing monitoring and management.
 
@@ -101,15 +101,15 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 - [x] Uptime Kuma
 - [x] Prometheus
-- [ ] Grafana
+- [x] Grafana
 
 **Focus:** Monitoring, metrics, dashboards, alerting, health checks.
 
-**Deliverable:** Complete visibility into the health of the homelab.
+**Deliverable:** Complete visibility into the health of the homelab. ✅
 
 ---
 
-## Phase 4 – Application Services
+## Phase 4 – Application Services (Current)
 
 **Goal:** Deploy end-user applications.
 
@@ -158,11 +158,11 @@ architectural standards established in the earlier phases.
 2. Tailscale
 3. AdGuard Home
 4. SMB
-5. Jellyfin
-6. Home Assistant
-7. Uptime Kuma
-8. Grafana
-9. Prometheus
+5. Uptime Kuma
+6. Prometheus
+7. Grafana
+8. Jellyfin
+9. Home Assistant
 10. Immich
 
 Each service is expected to be production quality: independent Compose

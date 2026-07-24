@@ -107,15 +107,19 @@ not a `git pull`-and-forget upgrade path.
 
 ```bash
 mkdir -p /DATA/AppData/grafana
+docker pull grafana/grafana:13.1.1
 docker inspect grafana/grafana:13.1.1 --format '{{.Config.User}}'
 sudo chown -R 472:472 /DATA/AppData/grafana
 cd /DATA/Infrastructure/homelab/services/grafana
 docker compose up -d
 ```
 
-The `docker inspect` step confirms the UID before committing to the
-`chown` — worth the extra command rather than trusting a remembered number,
-per the same reasoning as Prometheus's deploy steps.
+The `docker pull` has to come before `docker inspect` — `inspect` only
+works on images already present locally, and `docker compose up` hasn't
+run yet to pull one implicitly. The `docker inspect` step itself confirms
+the UID before committing to the `chown` — worth the extra command rather
+than trusting a remembered number, per the same reasoning as Prometheus's
+deploy steps.
 
 ## First Run
 
