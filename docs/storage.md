@@ -42,18 +42,28 @@ separate from both application state (`AppData/`) and the developer
 environment (`Infrastructure/developer/`) so that wiping or rebuilding one
 doesn't touch the others.
 
+## AppData Permissions: Non-Root Containers Need an Explicit `chown`
+
+Answered, not assumed — verified when Prometheus (Phase 3) first hit this.
+`/DATA` itself is `root:root` (`zimaos.md`), but a freshly-`mkdir`'d
+`AppData/<service>` subdirectory is owned by whichever user ran the
+command, not by `root` and not by whatever UID the container happens to run
+as. Every service through Phase 2 (Portainer, AdGuard, Tailscale) and
+Uptime Kuma in Phase 3 sidestepped this by running as root inside the
+container, which can always write regardless of host-side ownership.
+Prometheus was the first to run as a non-root UID by default (`nobody`,
+`65534`) — its container hit `permission denied` on startup and sat in a
+silent restart loop (looked "up" in `docker ps`, actually crash-looping)
+until `services/prometheus/README.md`'s deploy steps added an explicit
+`chown -R 65534:65534` before first start.
+
+**Standing rule going forward:** before deploying any service, check what
+UID its image runs as (`docker inspect <image> --format '{{.Config.User}}'`)
+and `chown` the `AppData` directory to match *before* first start if it's
+non-root — don't wait for a crash loop to reveal it.
+
 ## Open Questions
 
-- **`/DATA/AppData/<service>` write permissions, unverified.** `zimaos.md`
-  documents that `/DATA` itself is `root:root`, which is exactly what broke
-  Git/SSH/Docker global config in Phase 0. We haven't yet confirmed whether
-  newly created `AppData/<service>` subdirectories are writable by the
-  non-root UIDs some containers run as (Docker will happily create a bind
-  mount path as `root` if it doesn't exist, which can silently leave a
-  container unable to write to its own data directory). This needs to be
-  verified — not assumed — when the first service with a real bind mount
-  (Portainer, Phase 2) is actually deployed, and the answer belongs in this
-  document once known.
 - **No offsite/second-medium backup yet.** Everything — primary data *and*
   the eventual `Backup/` directory — currently lives on the same single
   physical disk. A backup that lives on the same drive it's backing up

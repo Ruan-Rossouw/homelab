@@ -41,9 +41,21 @@ either from its own bridge network isn't the same problem.
 
 ```bash
 mkdir -p /DATA/AppData/prometheus
+sudo chown -R 65534:65534 /DATA/AppData/prometheus
 cd /DATA/Infrastructure/homelab/services/prometheus
 docker compose up -d
 ```
+
+The `chown` is required, not optional: unlike every other service deployed
+so far, the official `prom/prometheus` image runs as a non-root user
+(`nobody`, UID/GID `65534`) rather than root. A freshly-`mkdir`'d directory
+is owned by whoever ran the command — not `65534` — so without this step
+Prometheus panics on startup (`permission denied` opening its own query log)
+and sits in a restart loop that *looks* like a running container in
+`docker ps` right up until you check its actual status or logs. This is the
+first concrete, verified answer to the open question in `docs/storage.md`
+about non-root UIDs and `AppData` permissions — see that document for the
+general write-up.
 
 Deploy `node-exporter` and `cadvisor` (see their READMEs) either before or
 after this — order doesn't matter, Prometheus will just show scrape targets
