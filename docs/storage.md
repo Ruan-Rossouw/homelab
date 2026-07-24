@@ -57,9 +57,11 @@ silent restart loop (looked "up" in `docker ps`, actually crash-looping)
 until `services/prometheus/README.md`'s deploy steps added an explicit
 `chown -R 65534:65534` before first start.
 
-**Standing rule going forward:** before deploying any service, check what
-UID its image runs as (`docker inspect <image> --format '{{.Config.User}}'`)
-and `chown` the `AppData` directory to match *before* first start if it's
+**Standing rule going forward:** before deploying any service, `docker pull`
+the image first (`docker inspect` only works on images already present
+locally — Grafana's deploy hit exactly this ordering mistake), check what
+UID it runs as (`docker inspect <image> --format '{{.Config.User}}'`), and
+`chown` the `AppData` directory to match *before* first start if it's
 non-root — don't wait for a crash loop to reveal it.
 
 ## Open Questions

@@ -44,8 +44,10 @@ homelab/
 
 ## Status
 
-Foundation, standards, and core infrastructure (Phases 0–2) are complete:
-Portainer, Tailscale, AdGuard Home, and SMB are all deployed. Currently in
-**Phase 3 – Platform Services**: Uptime Kuma, Prometheus, Grafana. See
+Foundation, standards, core infrastructure, and platform services
+(Phases 0–3) are complete: Portainer, Tailscale, AdGuard Home, SMB,
+Uptime Kuma, Prometheus, and Grafana are all deployed. Currently in
+**Phase 4 – Application Services**: Jellyfin, Home Assistant, Immich. See
 [`docs/roadmap.md`](docs/roadmap.md) for the full phase breakdown, including
-applications and ongoing operations still ahead.
+the backup/disaster-recovery gate before Immich or Home Assistant, and
+ongoing operations still ahead.
