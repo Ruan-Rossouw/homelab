@@ -29,6 +29,19 @@ non-root UIDs get write access to freshly-created `AppData` subdirectories?
 to run non-root (or if that question needs answering directly), the
 `-rootless` tag is sitting right there as the natural test case.
 
+## Database: SQLite, Not Embedded MariaDB
+
+The first-run wizard offers a choice between SQLite (a single file) and an
+embedded MariaDB (a second process bundled into the same container,
+connected to over a Unix socket — no separate service to deploy). We picked
+SQLite: the wizard's own text recommends it for "small-scale deployments,"
+which is exactly what a handful of monitors on one server is. Embedded
+MariaDB's only real advantage is write concurrency at a scale (many
+monitors, sub-second intervals, multiple writers) this deployment doesn't
+have — the cost of a second daemon's baseline memory and startup complexity
+on an already-busy 8 GB box isn't worth paying for a scaling problem that
+doesn't exist yet.
+
 ## Deploy
 
 ```bash
@@ -57,12 +70,57 @@ immediately instead of watching itself:
 | AdGuard Home | HTTP(S) | `http://192.168.68.110:3000` |
 | AdGuard Home | DNS | query `192.168.68.110` on port 53, e.g. resolve `example.com` |
 | SMB | TCP Port | `192.168.68.110:445` |
-| Tailscale | TCP Port | the server's Tailscale IP, port `41641` (or any port a service publishes over the tailnet) |
 
-Tailscale doesn't have a clean HTTP endpoint of its own to check — the TCP
-port monitor above just confirms `tailscaled` is still listening, which is
-the closest equivalent to "is the VPN up" without standing up a dedicated
-health check.
+Tailscale is deliberately **not** monitored here — see "Known Limitation:
+Tailscale Isn't Monitored" below for why, rather than assuming it was
+overlooked.
+
+## Known Limitation: Tailscale Isn't Monitored
+
+We tried and deliberately backed off, rather than never having tried. Two
+approaches were ruled out:
+
+1. **A TCP port check against `41641`** (Tailscale's listening port) always
+   reports down — that port is UDP (the WireGuard-style transport), and a
+   TCP monitor performs a TCP handshake, so there's nothing there to
+   connect to regardless of whether Tailscale is actually healthy.
+2. **A Ping check against the server's own Tailscale IP** fails too, but
+   for a more structural reason: `uptime-kuma`'s container is *not* on
+   `network_mode: host` (only `services/tailscale/` is, per that service's
+   README). Its own Tailscale IP only exists inside the network namespace
+   Tailscale's container borrowed from the host. Reaching it from
+   Uptime Kuma's isolated bridge network means hairpinning back into the
+   host and onto an interface a different container claimed — confirmed
+   with `docker exec uptime-kuma ping -c3 <lan-ip>` (succeeds) vs.
+   `docker exec uptime-kuma ping -c3 <tailscale-ip>` (100% loss, no reply
+   at all).
+
+A third option — polling Tailscale's own REST API
+(`GET /api/v2/tailnet/{tailnet}/devices`) instead of the tailnet interface —
+was considered and rejected. It sidesteps the networking problem entirely
+(a normal outbound HTTPS call, not tailnet-dependent), but the only
+officially documented field is a `lastSeen` timestamp, not a real online
+flag; the closer signal (`connectedToControl`) is undocumented and the
+subject of an [open upstream feature request](https://github.com/tailscale/tailscale/issues/7209)
+to make it official. On top of that, API access tokens expire in 1–90 days
+with no longer-lived option, turning "one-time setup" into a recurring
+manual-renewal chore for a check that isn't even fully documented. Not worth
+it for what this buys.
+
+**Fixing this properly** means restructuring `services/tailscale/` to *not*
+use `network_mode: host` — instead giving it its own isolated namespace
+that other containers explicitly join via `network_mode: service:tailscale`
+— which would let any container reach the tailnet without full host
+networking. That's a real architecture change to a decision already made
+and documented in Phase 2, not a tweak, and belongs in a deliberate
+networking-model review (Phase 6 territory), not bolted on to fix one
+monitor.
+
+**In the meantime:** there's no dashboard history for Tailscale specifically,
+but it isn't a monitoring blind spot in practice — every other monitor above
+depends on the server being reachable at all, and remote access (Portainer
+from off-network, etc.) breaking is itself an immediate, obvious signal that
+Tailscale is down. Coarser than a dedicated check, but not silent.
 
 ## Alerting: Deferred
 

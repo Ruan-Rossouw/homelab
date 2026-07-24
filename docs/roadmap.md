@@ -97,7 +97,11 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 **Goal:** Deploy the services that provide ongoing monitoring and management.
 
-**Services:** Uptime Kuma, Prometheus, Grafana
+**Services:**
+
+- [x] Uptime Kuma
+- [ ] Prometheus
+- [ ] Grafana
 
 **Focus:** Monitoring, metrics, dashboards, alerting, health checks.
 
