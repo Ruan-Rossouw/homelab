@@ -100,7 +100,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 **Services:**
 
 - [x] Uptime Kuma
-- [ ] Prometheus
+- [x] Prometheus
 - [ ] Grafana
 
 **Focus:** Monitoring, metrics, dashboards, alerting, health checks.
