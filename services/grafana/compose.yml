@@ -8,3 +8,5 @@ services:
     volumes:
       - /DATA/AppData/grafana:/var/lib/grafana
       - ./config/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./config/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/dashboards:/etc/grafana/dashboards:ro

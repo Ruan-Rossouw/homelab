@@ -52,6 +52,57 @@ Uptime Kuma doesn't have an equivalent clean provisioning-as-code mechanism,
 so there was no meaningfully more reproducible alternative there. Grafana
 does, so it's used.
 
+It's given a fixed `uid: prometheus` (rather than letting Grafana
+auto-generate one) specifically so the dashboard JSON files below can
+reference it by a stable, known value instead of something that only
+exists once deployed.
+
+## Dashboards: Provisioned from Committed JSON, Not Imported
+
+`config/dashboards/*.json` are provisioned via
+`config/provisioning/dashboards/dashboards.yml`, the same "config as code"
+reasoning as the datasource above — the alternative would be clicking
+**Dashboards → New → Import** by hand after every fresh deploy, which is
+exactly the kind of manual step that's easy to forget ever happened.
+
+This is a deliberate, real trade-off, not a free upgrade over the datasource
+case — worth being honest about it:
+
+- **These are large, machine-generated files** (Node Exporter Full is
+  ~15,000 lines), not hand-authored config like everything else in this
+  repo. Nobody's meaningfully code-reviewing a diff to that file; it's
+  vendored content.
+- **`allowUiUpdates: false`** — a deliberate choice, not the safer default
+  glossed over. It means these dashboards are read-only in Grafana's UI;
+  editing them means editing the JSON file and redeploying, not clicking
+  around and saving. The alternative (`allowUiUpdates: true`) would let you
+  tweak panels interactively, but every edit would save into Grafana's own
+  database instead of back into this file — silently diverging the
+  committed version from the running one, with nothing surfacing that it
+  happened. Locking it down keeps git as the actual source of truth, at
+  the cost of a slower edit loop (edit JSON → `docker compose restart
+  grafana` → reload, instead of click → save). If that trade-off turns out
+  to be more friction than it's worth in practice, `allowUiUpdates: true`
+  is a one-line change to reverse.
+- **The downloaded JSON used Grafana's shareable-export format**
+  (`${ds_prometheus}` / `${DS_PROMETHEUS}` placeholders, meant to be
+  resolved by the UI's *import* wizard, which file-based provisioning
+  doesn't do). Both files had every occurrence replaced with the literal
+  string `prometheus`, matching the datasource's fixed `uid` above — this
+  repo's copies are no longer "importable via UI" in their original form,
+  they're pre-wired specifically for this provisioning setup.
+- **Node Exporter Full still shows a "Datasource" dropdown variable** at
+  the top of the dashboard — a leftover from the original share-export
+  format. It's vestigial (no panel actually reads it anymore, since they
+  all reference the hardcoded `prometheus` UID directly) but harmless, and
+  wasn't worth surgically stripping out of a 15,000-line vendored file for
+  a cosmetic dropdown.
+
+Updating either dashboard later means re-downloading
+(`https://grafana.com/api/dashboards/<id>/revisions/latest/download`),
+re-applying the same placeholder replacement, and committing the result —
+not a `git pull`-and-forget upgrade path.
+
 ## Deploy
 
 ```bash
@@ -76,15 +127,15 @@ upfront secret in `.env`, unlike Tailscale's `TS_AUTHKEY`. Once logged in,
 provisioned and connected — if it shows an error instead, check that
 Prometheus itself is reachable at `192.168.68.110:9090` from the server.
 
-## Recommended Dashboards
+## Dashboards Included
 
-Rather than build panels from scratch, import these well-established
-community dashboards (**Dashboards → New → Import**, enter the ID):
+Both provisioned automatically on first start, in a "Homelab" folder —
+nothing to import by hand:
 
-| Dashboard | ID | Covers |
+| Dashboard | Source ID | Covers |
 |---|---|---|
 | Node Exporter Full | `1860` | Host CPU, memory, disk, network — the most widely used node-exporter dashboard |
 | Cadvisor exporter | `14282` | Per-container CPU/memory/network from cAdvisor |
 
-Both expect the datasource named exactly `Prometheus` — matching what's
-provisioned above, so no manual re-mapping should be needed on import.
+Confirm both appear under **Dashboards → Homelab** and render real data
+(not "No data") once Prometheus, node-exporter, and cAdvisor are all up.
