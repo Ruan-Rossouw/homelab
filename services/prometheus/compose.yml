@@ -1,0 +1,10 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - /DATA/AppData/prometheus:/prometheus
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
