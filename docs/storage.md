@@ -1,33 +1,62 @@
 # Storage
 
 This document answers: **where does data live, and why there?** For how that
-data gets protected, see `backup.md` and `disaster-recovery.md` (both still
-TODO in Phase 1). For the developer-environment permission workaround, see
-[`zimaos.md`](zimaos.md).
+data gets protected, see `backup.md` and `disaster-recovery.md` (in progress,
+gating Phase 4 — see `roadmap.md`). For the developer-environment permission
+workaround, see [`zimaos.md`](zimaos.md).
 
 ## Physical Storage
 
-A single 1 TB HDD. No RAID, no redundancy at the disk layer — the hardware
-doesn't support it (one drive bay), so it isn't a choice being made here, it's
-a constraint being worked around. That constraint is exactly why `backup.md`
-matters more than it would on redundant storage: RAID protects against a
-drive failing mid-operation; it does nothing for accidental deletion,
-corruption, or ransomware, and this box has neither RAID nor, yet, a backup
-strategy. Until `backup.md` exists, everything under `/DATA` is a single
-point of failure.
+Three physical drives, each a single point of failure on its own — no RAID
+at any layer (the hardware doesn't support it, one drive bay for the internal
+disk, the other two are USB-attached), so RAID protection isn't a choice
+being made here, it's a constraint being worked around:
+
+- **Internal drive** — ext4, ~904 GB, mounted at `/DATA`. Hosts
+  `AppData/` and `Infrastructure/` only (94 MB total as of Phase 3) —
+  deliberately not used for media or backups.
+- **2 TB external USB drive** — NTFS, label `Mieke se hardeskyf`,
+  `UUID=904861014860E784`, mounted at `/DATA/Media`. The primary media
+  library: the drive's own original content plus a photo/video collection
+  migrated from a separate 1 TB drive that has since been repurposed below.
+- **1 TB external USB drive** — exFAT, label `ExtHD-1TB`, `UUID=6A64-686E`,
+  mounted at `/DATA/Backup`. Reformatted from HFS+ (its original filesystem
+  from prior use on a Mac) to exFAT so Linux can mount it natively — the
+  reformat itself went through a Mac, since macOS reads/writes both
+  filesystems natively but Linux's HFS+ support proved unreliable. This is
+  the restic backup destination (see `backup.md`).
+
+This is exactly why `backup.md` matters: RAID protects against a drive
+failing mid-operation; it does nothing for accidental deletion, corruption,
+or ransomware. Until `backup.md`'s mechanism is actually running (not just
+documented), the data on `/DATA/Media` remains unprotected.
+
+### Mounting External Drives
+
+Both external drives are wired into `/etc/fstab` by `UUID` (not device name —
+`/dev/sdX` assignment isn't guaranteed stable across reboots on a box with
+multiple USB drives) with the `nofail` option, since a USB drive being
+unplugged should never block the server from booting. `/etc/fstab.bak` is
+kept on the server as a pre-edit snapshot of the file. This is server-local
+state, not something `git clone` restores — see `disaster-recovery.md` for
+the exact entries to recreate it.
 
 ## `/DATA` Layout
 
 ```text
 /DATA
-├── AppData/<service>       # persistent application data, one dir per service
-├── Backup/                 # backup destination — see backup.md
-├── Media/                  # media library (Jellyfin, Phase 4)
+├── AppData/<service>       # persistent application data, one dir per service (internal drive)
+├── Backup/                 # restic backup destination — separate 1TB exFAT USB drive, see backup.md
+├── Media/                  # media library — separate 2TB NTFS USB drive (Jellyfin, Phase 4)
 └── Infrastructure/
     ├── homelab/             # this git repo
     ├── docker-config/       # DOCKER_CONFIG target
     └── developer/           # XDG-style developer environment (see zimaos.md)
 ```
+
+`Media/` and `Backup/` are mount points for distinct physical disks, not
+directories on the internal drive — losing the internal drive doesn't take
+either of them down, and vice versa.
 
 ## Persistent Data Convention
 
@@ -66,11 +95,13 @@ non-root — don't wait for a crash loop to reveal it.
 
 ## Open Questions
 
-- **No offsite/second-medium backup yet.** Everything — primary data *and*
-  the eventual `Backup/` directory — currently lives on the same single
-  physical disk. A backup that lives on the same drive it's backing up
-  doesn't protect against the one failure mode (drive death) most likely to
-  happen. This is explicitly what `backup.md` needs to resolve, following
-  something like the 3-2-1 rule (3 copies, 2 different media, 1 offsite) —
-  not solved here, just flagged so it isn't forgotten between now and
-  Phase 1's `backup.md`.
+- **Second medium exists; offsite doesn't yet.** `/DATA/Backup` is now a
+  physically separate disk from `/DATA/Media` (2 copies, 2 media), which
+  covers the drive-death failure mode a same-disk backup wouldn't. It's
+  still in the same room as the primary drive, though — theft, fire, or
+  flood takes out both. The 3-2-1 rule's third leg (1 offsite) isn't met
+  yet. This is part of why restic was chosen over a simpler tool like
+  `rsync`: it can push the same repository to Backblaze B2 or another S3
+  target later without changing tools, so the offsite leg is a
+  configuration change, not a re-architecture. Not solved here — tracked as
+  remaining work in `backup.md`.
