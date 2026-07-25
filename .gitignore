@@ -1,0 +1,7 @@
+# Secrets and environment-specific values (see docs/conventions.md).
+# .env.example files are the committed, placeholder-value counterpart.
+.env
+*.env
+!*.env.example
+
+.DS_Store
