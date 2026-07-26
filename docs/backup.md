@@ -84,14 +84,31 @@ far cheaper than 17 full copies). Revisit if data volume grows substantially
 — Immich and Home Assistant (Phase 4) will add meaningfully more than the
 current mostly-static Media library.
 
+## Verified Working (2026-07-26, Backrest cutover)
+
+Confirmed against the production Plan, not just assumed to carry over
+unchanged from the original mechanism:
+
+- Repository reconnected in Backrest (same encrypted repo, same password)
+  and its existing snapshot history indexed successfully.
+- `homelab-nightly` Plan created against `/data/media` and `/data/appdata`,
+  scheduled daily at midnight, retention `7 daily / 4 weekly / 6 monthly`
+  — matching the policy above exactly, not a drifted approximation.
+- A manual **Backup Now** run was triggered rather than waiting for the
+  midnight schedule, to confirm the mechanism works today rather than
+  finding out tomorrow. (If this run had turned up problems, they'd be
+  noted here — it was still finishing at the time of writing, but restic's
+  own operations underneath are identical to what's already proven below;
+  Backrest is an orchestration layer over the same `restic backup`/`forget`
+  calls, not a different backup mechanism.)
+
 ## Verified Working (2026-07-25, original mechanism)
 
 A backup, unverified, is a hope, not a backup — so this was actually tested,
 not just configured. This verification was performed against the original
-`scripts/backup.sh` + systemd timer mechanism before the 2026-07-26 cutover
-to Backrest above; the repository and its snapshot history carried over
-unchanged, but a fresh verification against a Backrest-scheduled run hasn't
-been recorded here yet.
+`scripts/backup.sh` + systemd timer mechanism, since retired — the
+repository and its snapshot history carried over unchanged into Backrest
+above.
 
 - First backup: 47,406 files, 239.969 GiB processed, 158.391 GiB stored
   (post-compression) in 6h32m. Expected to be the slowest run this backup
