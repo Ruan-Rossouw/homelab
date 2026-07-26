@@ -1,9 +1,0 @@
-[Unit]
-Description=Homelab restic backup (Media + AppData -> /DATA/Backup)
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=oneshot
-WorkingDirectory=/DATA/Infrastructure/homelab
-ExecStart=/DATA/Infrastructure/homelab/scripts/backup.sh

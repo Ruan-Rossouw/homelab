@@ -37,59 +37,61 @@ this repo is already deployed.
 
 ## How It Runs
 
-`scripts/backup.sh` does two things, in order:
+Restic runs via **Backrest** (`services/backrest/`), a web UI and scheduler
+wrapping restic — see `services/backrest/README.md` for the container and
+mount details. A Plan configured in its UI (`http://192.168.68.110:9898`)
+backs up `/data/media` and `/data/appdata` — the same container-internal
+paths the original setup used — into the repository on `/DATA/Backup`,
+preserving the same snapshot lineage rather than starting a disconnected
+history.
 
-1. `restic backup /data/media /data/appdata` — the incremental backup.
-2. `restic forget --prune` with the retention policy below.
+**Historical note:** the original mechanism was `scripts/backup.sh` plus a
+systemd timer, retired 2026-07-26 once Backrest was tested and trusted to
+take over. See git history (`scripts/backup.sh`, `scripts/systemd/`) if that
+design is ever needed for reference — the reasoning for why it existed
+(Docker instead of a native restic install, why systemd instead of `cron`)
+is preserved there and in `zimaos.md`, since it's still relevant background
+even though this repo no longer runs it that way.
 
-Configuration lives in `scripts/backup.env` (gitignored — copy it from the
-committed `scripts/backup.env.example` template on the server). It holds
-the restic repository path and password.
+The repository password lives in two places, deliberately: Backrest's own
+config (`/DATA/AppData/backrest/config/config.json` — which is itself
+covered by the `/data/appdata` backup, so it's not a single point of
+failure) and, as before, **a copy saved outside Git** (password manager).
 
 **The password is not, and cannot be, recovered from Git.** Restic encrypts
-the entire repository with it. Losing the password makes every snapshot on
-`/DATA/Backup` permanently unreadable, even though the drive itself is
-physically fine — it must be saved somewhere outside this repo (a password
-manager) the moment it's generated. See `disaster-recovery.md` for why this
-matters at restore time.
+the entire repository with it. Losing every copy of it makes every snapshot
+on `/DATA/Backup` permanently unreadable, even though the drive itself is
+physically fine. See `disaster-recovery.md` for why this matters at restore
+time.
 
 ## Schedule
 
-A systemd `.service` + `.timer` pair (`scripts/systemd/`), not `cron` —
-ZimaOS's `/var` is `tmpfs`, so a cron job would silently stop surviving
-reboots (see `zimaos.md`). Runs nightly at 03:00, with up to 15 minutes of
-randomized delay to avoid always hitting the drives at the exact same
-instant, and `Persistent=true` so a missed run (box off at 03:00) fires as
-soon as it's back up.
-
-The unit files are committed to the repo and **symlinked** (not copied)
-into `/etc/systemd/system/`, so a future `git pull` keeps the live units in
-sync automatically:
-
-```bash
-sudo ln -sf /DATA/Infrastructure/homelab/scripts/systemd/homelab-backup.service /etc/systemd/system/homelab-backup.service
-sudo ln -sf /DATA/Infrastructure/homelab/scripts/systemd/homelab-backup.timer /etc/systemd/system/homelab-backup.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now homelab-backup.timer
-```
-
-Confirm it's actually scheduled with `systemctl list-timers homelab-backup.timer`.
+Backrest's own internal scheduler, configured on the Plan in its web UI —
+not systemd, not `cron`. Since Backrest is a long-running container
+(`restart: unless-stopped`, same as every other service here), its schedule
+persists across reboots without needing the tmpfs-`/var`/`cron` workaround
+the original systemd-based design required (see `zimaos.md`). Runs nightly.
 
 ## Retention Policy
 
-`--keep-daily 7 --keep-weekly 4 --keep-monthly 6` — roughly a week of daily
-granularity, a month of weekly, six months of monthly. Sized for the current
-data volume (~240 GB) against a ~932 GB backup drive, with headroom for
-restic's deduplication (unchanged files across snapshots cost close to
-nothing after the first backup, so this is far cheaper than 17 full copies).
-Revisit if data volume grows substantially — Immich and Home Assistant
-(Phase 4) will add meaningfully more than the current mostly-static Media
-library.
+7 daily / 4 weekly / 6 monthly, configured as the Plan's retention policy in
+Backrest (functionally the same as `restic forget --keep-daily 7
+--keep-weekly 4 --keep-monthly 6 --prune`, which is what Backrest runs under
+the hood). Sized for the current data volume (~240 GB) against a ~932 GB
+backup drive, with headroom for restic's deduplication (unchanged files
+across snapshots cost close to nothing after the first backup, so this is
+far cheaper than 17 full copies). Revisit if data volume grows substantially
+— Immich and Home Assistant (Phase 4) will add meaningfully more than the
+current mostly-static Media library.
 
-## Verified Working (2026-07-25)
+## Verified Working (2026-07-25, original mechanism)
 
 A backup, unverified, is a hope, not a backup — so this was actually tested,
-not just configured:
+not just configured. This verification was performed against the original
+`scripts/backup.sh` + systemd timer mechanism before the 2026-07-26 cutover
+to Backrest above; the repository and its snapshot history carried over
+unchanged, but a fresh verification against a Backrest-scheduled run hasn't
+been recorded here yet.
 
 - First backup: 47,406 files, 239.969 GiB processed, 158.391 GiB stored
   (post-compression) in 6h32m. Expected to be the slowest run this backup
@@ -124,6 +126,7 @@ not just configured:
   files are tiny and mostly reproducible from provisioned config already in
   Git — but worth revisiting before Immich (Postgres) or Home Assistant
   (SQLite) land in Phase 4, where the data stops being reproducible.
-- **Restore is manual, CLI-only.** That's sufficient for `disaster-recovery.md`,
-  but there's no automated periodic restore-test — that's Phase 5 (Operations)
+- **No automated periodic restore-test.** Backrest's UI makes running a
+  manual restore easier than the original CLI-only flow, but nothing
+  re-verifies a restore on its own schedule — that's Phase 5 (Operations)
   territory, not required for the Phase 4 gate this document satisfies.

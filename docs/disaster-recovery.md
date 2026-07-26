@@ -83,38 +83,37 @@ comes back with it and this is just a sanity check, not a fresh setup.
 configuration lives in ZimaOS's own database, not Git. Follow the manual
 runbook in `services/smb/README.md` to recreate the shares by hand.
 
-### 5. Recreate the Backup Secrets File
+### 5. Restore Data From the Backup Repository
 
-```bash
-cp scripts/backup.env.example scripts/backup.env
-```
-
-Edit `scripts/backup.env` and set `RESTIC_PASSWORD` to the **same password**
-saved outside Git per the Hard Prerequisite above. `RESTIC_REPOSITORY`
-stays as the template value (`/backup/repo`) — it's a path inside the
-container, unrelated to the new host's directory layout.
-
-### 6. Restore Data From the Backup Repository
-
-This restores both `/DATA/Media` and `/DATA/AppData` directly back into
+You need the restic repository password from the Hard Prerequisite above,
+entered directly — there's no `scripts/backup.env` to read it from anymore
+(retired 2026-07-26 in favor of Backrest, see `backup.md`), and Backrest's
+own copy of it doesn't exist yet at this point either, since its config
+lives under `/DATA/AppData/backrest`, which this very step is what restores
+it. This restores both `/DATA/Media` and `/DATA/AppData` directly back into
 place, since the container's bind mounts match the exact paths recorded in
 the snapshot:
 
 ```bash
-docker run --rm --env-file scripts/backup.env \
+docker run --rm \
+  -e RESTIC_REPOSITORY=/backup/repo \
+  -e RESTIC_PASSWORD='<password from your password manager>' \
   -v /DATA/Backup:/backup \
   -v /DATA/Media:/data/media \
   -v /DATA/AppData:/data/appdata \
   restic/restic:0.17.3 restore latest --target /
 ```
 
-### 7. Verify Before Trusting It
+### 6. Verify Before Trusting It
 
 Don't assume the restore worked — check it, the same way it was verified
 when this document was written (`backup.md`):
 
 ```bash
-docker run --rm --env-file scripts/backup.env -v /DATA/Backup:/backup \
+docker run --rm \
+  -e RESTIC_REPOSITORY=/backup/repo \
+  -e RESTIC_PASSWORD='<same password as above>' \
+  -v /DATA/Backup:/backup \
   restic/restic:0.17.3 check
 ```
 
@@ -122,19 +121,20 @@ Spot-check a handful of restored files in `/DATA/Media` and `/DATA/AppData`
 by eye (do photos open, does Grafana start with its dashboards intact) before
 considering the server "recovered."
 
-### 8. Re-enable the Scheduled Backup
+### 7. Confirm the Backup Schedule Came Back Too
 
-The restore above brings back data, not the schedule. Re-run the systemd
-install from `backup.md`:
+Unlike the retired systemd-based design (whose unit files lived outside
+`/DATA`, in `/etc/systemd/system/`, and needed a manual reinstall step
+here), Backrest's configuration — including the Plan's schedule and
+retention policy — lives in `/DATA/AppData/backrest/config/`, which step 5
+already restored as part of the normal `AppData` restore. Once
+`services/backrest/` is redeployed (step 4 above), its existing Plan should
+already be there — confirm at `http://192.168.68.110:9898` rather than
+assuming, and re-enter the repository password in the Backrest UI if it
+prompts for one (its own stored copy should have come back with the
+restore, but it's cheap to double-check).
 
-```bash
-sudo ln -sf /DATA/Infrastructure/homelab/scripts/systemd/homelab-backup.service /etc/systemd/system/homelab-backup.service
-sudo ln -sf /DATA/Infrastructure/homelab/scripts/systemd/homelab-backup.timer /etc/systemd/system/homelab-backup.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now homelab-backup.timer
-```
-
-### 9. Reapply Anything Configured Outside Git
+### 8. Reapply Anything Configured Outside Git
 
 Anything stored in a service's own database rather than this repo needs
 manual reapplication — e.g. AdGuard DNS rewrites, SMB shares (step 4 above).
