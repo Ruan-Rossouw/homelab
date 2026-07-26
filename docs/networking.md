@@ -47,8 +47,17 @@ that setup implied.
   with `network_mode: host` so every service on the server — not just
   Tailscale itself — is reachable at the server's tailnet address. Verified
   working: Portainer (`:9443`) reachable from a phone on cellular data, off
-  the home network entirely. No subnet routing and no exit node are
-  advertised — see `services/tailscale/README.md` for that scoping decision.
+  the home network entirely.
+- **Subnet routing is enabled** (revised 2026-07-26 — originally scoped to
+  server-only, no subnet routing): the server advertises `192.168.68.0/24`
+  to the tailnet, so any authorized tailnet device can reach the whole home
+  LAN by its LAN IP, not just the server. This was needed because AdGuard
+  DNS rewrites (e.g. `portainer.home` → `192.168.68.110`) resolve to LAN
+  IPs, which aren't reachable remotely without a routed subnet. Trade-off
+  accepted deliberately: this is a real increase in what's reachable from
+  the tailnet if a tailnet device is ever compromised — see
+  `services/tailscale/README.md` for the full reasoning and how to scope
+  Tailscale ACLs down if needed. No exit node is advertised.
 
 ## Principle: No Direct WAN Exposure
 
