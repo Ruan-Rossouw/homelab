@@ -113,12 +113,20 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 **Goal:** Deploy end-user applications.
 
-**Gate:** `docs/backup.md` and `docs/disaster-recovery.md` must exist
-*before* Immich or Home Assistant are deployed — this is the phase where
-irreplaceable data (photos, automation history) starts accumulating on a
-single HDD with no redundancy (see `storage.md`). Jellyfin doesn't carry the
-same urgency (media is typically re-acquirable) but ordering the gate before
-the whole phase is simpler than tracking it per-service.
+**Gate (satisfied 2026-07-26):**
+
+- [x] `docs/backup.md` written, describing a working mechanism, not just a design
+- [x] `docs/disaster-recovery.md` written
+- [x] A real backup ran (restic via Docker, scheduled by a systemd timer —
+      see `backup.md` for why not a native install or `cron`), `restic
+      check` passed clean, and a restore was tested and verified
+      byte-for-byte, not just assumed to work
+
+This is the phase where irreplaceable data (photos, automation history)
+starts accumulating on drives with no RAID redundancy at the disk layer
+(see `storage.md`). Jellyfin doesn't carry the same urgency (media is
+typically re-acquirable) but ordering the gate before the whole phase is
+simpler than tracking it per-service.
 
 **Services:** Jellyfin, Home Assistant, Immich
 
