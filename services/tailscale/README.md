@@ -23,17 +23,57 @@ services — Portainer's `:9443` today, Jellyfin/Home Assistant/Immich later —
 reachable at the same tailnet address, since they all end up sharing one
 network namespace.
 
-## Scope: Server Only, No Subnet Routing
+## Scope: Whole Home LAN, via Subnet Routing (revised 2026-07-26)
 
-This node does **not** advertise the home LAN (`192.168.68.0/24`) as a
-subnet route. The tailnet gives you remote access to *this server* and
-whatever it runs — which, per the roadmap, ends up covering most of what
-you'd want (Jellyfin, Home Assistant, Immich) since those are all
-server-hosted services, not standalone LAN devices. Anything that needs
-direct LAN reach without a server-hosted intermediary (e.g. Home Assistant
-talking to smart devices locally) would be a reason to revisit this, but
-that's not a need that exists today. See the design discussion in this
-service's PR for the full reasoning.
+This node **advertises the home LAN (`192.168.68.0/24`) as a subnet route**
+(`TS_ROUTES`), so any authorized tailnet device can reach anything on the
+home network by its LAN IP — not just this server.
+
+This is a deliberate reversal of the original scoping decision (server-only,
+no subnet routing), made after AdGuard DNS rewrites (`services/adguard/`)
+turned out to only resolve to LAN IPs (e.g. `portainer.home` →
+`192.168.68.110`), which are unreachable over the tailnet without a routed
+subnet — the rewrites worked at home, but not remotely. The trade-off
+accepted here, explicitly: this expands what's reachable from the tailnet
+from "just this server" to "the whole home LAN," including any other
+devices on it. That's a real increase in blast radius if a tailnet device
+is ever compromised — mitigate by keeping Tailscale ACLs (in the admin
+console) scoped to only the devices/users that actually need this, rather
+than trusting the route to every tailnet member by default. See
+`docs/networking.md`'s "Server Reachability" section for how this fits the
+overall network posture.
+
+## Deploy — Enabling the Subnet Route
+
+Two things are required beyond `docker compose up -d`, since routing
+traffic *through* the server to other LAN devices needs the host's kernel
+to actually forward packets — the container's own network stack isn't
+enough here, and this can't be set via Docker's `sysctls:` compose option
+when using `network_mode: host` (there's no separate network namespace for
+Docker to scope it to; it has to be a real host-level setting):
+
+```bash
+# 1. Enable IP forwarding on the host, persistently across reboots
+sudo tee /etc/sysctl.d/99-tailscale-forwarding.conf <<'EOF'
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+EOF
+sudo sysctl -p /etc/sysctl.d/99-tailscale-forwarding.conf
+
+# 2. Redeploy so the container picks up TS_ROUTES
+cd /DATA/Infrastructure/homelab/services/tailscale
+docker compose up -d
+```
+
+Then, in the [Tailscale admin console](https://login.tailscale.com/admin/machines):
+find `homelab-server`, open its route settings, and **approve** the
+`192.168.68.0/24` route — advertised routes are never auto-trusted, this is
+a manual approval step every time a new route is advertised.
+
+**Verify** from a tailnet-connected device on a *different* network (not
+home WiFi): `ping 192.168.68.110` should succeed, and any AdGuard DNS
+rewrite (e.g. `https://portainer.home:9443`) should now load identically to
+being on the home network.
 
 ## Deploy
 
