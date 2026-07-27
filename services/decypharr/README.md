@@ -62,6 +62,12 @@ when reasoning about this box's overall attack surface later.
 
 - `/DATA/AppData/decypharr/config` → `/app` — Decypharr's own state and
   `config.json` (debrid provider credentials, qBittorrent-shim settings).
+- `/DATA/AppData/decypharr/cache` → `/cache` — DFS chunk cache for
+  streaming/seeking performance. Persisted rather than left in the
+  container's ephemeral layer (the setup wizard defaults this to
+  `/tmp/decypharr-cache`, which is *not* bind-mounted and gets wiped on
+  every container recreation) — set it to `/cache` during setup instead,
+  matching this mount.
 - `/DATA/AppData/decypharr/mnt` → `/mnt`, mounted `rshared` — where the
   Real-Debrid library gets mounted via Decypharr's embedded rclone/WebDAV.
   `rshared` propagation is required so the FUSE mount created inside the
@@ -73,15 +79,22 @@ when reasoning about this box's overall attack surface later.
 ## Deploy
 
 ```bash
-mkdir -p /DATA/AppData/decypharr/{config,mnt}
+mkdir -p /DATA/AppData/decypharr/{config,cache,mnt}
 cd /DATA/Infrastructure/homelab/services/decypharr
 docker pull cy01/blackhole:v2.3
 docker inspect cy01/blackhole:v2.3 --format '{{.Config.User}}'
 ```
 
 Check the UID before assuming anything, per the standing rule in
-`docs/storage.md`. If `docker inspect` shows a non-root UID, `chown -R
-<uid>:<gid> /DATA/AppData/decypharr` before starting.
+`docs/storage.md`. **This is one case where that check alone isn't
+enough**: `docker inspect --format '{{.Config.User}}'` returns empty
+(root) here, but Decypharr's entrypoint silently drops privileges to UID
+`1000` at runtime regardless — a detail only visible after first start,
+via `docker exec decypharr id` or by checking which UID actually owns
+files it creates under `/app`. `chown -R 1000:1000
+/DATA/AppData/decypharr` (all three subdirectories) before running the
+setup wizard, or the wizard's mount-creation step fails with a permission
+error partway through.
 
 ```bash
 cp .env.example .env   # adjust DECYPHARR_PORT if needed
