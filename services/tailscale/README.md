@@ -37,11 +37,47 @@ subnet — the rewrites worked at home, but not remotely. The trade-off
 accepted here, explicitly: this expands what's reachable from the tailnet
 from "just this server" to "the whole home LAN," including any other
 devices on it. That's a real increase in blast radius if a tailnet device
-is ever compromised — mitigate by keeping Tailscale ACLs (in the admin
-console) scoped to only the devices/users that actually need this, rather
-than trusting the route to every tailnet member by default. See
-`docs/networking.md`'s "Server Reachability" section for how this fits the
-overall network posture.
+is ever compromised — mitigated (2026-07-26) by scoping the Tailscale ACL
+policy (admin console → Access Controls) so only trusted devices can
+actually use the route. See `docs/networking.md`'s "Server Reachability"
+section for how this fits the overall network posture.
+
+### ACL Policy (scoped 2026-07-26)
+
+The policy lives only in the Tailscale admin console
+(https://login.tailscale.com/admin/acls) — there's no API/CLI access set up
+for this tailnet, so it isn't mirrored into this repo the way other service
+config is. Current shape, for reference:
+
+- **`tag:trusted-lan`** applied to the phone and Mac only — the two devices
+  that actually need home-LAN access. Tagging a device removes it from
+  `autogroup:member`/`autogroup:self` matching (a Tailscale ACL quirk worth
+  remembering), so plain "allow all members" rules stop covering it once
+  tagged.
+- **Grants**, replacing the original default-allow-all:
+  - `autogroup:member → autogroup:member` — baseline tailnet mesh
+    connectivity (e.g. SSH to the server) for any untagged member.
+  - `tag:trusted-lan → 192.168.68.0/24` — only tagged devices may route
+    into the home LAN via the approved subnet route.
+  - `tag:trusted-lan → autogroup:member` — restores general tailnet
+    reachability from the tagged devices to other members (e.g. the Apple
+    TV), which tagging had incidentally cut off; this is separate from,
+    and unrelated to, the LAN-subnet grant above.
+- The `ssh` block (Tailscale SSH, `autogroup:self`-based) was left as-is —
+  untagged devices only. Not yet an issue since neither tagged device
+  relies on Tailscale SSH today.
+
+**Parked follow-up:** the server itself (`homelab-server`) is still
+untagged, i.e. still in the personal-identity bucket alongside the phone
+and Mac rather than tagged as infrastructure (e.g. `tag:server`). Tagging
+it would be the more correct long-term pattern — mainly to make it eligible
+for disabling Tailscale key expiry without touching personal-device
+semantics — an expired key on a headless server would need an interactive
+browser reauth, the same "only remote path in is down" scenario as
+stopping the container while away from home. Deliberately not done yet: tagging the
+server would also require rewriting the `ssh` block (tagged devices drop
+out of `autogroup:self`, the same issue hit with the phone/Mac above), so
+it needs its own deliberate pass rather than folding into this change.
 
 ## Deploy — Enabling the Subnet Route
 
