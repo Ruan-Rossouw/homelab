@@ -1,0 +1,16 @@
+services:
+  decypharr:
+    image: cy01/blackhole:v2.3
+    container_name: decypharr
+    restart: unless-stopped
+    ports:
+      - "${DECYPHARR_PORT:-8282}:8282"
+    volumes:
+      - /DATA/AppData/decypharr/config:/app
+      - /DATA/AppData/decypharr/mnt:/mnt:rshared
+    devices:
+      - /dev/fuse:/dev/fuse:rwm
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
