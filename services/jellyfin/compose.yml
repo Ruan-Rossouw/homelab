@@ -1,0 +1,15 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.7
+    container_name: jellyfin
+    restart: unless-stopped
+    ports:
+      - "${JELLYFIN_PORT:-8096}:8096"
+    environment:
+      - TZ=${TZ:-Europe/London}
+    volumes:
+      - /DATA/AppData/jellyfin/config:/config
+      - /DATA/AppData/jellyfin/cache:/cache
+      - /DATA/Media:/media:ro
+    devices:
+      - /dev/dri:/dev/dri
