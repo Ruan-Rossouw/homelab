@@ -44,10 +44,10 @@ section for how this fits the overall network posture.
 
 ### ACL Policy (scoped 2026-07-26)
 
-The policy lives only in the Tailscale admin console
-(https://login.tailscale.com/admin/acls) — there's no API/CLI access set up
-for this tailnet, so it isn't mirrored into this repo the way other service
-config is. Current shape, for reference:
+The policy lives only in the [Tailscale admin
+console](https://login.tailscale.com/admin/acls) — there's no API/CLI access
+set up for this tailnet, so it isn't mirrored into this repo the way other
+service config is. Current shape, for reference:
 
 - **`tag:trusted-lan`** applied to the phone and Mac only — the two devices
   that actually need home-LAN access. Tagging a device removes it from
