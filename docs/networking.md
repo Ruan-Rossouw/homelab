@@ -53,11 +53,13 @@ that setup implied.
   to the tailnet, so any authorized tailnet device can reach the whole home
   LAN by its LAN IP, not just the server. This was needed because AdGuard
   DNS rewrites (e.g. `portainer.home` → `192.168.68.110`) resolve to LAN
-  IPs, which aren't reachable remotely without a routed subnet. Trade-off
-  accepted deliberately: this is a real increase in what's reachable from
-  the tailnet if a tailnet device is ever compromised — see
-  `services/tailscale/README.md` for the full reasoning and how to scope
-  Tailscale ACLs down if needed. No exit node is advertised.
+  IPs, which aren't reachable remotely without a routed subnet. **ACL-scoped
+  the same day**: only the phone and Mac (tagged `tag:trusted-lan` in the
+  Tailscale admin console) can actually route into the LAN via this
+  subnet — other tailnet devices (e.g. an Apple TV) can no longer reach it.
+  See `services/tailscale/README.md` for the full ACL policy and the
+  parked follow-up (tagging the server itself as infrastructure). No exit
+  node is advertised.
 
 ## Principle: No Direct WAN Exposure
 
