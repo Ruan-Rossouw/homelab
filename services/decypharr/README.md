@@ -75,11 +75,21 @@ when reasoning about this box's overall attack surface later.
   inside Decypharr's own filesystem namespace. **Kept internal to this
   service for now** — not yet bind-mounted into Jellyfin. That wiring is a
   deliberate later step, once this piece is proven on its own.
+- `/DATA/AppData/decypharr/downloads` → `/downloads` — the symlink
+  destination for the "Create Symlink" post-download action, **not** a
+  subdirectory of `/mnt`. This distinction cost real debugging time:
+  `/mnt/decypharr` is the DFS virtual filesystem itself, which enforces
+  its own fixed internal structure (`__all__`, `realdebrid`, `torrents`,
+  etc.) and doesn't support creating arbitrary new directories inside it
+  (`mkdir` fails with `operation not supported`, not a permissions error).
+  The download folder needs to be a genuinely separate, ordinary writable
+  location that Decypharr symlinks *into* the DFS mount — set the wizard's
+  **Download Folder** field to `/downloads`, never anything under `/mnt`.
 
 ## Deploy
 
 ```bash
-mkdir -p /DATA/AppData/decypharr/{config,cache,mnt}
+mkdir -p /DATA/AppData/decypharr/{config,cache,downloads,mnt}
 cd /DATA/Infrastructure/homelab/services/decypharr
 docker pull cy01/blackhole:v2.3
 docker inspect cy01/blackhole:v2.3 --format '{{.Config.User}}'
@@ -108,6 +118,11 @@ Browse to `http://192.168.68.110:8282` for the setup wizard. Select
 `https://real-debrid.com/apitoken` (already obtained — see project notes).
 No extra whitespace when pasting; a stray space is a known way this fails
 validation.
+
+**Download Folder**: `/downloads` (see Volumes above — not `/mnt/...`).
+**Cache Directory**: `/cache` (not the wizard's `/tmp/...` default).
+**Mount Type**: DFS (Decypharr's own native mount, recommended over
+Rclone mode for streaming performance). **Mount Path**: `/mnt/decypharr`.
 
 ## Testing the Integration in Isolation
 
