@@ -2,13 +2,20 @@
 
 The first Phase 4 application service, and the one the household expects the
 most day-to-day value from. This is **Stage 1 of 2**: Jellyfin deployed on
-its own, pointed at the existing `/DATA/Media` library, with no automation
-pipeline in front of it yet. The goal is narrow on purpose — prove the
-server, library scanning, and the three client apps (iPhone/iPad, Apple TV,
-web) all work end-to-end before layering Prowlarr/Radarr/Sonarr/a
-Real-Debrid bridge/Zurg on top in Stage 2. Isolating this failure domain now
-means that if something's wrong later, it's obviously the automation layer's
-problem, not Jellyfin's.
+its own, with no automation pipeline in front of it yet. The goal is narrow
+on purpose — prove the server, library scanning, transcoding, and the three
+client apps (iPhone/iPad, Apple TV, web) all work end-to-end before layering
+Prowlarr/Radarr/Sonarr/a Real-Debrid bridge/Zurg on top in Stage 2. Isolating
+this failure domain now means that if something's wrong later, it's
+obviously the automation layer's problem, not Jellyfin's.
+
+**Not pointed at `/DATA/Media`.** That drive holds the household's personal
+photo/video collection, which was never actually intended to be Jellyfin
+content — an earlier version of this README assumed otherwise. Jellyfin's
+real content will eventually come from wherever Stage 2's Zurg mount lands,
+which isn't `/DATA/Media` either. Until Stage 2 exists, this deploy uses a
+single synthetic throwaway test clip (see First Run below) just to exercise
+scanning/playback/transcoding without touching either.
 
 ## Networking: Bridge + Explicit Port, Not Host Mode
 
@@ -54,13 +61,25 @@ run (device passthrough alone doesn't enable it) — set **Hardware
 acceleration** to **Intel QuickSync (QSV)** and enable VAAPI decoding/encoding
 there.
 
+The synthetic test clip below is H.264/AAC in an MP4 container — compatible
+enough that every client will just direct-play it by default, which
+exercises nothing on the transcode path. To actually verify hardware
+transcoding, force it: in the web client's player, click the quality/gear
+icon and manually select a lower resolution/bitrate than the source. Then
+check **Dashboard → Activity/Playback** (the active-sessions panel) for the
+session — it should show `Transcode` (not `Direct Play`) with a hardware
+icon, not just software `h264`.
+
 ## Volumes
 
 - `/DATA/AppData/jellyfin/config` → `/config` — library database, users,
   metadata, plugin state. The thing that actually matters for backup.
 - `/DATA/AppData/jellyfin/cache` → `/cache` — transcoding scratch space and
   image cache. Disposable; safe to wipe if it ever needs reclaiming.
-- `/DATA/Media` → `/media`, **read-only** — the existing 2TB library.
+- `/DATA/AppData/jellyfin/test-media` → `/testmedia`, **read-only** — a
+  single synthetic throwaway clip, not the personal media library (see
+  above). **Stage-1-only placeholder**: Stage 2 will replace this mount
+  with wherever Zurg's rclone mount actually lands, once that exists.
   Read-only for the same reason Backrest's source mounts are read-only: a
   media server has no legitimate reason to write into its own source
   library, so it doesn't get the ability to.
@@ -68,7 +87,7 @@ there.
 ## Deploy
 
 ```bash
-mkdir -p /DATA/AppData/jellyfin/{config,cache}
+mkdir -p /DATA/AppData/jellyfin/{config,cache,test-media}
 cd /DATA/Infrastructure/homelab/services/jellyfin
 docker pull jellyfin/jellyfin:10.11.7
 docker inspect jellyfin/jellyfin:10.11.7 --format '{{.Config.User}}'
@@ -91,11 +110,28 @@ docker compose up -d
 
 ## First Run
 
-Browse to `http://192.168.68.110:8096` and walk through Jellyfin's setup
-wizard: admin account, then add a library pointing at `/media` (the
-container path — this maps to the read-only `/DATA/Media` mount above, not
-a host path). Let the initial scan finish before connecting clients so
-you're testing against a real library, not a partial one.
+Generate the throwaway test clip before starting the wizard — a 30-second
+synthetic video, no download required, via a one-shot `ffmpeg` container
+(not something that needs pinning like a deployed service; this runs once
+and is discarded):
+
+```bash
+docker run --rm -v /DATA/AppData/jellyfin/test-media:/media lscr.io/linuxserver/ffmpeg \
+  -f lavfi -i testsrc=size=1280x720:rate=30 \
+  -f lavfi -i sine=frequency=1000 \
+  -t 30 -c:v libx264 -c:a aac -shortest /media/test-clip.mp4
+```
+
+Then browse to `http://192.168.68.110:8096` and walk through Jellyfin's
+setup wizard: admin account, then add a library pointing at `/testmedia`
+(the container path — maps to the read-only test-clip mount above, not
+`/DATA/Media`). Skip the wizard's remote-access/UPnP step — Tailscale
+already covers that, per `docs/networking.md`. Set the library's content
+type to **Mixed Content** and turn off metadata downloaders/image fetchers
+for it in the library's advanced settings — it's a synthetic clip with a
+made-up filename, so letting Jellyfin try to match it against TheMovieDB
+would just generate noise, not a real test of anything. Let the scan finish
+before connecting clients.
 
 ## Client Apps
 

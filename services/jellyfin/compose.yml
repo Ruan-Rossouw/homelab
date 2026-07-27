@@ -10,6 +10,6 @@ services:
     volumes:
       - /DATA/AppData/jellyfin/config:/config
       - /DATA/AppData/jellyfin/cache:/cache
-      - /DATA/Media:/media:ro
+      - /DATA/AppData/jellyfin/test-media:/testmedia:ro
     devices:
       - /dev/dri:/dev/dri
