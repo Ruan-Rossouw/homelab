@@ -93,6 +93,20 @@ UID it runs as (`docker inspect <image> --format '{{.Config.User}}'`), and
 `chown` the `AppData` directory to match *before* first start if it's
 non-root — don't wait for a crash loop to reveal it.
 
+**That check alone isn't always sufficient** — Decypharr (Phase 4) exposed
+a gap: `docker inspect`'s `Config.User` reflects the image's *declared*
+default, but some entrypoint scripts drop privileges to a different UID
+internally at runtime regardless (Decypharr's does, starting as root and
+switching to `1000:1000`), which `docker inspect` on the image can't see.
+This didn't crash-loop the way Prometheus did — it surfaced instead as a
+permission error partway through Decypharr's own setup wizard, when it
+tried to create a directory under a mount the declared-root check had
+said was fine. If a service behaves like it's ignoring an already-correct
+`chown`, check the *actual running* UID after first start
+(`docker exec <container> id`, or check which UID owns files the
+container has already created) rather than trusting the pre-start image
+inspection alone.
+
 ## Open Questions
 
 - **Second medium exists; offsite doesn't yet.** `/DATA/Backup` is now a

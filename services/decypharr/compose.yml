@@ -7,6 +7,7 @@ services:
       - "${DECYPHARR_PORT:-8282}:8282"
     volumes:
       - /DATA/AppData/decypharr/config:/app
+      - /DATA/AppData/decypharr/cache:/cache
       - /DATA/AppData/decypharr/mnt:/mnt:rshared
     devices:
       - /dev/fuse:/dev/fuse:rwm
