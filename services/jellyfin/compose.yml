@@ -11,5 +11,8 @@ services:
       - /DATA/AppData/jellyfin/config:/config
       - /DATA/AppData/jellyfin/cache:/cache
       - /DATA/AppData/jellyfin/test-media:/testmedia:ro
+      - /DATA/AppData/media-library/movies:/movies:ro
+      - /DATA/AppData/media-library/tv:/tv:ro
+      - /DATA/AppData/decypharr/mnt:/mnt:ro,rshared
     devices:
       - /dev/dri:/dev/dri

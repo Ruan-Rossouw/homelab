@@ -76,19 +76,32 @@ icon, not just software `h264`.
   metadata, plugin state. The thing that actually matters for backup.
 - `/DATA/AppData/jellyfin/cache` → `/cache` — transcoding scratch space and
   image cache. Disposable; safe to wipe if it ever needs reclaiming.
-- `/DATA/AppData/jellyfin/test-media` → `/testmedia`, **read-only** — a
-  single synthetic throwaway clip, not the personal media library (see
-  above). **Stage-1-only placeholder**: Stage 2 will replace this mount
-  with wherever Zurg's rclone mount actually lands, once that exists.
-  Read-only for the same reason Backrest's source mounts are read-only: a
-  media server has no legitimate reason to write into its own source
-  library, so it doesn't get the ability to.
+- `/DATA/AppData/jellyfin/test-media` → `/testmedia`, **read-only** — the
+  Stage 1 synthetic throwaway clip. Left in place as a known-good sanity
+  check even now that Stage 2c is wired up — if real content ever stops
+  scanning, re-checking this library first tells us whether it's a
+  regression in Jellyfin itself or something specific to the new content.
+- `/DATA/AppData/media-library/movies` → `/movies`, **read-only** —
+  Radarr's organized output (see `services/radarr/README.md`).
+- `/DATA/AppData/media-library/tv` → `/tv`, **read-only** — Sonarr's
+  organized output (see `services/sonarr/README.md`).
+- `/DATA/AppData/decypharr/mnt` → `/mnt`, **read-only**, mounted
+  `rshared` — required for the same reason it was required in Radarr and
+  Sonarr: the symlinks Radarr/Sonarr create in `/movies`/`/tv` use
+  absolute paths into `/mnt/decypharr/__all__/...`, so without this mount
+  present at the identical path, those symlinks dangle from Jellyfin's
+  point of view even though the files are right there from Decypharr's
+  side. All four of these mounts are read-only for the same reason
+  Backrest's source mounts are — a media server has no legitimate reason
+  to write into its own source library.
 
 ## Deploy
 
 ```bash
 mkdir -p /DATA/AppData/jellyfin/{config,cache,test-media}
 cd /DATA/Infrastructure/homelab/services/jellyfin
+# /movies, /tv, and /mnt already exist from the Radarr/Sonarr/Decypharr
+# deploys -- nothing new to create here, just mounting existing paths.
 docker pull jellyfin/jellyfin:10.11.7
 docker inspect jellyfin/jellyfin:10.11.7 --format '{{.Config.User}}'
 ```
@@ -133,6 +146,40 @@ made-up filename, so letting Jellyfin try to match it against TheMovieDB
 would just generate noise, not a real test of anything. Let the scan finish
 before connecting clients.
 
+## Stage 2c: Adding the Movies/TV Libraries
+
+Unlike the Stage 1 test clip, this is real content organized by
+Radarr/Sonarr with proper TMDb/TVDB-friendly naming — so, unlike the
+throwaway test library, use the **real** content types and turn metadata
+**on**:
+
+- **Movies** library → path `/movies`, content type **Movies**, metadata
+  downloaders/image fetchers **on**.
+- **TV Shows** library → path `/tv`, content type **Shows**, metadata
+  downloaders/image fetchers **on**.
+
+This is the step most likely to hit the unresolved Stage 1 scanner bug
+(see "Known Issue" below) — if a scan completes but shows 0 items despite
+files clearly being present (verify with `docker exec jellyfin ls -la
+/movies` / `/tv`), that's the same bug, now blocking real content instead
+of a synthetic clip.
+
+## Known Issue: Jellyfin Library Scanner Bug (Unresolved)
+
+Jellyfin 10.11.x (and 10.10.7, tested) has a real, unresolved scanner bug
+in this environment: newly-added files sometimes never get discovered by
+the library scanner, even though they're valid, correctly permissioned,
+and provably readable (confirmed via a vanilla .NET program successfully
+enumerating a file Jellyfin's own resolver couldn't). Matches several
+open upstream issues describing 10.11.x scan/discovery regressions
+(jellyfin/jellyfin#15518, #15855, #15375, #15874). Deliberately parked in
+Stage 1 rather than root-caused. If hit again here: check
+`docker exec jellyfin ls -la /movies` (confirm the file is genuinely
+visible to the container), try **Scan Library Files** from the library's
+own menu, and if that doesn't help, the next real step is testing a much
+older Jellyfin version (e.g. `10.9.11`) to bound the regression, since
+that's not something this repo has root-caused yet.
+
 ## Client Apps
 
 - **iPhone/iPad** — official **Jellyfin Mobile** app, App Store. No known
@@ -153,8 +200,10 @@ before connecting clients.
 
 ## Not Yet Built
 
-Prowlarr, Radarr/Sonarr, a Real-Debrid bridge, and Zurg — the Stage 2
-automation pipeline that turns Jellyfin from "plays what's already in
-`/DATA/Media`" into "requests get searched for, grabbed via Real-Debrid, and
-show up automatically." Deliberately deferred until this stage is proven
-working end-to-end across all three clients.
+Stage 2's automation pipeline (Prowlarr, Radarr, Sonarr, Decypharr) is
+built, deployed, and proven end-to-end for grabbing content — see
+`services/decypharr/README.md`, `services/radarr/README.md`, and
+`services/sonarr/README.md`. What's left here is confirming Jellyfin
+actually plays what the pipeline grabs (Stage 2c, above), and — assuming
+that works — the same client-app testing across all three clients that
+was always the actual point of Stage 1.
