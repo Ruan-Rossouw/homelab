@@ -122,16 +122,41 @@ detected timezone/unit-system defaults needed no changes. Confirms the
 bare platform (host networking, `/config` volume, no `--privileged`) is
 solid before any device integration gets layered on top.
 
+## Stage 2: CBI Smart Circuit Breaker — Proven Working (2026-07-28)
+
+The CBI device turned out to be controlling a **geyser**, and is genuine
+Tuya hardware under the hood (the CBI Home app is a rebadged Tuya/Smart
+Life app). Two integration paths exist — the official Tuya integration
+(cloud-dependent, built into HA core, no extra install) versus LocalTuya
+via HACS (fully local after setup, but Home Assistant Container has no
+Supervisor/Add-on Store, so HACS itself needs a manual `docker exec`
+install first, plus a one-time trip through Tuya's IoT Cloud platform to
+extract a local key). **Went with the official Tuya integration** —
+for a geyser schedule (not something needing sub-second local
+responsiveness like a light switch), the cloud round-trip trade-off
+wasn't worth HACS's extra setup surface. Revisit with LocalTuya if the
+cloud dependency ever actually causes a problem in practice.
+
+Setup: **Settings → Devices & Services → Add Integration → Tuya**, User
+Code from the CBI Home app (⚙ → Account and Security), QR-code
+confirmation scanned from the same app. Exposed two entities worth
+knowing apart: `select.geyser_power_on_behavior` (a config setting for
+what the breaker does after a power outage — **not** the live control)
+and `switch.geyser_switch_1` (the actual on/off control, what everything
+below targets).
+
+**Scheduling**: a Schedule helper (`Geyser Schedule`, Settings → Devices
+& Services → Helpers) with two daily time blocks — `06:00–07:00` and
+`13:00–14:00`, every day — plus two automations using the dedicated
+`schedule` trigger types (`Schedule block started` / `Schedule block
+ended`), each simply turning `switch.geyser_switch_1` on or off. Two
+small single-purpose automations rather than one automation branching on
+trigger ID — same behavior, less indirection. Confirmed working: manual
+**Run** on both automations toggled the geyser correctly, and both fired
+correctly on their own at real schedule boundaries.
+
 ## Not Yet Built
 
-Device integrations, deliberately deferred to keep this failure domain
-isolated from the platform itself:
-
-- **CBI smart circuit breaker** — integration mechanism not yet
-  researched (native integration vs. a HACS custom component vs. Tuya
-  Local vs. cloud-only isn't confirmed). Worth verifying properly before
-  building on an assumption, rather than guessing from a generic "smart
-  plug" pattern that might not apply.
 - **LuxPower/LuxCloud inverter dongle** — user is still completing setup
   in the vendor's own app. Likely candidates once that's done: a local
   bridge (e.g. `lxp-bridge`, talking to the dongle directly over LAN plus
