@@ -114,6 +114,14 @@ Remote access works the same way it does for every other service here:
 reachable over Tailscale at the server's tailnet address, no extra
 configuration needed (`docs/networking.md`).
 
+## Stage 1: Platform Proven Working (2026-07-28)
+
+Onboarding completed cleanly on the first attempt — location was the
+only thing that needed manual input; admin account creation and the
+detected timezone/unit-system defaults needed no changes. Confirms the
+bare platform (host networking, `/config` volume, no `--privileged`) is
+solid before any device integration gets layered on top.
+
 ## Not Yet Built
 
 Device integrations, deliberately deferred to keep this failure domain
