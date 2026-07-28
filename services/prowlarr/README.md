@@ -73,12 +73,10 @@ per project decision. Prowlarr's own indexer list is the extent of what
 this step tests; there's nothing to search *for* yet without Radarr/Sonarr
 telling it what to look for.
 
-## Not Yet Built
+## Status: Fully Wired In (2026-07-28)
 
-- **Radarr/Sonarr** — next steps in Stage 2b. Once deployed, they get
-  added under Prowlarr's **Settings → Apps** so Prowlarr can push its
-  indexer list to them automatically, rather than configuring indexers
-  separately in each.
-- **Decypharr as the download client** — configured directly in
-  Radarr/Sonarr, not in Prowlarr (Prowlarr never talks to a download
-  client itself).
+Radarr and Sonarr are both connected under **Settings → Apps** and receive
+Prowlarr's indexer list automatically. Decypharr is configured as the
+download client directly in Radarr/Sonarr (Prowlarr never talks to a
+download client itself). Full loop proven end-to-end for both movies and
+TV — see `services/radarr/README.md` and `services/sonarr/README.md`.

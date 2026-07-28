@@ -109,13 +109,11 @@ inspection alone.
 
 ## Open Questions
 
-- **Second medium exists; offsite doesn't yet.** `/DATA/Backup` is now a
-  physically separate disk from `/DATA/Media` (2 copies, 2 media), which
-  covers the drive-death failure mode a same-disk backup wouldn't. It's
-  still in the same room as the primary drive, though — theft, fire, or
-  flood takes out both. The 3-2-1 rule's third leg (1 offsite) isn't met
-  yet. This is part of why restic was chosen over a simpler tool like
-  `rsync`: it can push the same repository to Backblaze B2 or another S3
-  target later without changing tools, so the offsite leg is a
-  configuration change, not a re-architecture. Not solved here — tracked as
-  remaining work in `backup.md`.
+- **3-2-1 is now met, at reduced verification confidence on the offsite
+  leg.** `/DATA/Backup` (2 copies, 2 media — drive-death protection) plus
+  a Backblaze B2 repository (offsite, started 2026-07-27, structurally
+  verified 2026-07-28) closes all three legs. See `backup.md`'s "Verified
+  Working (2026-07-28, B2 offsite)" for exactly what was checked — a
+  metadata-only `restic check` plus a single-directory restore, not the
+  full data-read check and full restore the local copy got, a deliberate
+  cost trade-off rather than an oversight.

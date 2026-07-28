@@ -120,6 +120,8 @@ not with an open-source test file or an older/less-mainstream title
 (Spider-Man (2002) worked fine). This is Real-Debrid's own content
 policy, not something to debug in our containers if it happens again.
 
-## Not Yet Built
+## Status
 
-- **Sonarr** — the TV-show equivalent, next in the sequence.
+Sonarr (the TV-show equivalent) and Stage 2c (Jellyfin libraries) are
+both done — see `services/sonarr/README.md` and
+`services/jellyfin/README.md`. Nothing outstanding for this service.

@@ -84,6 +84,40 @@ far cheaper than 17 full copies). Revisit if data volume grows substantially
 — Immich and Home Assistant (Phase 4) will add meaningfully more than the
 current mostly-static Media library.
 
+## Verified Working (2026-07-28, B2 offsite)
+
+The B2 leg (`B2-offsite-repo` / `homelab-offsite-nightly` Plan, see
+`storage.md`'s Open Questions and below) uploaded successfully starting
+2026-07-27, but per this document's own standard — a backup, unverified,
+is a hope, not a backup — it wasn't written up here until actually
+checked, not just assumed to carry over from the local repo's proof.
+
+**Deliberately scoped down from the local repo's full verification, for
+cost reasons — an explicit trade-off, not a shortcut nobody thought
+about:**
+
+- `restic check` (**without** `--read-data`) against the B2 repository —
+  verifies repository structure, index consistency, and that every
+  referenced pack file still exists in the bucket, without downloading
+  the full ~240 GB dataset. Passed clean: `no errors were found`. (It
+  also flagged 36 unreferenced files as non-critical, fixable with
+  `restic prune` — leftover from the initial test upload before any
+  prune had run; not an integrity problem.)
+- A **single-directory restore** (`/data/appdata/uptime-kuma`, not the
+  full `/data/appdata` the local repo's verification used) to a scratch
+  directory on `/DATA` — restored 10 files/4.538 MiB cleanly, including
+  the live `kuma.db` SQLite file at a sane size and matching timestamps.
+  Confirms the encrypt/store/retrieve path works end-to-end against B2
+  specifically, not just that the local repo's proof "should" transfer.
+- **What this does *not* prove**, on purpose: a `--read-data` check
+  (downloads and re-hashes every pack file) and a full-dataset restore,
+  the way the local repo was verified on 2026-07-25 below. Both would
+  incur meaningful B2 download cost for marginal extra confidence beyond
+  what a clean metadata check + one real restored file already
+  establishes. Revisit if B2's free egress tier ever stops covering
+  normal operation, or before this offsite copy would be trusted as the
+  *only* remaining copy (e.g. mid-disaster-recovery).
+
 ## Verified Working (2026-07-26, Backrest cutover)
 
 Confirmed against the production Plan, not just assumed to carry over
@@ -130,12 +164,13 @@ above.
 
 ## Known Limitations
 
-- **No offsite copy yet.** `/DATA/Backup` is a second physical disk, but
-  it's in the same room as `/DATA/Media` — fire, theft, or flood takes out
-  both. This is exactly why restic was chosen over `rsync`: adding a
-  Backblaze B2 target later is a config change (a second `RESTIC_REPOSITORY`
-  destination), not a re-architecture. Tracked in `storage.md`'s Open
-  Questions, not solved here.
+- **Offsite copy exists but is only partially verified.** `B2-offsite-repo`
+  (Backblaze B2, bucket `ruan-homelab-restic`, EU Central) closes the
+  3-2-1 rule's third leg — see "Verified Working (2026-07-28, B2
+  offsite)" above for what was and wasn't checked, and why. It's
+  structurally sound and one real file has been restored from it, but
+  unlike the local repo it hasn't had a full `--read-data` check or a
+  full-dataset restore, by deliberate cost-driven choice.
 - **File-level backup, not application-consistent.** `AppData` includes live
   databases (Grafana's SQLite, Portainer's BoltDB, Tailscale's state) that
   restic backs up as plain files, with no transactional quiescing. A backup
