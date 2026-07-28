@@ -89,6 +89,20 @@ docker compose up -d
    `/tv/<show>/` and confirm it's a symlink pointing into
    `/mnt/decypharr/__all__/...`, not a full copy.
 
+**One gotcha hit during setup**: adding a series doesn't auto-search by
+default the way adding a movie does in Radarr — "Start search for
+missing episodes" needs to be checked when adding, or trigger it
+manually afterward via **Search Monitored** in the series' own toolbar.
+
+## Proven Working (2026-07-28)
+
+Full loop confirmed end-to-end — a real series (*The Agency*, Season 2,
+10 episodes) grabbed in one shot via Prowlarr → Decypharr → Real-Debrid,
+all 10 episodes correctly symlinked under `/tv/The Agency (2024)/Season
+2/` into `/mnt/decypharr/__all__/...`, confirmed readable. Same
+symlink-not-copy result as Radarr, no special configuration needed
+beyond the volumes already set up from the start.
+
 ## Not Yet Built
 
 - **Stage 2c**: share `/movies` and `/tv` into Jellyfin's own compose so
