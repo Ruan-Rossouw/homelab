@@ -10,6 +10,7 @@ services:
     volumes:
       - /DATA/AppData/radarr/config:/config
       - /DATA/AppData/decypharr/downloads:/downloads
+      - /DATA/AppData/decypharr/mnt:/mnt:rshared
       - /DATA/AppData/media-library/movies:/movies
     ports:
       - "${RADARR_PORT:-7878}:7878"
