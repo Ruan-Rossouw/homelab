@@ -50,6 +50,17 @@ running something unexpected.
   Matching paths exactly across containers is the standard, well-known
   pattern for *arr + download-client integration.
 
+- `/DATA/AppData/decypharr/mnt` → `/mnt`, mounted `rshared` — **the same
+  host directory, container-internal path, and propagation mode**
+  Decypharr itself uses for its DFS mount. Discovered as a hard
+  requirement, not an optimization, via a real failed import: Decypharr's
+  "Create Symlink" post-download action creates symlinks using
+  **absolute paths into `/mnt`** (e.g.
+  `/mnt/decypharr/__all__/<title>/<file>`). Radarr sees the symlink fine
+  via the shared `/downloads` mount, but without `/mnt` also mounted into
+  Radarr's own container, that symlink's target doesn't exist from
+  Radarr's point of view — a dangling link, `FileNotFoundException` on
+  import, even though the file is right there from Decypharr's side.
 - `/DATA/AppData/media-library/movies` → `/movies` — Radarr's organized
   library output, set as its **Root Folder**. Deliberately a new, shared
   location — not `/downloads` (Decypharr's territory) and not
@@ -66,10 +77,10 @@ appear to exist in `6.3.0`). Hardlinks only work when source and
 destination are on the same volume — and Decypharr's DFS mount is known
 to reject basic filesystem operations other tools take for granted
 (`mkdir` inside it fails with "operation not supported," discovered
-during Decypharr's own setup). Rather than guess whether hardlinking
-into `/movies` will actually succeed, fail loudly, or silently fall back
-to a full copy, this was resolved by doing a real search → grab → import
-test and reading the actual result.
+during Decypharr's own setup). Whether hardlinking from the (now
+correctly resolvable) DFS-backed source into `/movies` actually succeeds,
+fails loudly, or silently falls back to a full copy is still being
+confirmed via a real test — update this note once that's known.
 
 ## Deploy
 
