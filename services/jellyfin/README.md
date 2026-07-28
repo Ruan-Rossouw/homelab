@@ -146,11 +146,11 @@ made-up filename, so letting Jellyfin try to match it against TheMovieDB
 would just generate noise, not a real test of anything. Let the scan finish
 before connecting clients.
 
-## Stage 2c: Adding the Movies/TV Libraries
+## Stage 2c: Adding the Movies/TV Libraries — Proven Working (2026-07-28)
 
 Unlike the Stage 1 test clip, this is real content organized by
 Radarr/Sonarr with proper TMDb/TVDB-friendly naming — so, unlike the
-throwaway test library, use the **real** content types and turn metadata
+throwaway test library, use the **real** content types with metadata
 **on**:
 
 - **Movies** library → path `/movies`, content type **Movies**, metadata
@@ -158,11 +158,17 @@ throwaway test library, use the **real** content types and turn metadata
 - **TV Shows** library → path `/tv`, content type **Shows**, metadata
   downloaders/image fetchers **on**.
 
-This is the step most likely to hit the unresolved Stage 1 scanner bug
-(see "Known Issue" below) — if a scan completes but shows 0 items despite
-files clearly being present (verify with `docker exec jellyfin ls -la
-/movies` / `/tv`), that's the same bug, now blocking real content instead
-of a synthetic clip.
+**Result: scanned correctly and both libraries play successfully** —
+Spider-Man (2002) and The Agency (2024) S02 both confirmed playable.
+Notably, the Stage 1 scanner bug **did not recur** here, despite being a
+real risk going in. The exact difference is unconfirmed (real files with
+proper TMDb/TVDB-matched naming vs. an oddly-named synthetic clip;
+possibly database state accumulated during Stage 1's extensive
+troubleshooting was itself a factor) — but the practical, actionable
+takeaway is that a completely fresh library pointed at real,
+properly-organized content scanned cleanly on the first attempt. The
+"Known Issue" section below is kept for reference in case it resurfaces,
+not because it's actively blocking anything right now.
 
 ## Known Issue: Jellyfin Library Scanner Bug (Unresolved)
 
@@ -200,10 +206,11 @@ that's not something this repo has root-caused yet.
 
 ## Not Yet Built
 
-Stage 2's automation pipeline (Prowlarr, Radarr, Sonarr, Decypharr) is
-built, deployed, and proven end-to-end for grabbing content — see
-`services/decypharr/README.md`, `services/radarr/README.md`, and
-`services/sonarr/README.md`. What's left here is confirming Jellyfin
-actually plays what the pipeline grabs (Stage 2c, above), and — assuming
-that works — the same client-app testing across all three clients that
-was always the actual point of Stage 1.
+The full pipeline is now proven end-to-end — search (Prowlarr) → grab
+(Radarr/Sonarr) → cache (Decypharr/Real-Debrid) → play (Jellyfin),
+confirmed working with real content (Spider-Man (2002), The Agency
+(2024) S02). What's left is the client-app testing across all three
+clients (iPhone/iPad, Apple TV/Swiftfin, remote access via Tailscale)
+that was always the actual point of Stage 1, plus **Jellyseerr**
+(request UI), deliberately deferred earlier as the lowest-stakes piece
+to bolt on once the core pipeline was proven — which it now is.
