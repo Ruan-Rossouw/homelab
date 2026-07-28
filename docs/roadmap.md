@@ -139,11 +139,12 @@ simpler than tracking it per-service.
       Jellyseerr). Proven end-to-end with real content, both movies and
       TV. See `services/jellyfin/README.md` for the full build and
       remaining optional polish (iPhone/iPad + Tailscale client testing).
-- [ ] Home Assistant — Stage 1 in progress. Bare platform deployed
-      2026-07-28 (host networking, no `--privileged`) and onboarded
-      cleanly. Device integrations not yet built: a CBI smart circuit
-      breaker, a LuxPower/LuxCloud inverter dongle, and HomeKit bridging
-      via a HomePod. See `services/home-assistant/README.md`.
+- [ ] Home Assistant — Stage 1 done (bare platform, 2026-07-28). Stage 2
+      in progress: CBI smart circuit breaker (controls a geyser) done
+      2026-07-28 — official Tuya cloud integration, scheduled on/off via
+      a Schedule helper + two automations. Still not built: the
+      LuxPower/LuxCloud inverter dongle and HomeKit bridging via a
+      HomePod. See `services/home-assistant/README.md`.
 - [ ] Immich — not started.
 
 **Focus:** Media, home automation, photo management.
