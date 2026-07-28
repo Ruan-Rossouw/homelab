@@ -50,19 +50,31 @@ running something unexpected.
   Matching paths exactly across containers is the standard, well-known
   pattern for *arr + download-client integration.
 
-**Deliberately not yet decided:** a "movies" library root folder / volume
-for Radarr's *own* organized output (after it imports and renames from
-`/downloads`). Getting this wrong risks Radarr silently copying full
-files out of the symlinked/DFS-backed content onto local disk — exactly
-the local-storage growth this whole debrid-based pipeline is designed to
-avoid. This needs to be a deliberate choice made once Radarr's actual
-Import Settings UI is in front of us (hardlink vs. copy vs. move
-behavior), not guessed at now.
+- `/DATA/AppData/media-library/movies` → `/movies` — Radarr's organized
+  library output, set as its **Root Folder**. Deliberately a new, shared
+  location — not `/downloads` (Decypharr's territory) and not
+  `/DATA/Media` (the household's personal photo/video drive, explicitly
+  not for this pipeline). This is meant to be the path Jellyfin eventually
+  points a library at too (Stage 2c), same convention Sonarr's `/tv`
+  equivalent should follow.
+
+**Import behavior — tested empirically, not assumed.** Radarr's Media
+Management → Advanced settings has **"Use Hardlinks instead of Copy"**
+(checked by default) but, at least in this Radarr version, no separate
+"Use Symlinks" toggle (some older documentation describes one; it doesn't
+appear to exist in `6.3.0`). Hardlinks only work when source and
+destination are on the same volume — and Decypharr's DFS mount is known
+to reject basic filesystem operations other tools take for granted
+(`mkdir` inside it fails with "operation not supported," discovered
+during Decypharr's own setup). Rather than guess whether hardlinking
+into `/movies` will actually succeed, fail loudly, or silently fall back
+to a full copy, this was resolved by doing a real search → grab → import
+test and reading the actual result.
 
 ## Deploy
 
 ```bash
-mkdir -p /DATA/AppData/radarr/config
+mkdir -p /DATA/AppData/radarr/config /DATA/AppData/media-library/movies
 cd /DATA/Infrastructure/homelab/services/radarr
 docker pull lscr.io/linuxserver/radarr:6.3.0.10514-ls312
 docker inspect lscr.io/linuxserver/radarr:6.3.0.10514-ls312 --format '{{.Config.User}}'
