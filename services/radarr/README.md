@@ -69,18 +69,21 @@ running something unexpected.
   points a library at too (Stage 2c), same convention Sonarr's `/tv`
   equivalent should follow.
 
-**Import behavior — tested empirically, not assumed.** Radarr's Media
-Management → Advanced settings has **"Use Hardlinks instead of Copy"**
-(checked by default) but, at least in this Radarr version, no separate
-"Use Symlinks" toggle (some older documentation describes one; it doesn't
-appear to exist in `6.3.0`). Hardlinks only work when source and
-destination are on the same volume — and Decypharr's DFS mount is known
-to reject basic filesystem operations other tools take for granted
-(`mkdir` inside it fails with "operation not supported," discovered
-during Decypharr's own setup). Whether hardlinking from the (now
-correctly resolvable) DFS-backed source into `/movies` actually succeeds,
-fails loudly, or silently falls back to a full copy is still being
-confirmed via a real test — update this note once that's known.
+**Import behavior — confirmed via a real test, not assumed.** Radarr's
+Media Management → Advanced settings has **"Use Hardlinks instead of
+Copy"** (checked by default), but no separate "Use Symlinks" toggle
+exists in this version despite some older documentation describing one.
+Real test result (Spider-Man (2002), 2026-07-28): a hardlink from the
+DFS-backed source into `/movies` isn't possible (different filesystems —
+Decypharr's DFS mount vs. a normal AppData volume), but **Radarr's actual
+fallback is to create a symlink, not to silently copy the file**.
+Confirmed by inspecting the result directly:
+`/movies/<title>/<file> -> /mnt/decypharr/__all__/<title>/<file>`
+(`lrwxrwxrwx`), and confirming that target reads correctly. This is the
+best-case outcome for this pipeline's whole reason for existing — zero
+bytes duplicated onto local disk — and it required no special
+configuration to get; Radarr just does the right thing here on its own
+once `/mnt` is correctly mounted into its container (see above).
 
 ## Deploy
 
@@ -100,14 +103,23 @@ cp .env.example .env   # adjust RADARR_PORT/TZ if needed
 docker compose up -d
 ```
 
+## Proven Working (2026-07-28)
+
+Full loop confirmed end-to-end: Prowlarr connection (Settings → Apps,
+Full Sync), Decypharr as the qBittorrent-type download client, and a
+real search → grab → symlink-import, all using host-IP addressing
+between containers (never `localhost` — see the Decypharr/Prowlarr setup
+notes for why). See the import-behavior note above for the actual
+(good) result on hardlink-vs-symlink-vs-copy.
+
+One real-world gotcha hit along the way, not a bug in this stack: some
+Real-Debrid "cached" torrents return an **empty download link**
+(`reason=empty_link` in Decypharr's logs) despite showing as cached —
+observed specifically with a major-studio blockbuster (The Dark Knight),
+not with an open-source test file or an older/less-mainstream title
+(Spider-Man (2002) worked fine). This is Real-Debrid's own content
+policy, not something to debug in our containers if it happens again.
+
 ## Not Yet Built
 
-- **Connect to Prowlarr**: add Radarr under Prowlarr's Settings → Apps
-  (or add Prowlarr's indexers directly in Radarr — Prowlarr's own Apps
-  sync is the less error-prone path since it keeps indexer config in one
-  place).
-- **Connect to Decypharr**: add it under Radarr's Settings → Download
-  Clients as a qBittorrent-type client, pointed at Decypharr's API.
-- **Root folder / import behavior**: see above — a deliberate decision
-  once we're looking at the actual Import Settings screen.
 - **Sonarr** — the TV-show equivalent, next in the sequence.
