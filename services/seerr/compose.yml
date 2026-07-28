@@ -1,0 +1,13 @@
+services:
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.0.0
+    container_name: seerr
+    init: true
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ:-Europe/London}
+    volumes:
+      - /DATA/AppData/seerr/config:/app/config
+    ports:
+      - "${SEERR_PORT:-5055}:5055"
