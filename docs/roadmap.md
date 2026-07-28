@@ -128,7 +128,19 @@ starts accumulating on drives with no RAID redundancy at the disk layer
 typically re-acquirable) but ordering the gate before the whole phase is
 simpler than tracking it per-service.
 
-**Services:** Jellyfin, Home Assistant, Immich
+**Services:**
+
+- [x] Jellyfin — done (2026-07-28). Built as a full media pipeline, not
+      just the player: Prowlarr (indexers), Radarr/Sonarr (movie/TV
+      automation), Decypharr (Real-Debrid download client + cloud mount,
+      replacing the originally-planned rdt-client/Zurg split),
+      FlareSolverr (Cloudflare bypass for indexers), Jellyfin (playback),
+      and Seerr (request UI, the successor to the originally-planned
+      Jellyseerr). Proven end-to-end with real content, both movies and
+      TV. See `services/jellyfin/README.md` for the full build and
+      remaining optional polish (iPhone/iPad + Tailscale client testing).
+- [ ] Home Assistant — not started.
+- [ ] Immich — not started.
 
 **Focus:** Media, home automation, photo management.
 
@@ -169,7 +181,8 @@ architectural standards established in the earlier phases.
 5. Uptime Kuma
 6. Prometheus
 7. Grafana
-8. Jellyfin
+8. Jellyfin pipeline — Prowlarr, Radarr, Sonarr, Decypharr, FlareSolverr,
+   Jellyfin, Seerr (done, 2026-07-28)
 9. Home Assistant
 10. Immich
 

@@ -79,11 +79,8 @@ Deco.
   deferred; VLANs are listed as Phase 6 (Continuous Improvement) territory
   in `roadmap.md`, not a Phase 1 or Phase 2 concern.
 
-## Planned (Phase 2, not yet implemented)
+## DNS: AdGuard Home
 
-- **AdGuard Home** — network-wide DNS filtering and local DNS resolution for
-  homelab services.
-
-Configuration details belong in `services/adguard/README.md` once that
-service exists — this document will be updated to reflect the resulting
-topology, not to pre-specify it.
+Network-wide DNS filtering and local DNS resolution for homelab services
+(e.g. `portainer.home` → `192.168.68.110`) — deployed in Phase 2. See
+`services/adguard/README.md` for configuration details.

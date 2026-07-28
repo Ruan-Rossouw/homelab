@@ -207,10 +207,13 @@ that's not something this repo has root-caused yet.
 ## Not Yet Built
 
 The full pipeline is now proven end-to-end — search (Prowlarr) → grab
-(Radarr/Sonarr) → cache (Decypharr/Real-Debrid) → play (Jellyfin),
-confirmed working with real content (Spider-Man (2002), The Agency
-(2024) S02). What's left is the client-app testing across all three
-clients (iPhone/iPad, Apple TV/Swiftfin, remote access via Tailscale)
-that was always the actual point of Stage 1, plus **Jellyseerr**
-(request UI), deliberately deferred earlier as the lowest-stakes piece
-to bolt on once the core pipeline was proven — which it now is.
+(Radarr/Sonarr) → cache (Decypharr/Real-Debrid) → play (Jellyfin) →
+request (**Seerr**, see `services/seerr/README.md` — deployed
+2026-07-28, not Jellyseerr, which is no longer independently
+maintained). Confirmed working with real content (Spider-Man (2002),
+The Agency (2024) S02).
+
+What's left is genuinely optional polish, not a blocker on anything:
+iPhone/iPad client testing (Apple TV via Swiftfin is already confirmed
+working well) and remote access via Tailscale haven't been tested in
+practice yet.

@@ -72,9 +72,11 @@ when reasoning about this box's overall attack surface later.
   Real-Debrid library gets mounted via Decypharr's embedded rclone/WebDAV.
   `rshared` propagation is required so the FUSE mount created inside the
   container is visible outside it; without it, the mount would only exist
-  inside Decypharr's own filesystem namespace. **Kept internal to this
-  service for now** — not yet bind-mounted into Jellyfin. That wiring is a
-  deliberate later step, once this piece is proven on its own.
+  inside Decypharr's own filesystem namespace. **Also bind-mounted
+  read-only into Jellyfin, Radarr, and Sonarr** at the identical path
+  (`/mnt`) — their symlinks use absolute `/mnt/...` paths, so each
+  container needs the same mount to resolve them. See
+  `services/jellyfin/README.md` (Stage 2c).
 - `/DATA/AppData/decypharr/downloads` → `/downloads` — the symlink
   destination for the "Create Symlink" post-download action, **not** a
   subdirectory of `/mnt`. This distinction cost real debugging time:
@@ -140,18 +142,13 @@ Only once that round-trip is proven does it make sense to layer Prowlarr
 at that point Decypharr becomes their download client target instead of a
 manually-added magnet.
 
-## Not Yet Built
+## Status: Fully Wired In (2026-07-28)
 
-- Prowlarr, Radarr/Sonarr — the pieces that decide *what* to grab and hand
-  it to Decypharr automatically, instead of adding magnets by hand.
-- Sharing `/DATA/AppData/decypharr/mnt` into Jellyfin's own compose so the
-  Real-Debrid library becomes an actual Jellyfin library. Deliberately
-  deferred until Decypharr's Real-Debrid connection is proven working on
-  its own.
-- **Known blocker inherited from Stage 1**: Jellyfin's own library scanner
-  has an unresolved bug in this environment where newly-added files never
-  get discovered (see `services/jellyfin/README.md` and project history).
-  Since this mount is exactly the mechanism that bug affects, expect to
-  hit it again at the "Jellyfin sees the mounted content" step — building
-  out the rest of this pipeline now is still worthwhile, but that specific
-  link isn't proven to work yet.
+Prowlarr, Radarr, and Sonarr are all deployed and use Decypharr as their
+download client — the manual-magnet testing above is no longer how this
+gets exercised day to day. `/mnt` is also bind-mounted read-only into
+Jellyfin, and the whole pipeline (search → grab → cache → play) is
+proven end-to-end with real content. See
+`services/jellyfin/README.md`'s "Stage 2c" section for the confirmed
+result — the scanner bug this section used to warn about did not recur
+against real, properly-organized content.

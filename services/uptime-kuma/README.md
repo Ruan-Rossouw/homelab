@@ -62,7 +62,11 @@ admin account, no rush.
 ## Recommended Monitors (Post-Setup)
 
 Add a monitor for each service already deployed, so Uptime Kuma is useful
-immediately instead of watching itself:
+immediately instead of watching itself. Originally only the Phase 2
+services below were added; Phase 3 and Phase 4 services went undeployed-to-Kuma
+for a while after their own phases shipped and were only backfilled on
+2026-07-28 — worth remembering to add a monitor as part of *deploying* a
+service from now on, not as a later cleanup pass.
 
 | Service | Monitor type | Target |
 |---|---|---|
@@ -70,6 +74,18 @@ immediately instead of watching itself:
 | AdGuard Home | HTTP(S) | `http://192.168.68.110:3000` |
 | AdGuard Home | DNS | query `192.168.68.110` on port 53, e.g. resolve `example.com` |
 | SMB | TCP Port | `192.168.68.110:445` |
+| Prometheus | HTTP(S) | `http://192.168.68.110:9090` |
+| Grafana | HTTP(S) | `http://192.168.68.110:3002` |
+| cAdvisor | HTTP(S) | `http://192.168.68.110:8080` |
+| node-exporter | HTTP(S) | `http://192.168.68.110:9100/metrics` |
+| Jellyfin | HTTP(S) | `http://192.168.68.110:8096` |
+| Prowlarr | HTTP(S) | `http://192.168.68.110:9696` |
+| Radarr | HTTP(S) | `http://192.168.68.110:7878` |
+| Sonarr | HTTP(S) | `http://192.168.68.110:8989` |
+| Decypharr | HTTP(S) | `http://192.168.68.110:8282` |
+| FlareSolverr | HTTP(S) | `http://192.168.68.110:8191` |
+| Seerr | HTTP(S) | `http://192.168.68.110:5055` |
+| Backrest | HTTP(S) | `http://192.168.68.110:9898` |
 
 Tailscale is deliberately **not** monitored here — see "Known Limitation:
 Tailscale Isn't Monitored" below for why, rather than assuming it was

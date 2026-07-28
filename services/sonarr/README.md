@@ -103,10 +103,10 @@ all 10 episodes correctly symlinked under `/tv/The Agency (2024)/Season
 symlink-not-copy result as Radarr, no special configuration needed
 beyond the volumes already set up from the start.
 
-## Not Yet Built
+## Status
 
-- **Stage 2c**: share `/movies` and `/tv` into Jellyfin's own compose so
-  they become actual Jellyfin libraries. Expect to hit the Stage 1
-  scanner bug again here (see `services/jellyfin/README.md`) — this is
-  the step where it stops being a synthetic-test-clip problem and starts
-  blocking real content.
+**Stage 2c done (2026-07-28)**: `/movies` and `/tv` are shared into
+Jellyfin and both libraries scan and play correctly. The Stage 1 scanner
+bug did not recur against real content — see
+`services/jellyfin/README.md`'s "Stage 2c" section for the confirmed
+result. Nothing outstanding for this service.

@@ -47,7 +47,8 @@ homelab/
 Foundation, standards, core infrastructure, and platform services
 (Phases 0–3) are complete: Portainer, Tailscale, AdGuard Home, SMB,
 Uptime Kuma, Prometheus, and Grafana are all deployed. Currently in
-**Phase 4 – Application Services**: Jellyfin, Home Assistant, Immich. See
-[`docs/roadmap.md`](docs/roadmap.md) for the full phase breakdown, including
-the backup/disaster-recovery gate before Immich or Home Assistant, and
+**Phase 4 – Application Services**: the Jellyfin media pipeline (Jellyfin,
+Prowlarr, Radarr, Sonarr, Decypharr, FlareSolverr, Seerr) is done and
+proven end-to-end; Home Assistant and Immich are not yet started. See
+[`docs/roadmap.md`](docs/roadmap.md) for the full phase breakdown and
 ongoing operations still ahead.
