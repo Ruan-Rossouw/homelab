@@ -155,17 +155,25 @@ trigger ID — same behavior, less indirection. Confirmed working: manual
 **Run** on both automations toggled the geyser correctly, and both fired
 correctly on their own at real schedule boundaries.
 
+## Stage 2: HomeKit Controller — Done (2026-07-29)
+
+Set up **HomeKit Controller** (pulls existing HomeKit accessories into
+Home Assistant) — the mDNS-dependent piece host networking was chosen
+for. **HomeKit Bridge** (the other direction — exposing Home Assistant
+entities like the geyser back out to Apple Home/Siri via the HomePod)
+was deliberately **not** set up. Home Assistant work is being closed out
+here for now with that scope; Bridge can be added later without
+redoing anything above if it turns out to be wanted.
+
 ## Not Yet Built
 
-- **LuxPower/LuxCloud inverter dongle** — user is still completing setup
-  in the vendor's own app. Likely candidates once that's done: a local
-  bridge (e.g. `lxp-bridge`, talking to the dongle directly over LAN plus
-  MQTT into Home Assistant) versus polling LuxCloud's own API — the
-  local-bridge pattern is generally preferred across this project
-  (Decypharr over polling a slower remote refresh is the closest
-  precedent), but not confirmed as available/current for this specific
-  dongle yet.
-- **HomeKit bridging** — both directions (HomeKit Controller to pull in
-  any existing HomeKit accessories, HomeKit Bridge to expose Home
-  Assistant entities to Apple Home via the HomePod) are the whole reason
-  host networking was chosen above, but neither is configured yet.
+- **LuxPower/LuxCloud inverter dongle** — still blocked on the user
+  completing setup in the vendor's own app; not picked back up. Likely
+  candidates once that's done: a local bridge (e.g. `lxp-bridge`,
+  talking to the dongle directly over LAN plus MQTT into Home Assistant)
+  versus polling LuxCloud's own API — the local-bridge pattern is
+  generally preferred across this project (Decypharr over polling a
+  slower remote refresh is the closest precedent), but not confirmed as
+  available/current for this specific dongle yet.
+- **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
+  Assistant entities to Apple Home via the HomePod, if wanted later.

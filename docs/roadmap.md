@@ -139,13 +139,22 @@ simpler than tracking it per-service.
       Jellyseerr). Proven end-to-end with real content, both movies and
       TV. See `services/jellyfin/README.md` for the full build and
       remaining optional polish (iPhone/iPad + Tailscale client testing).
-- [ ] Home Assistant — Stage 1 done (bare platform, 2026-07-28). Stage 2
-      in progress: CBI smart circuit breaker (controls a geyser) done
-      2026-07-28 — official Tuya cloud integration, scheduled on/off via
-      a Schedule helper + two automations. Still not built: the
-      LuxPower/LuxCloud inverter dongle and HomeKit bridging via a
-      HomePod. See `services/home-assistant/README.md`.
-- [ ] Immich — not started.
+- [x] Home Assistant — closed out 2026-07-29. Platform (host networking,
+      no `--privileged`), CBI smart circuit breaker (geyser, official
+      Tuya cloud integration, Schedule helper + two automations), and
+      HomeKit Controller all done. Deliberately left undone, not
+      forgotten: HomeKit Bridge (Controller alone covered what was
+      wanted) and the LuxPower/LuxCloud inverter dongle (blocked on
+      vendor-app setup, not picked back up). See
+      `services/home-assistant/README.md`.
+- [ ] Immich — deliberately deferred 2026-07-29, not started. Reason:
+      the server's resource headroom is already getting tight running
+      the current stack; rather than add Immich's heavier footprint
+      (Postgres + pgvector, Redis, a separate ML container) on top and
+      become reliant on it for irreplaceable photos before the hardware
+      can comfortably carry it, holding until an SSD + RAM upgrade
+      lands. Not blocked on anything else — the backup gate is already
+      satisfied (`docs/backup.md`).
 
 **Focus:** Media, home automation, photo management.
 
