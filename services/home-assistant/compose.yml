@@ -5,6 +5,6 @@ services:
     network_mode: host
     restart: unless-stopped
     environment:
-      - TZ=${TZ:-Europe/London}
+      - TZ=${TZ:-Africa/Johannesburg}
     volumes:
       - /DATA/AppData/home-assistant/config:/config
