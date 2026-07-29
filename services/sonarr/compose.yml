@@ -6,7 +6,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=${TZ:-Europe/London}
+      - TZ=${TZ:-Africa/Johannesburg}
     volumes:
       - /DATA/AppData/sonarr/config:/config
       - /DATA/AppData/decypharr/downloads:/downloads

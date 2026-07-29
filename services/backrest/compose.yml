@@ -10,7 +10,7 @@ services:
       - BACKREST_CONFIG=/config/config.json
       - XDG_CACHE_HOME=/cache
       - TMPDIR=/tmp
-      - TZ=${TZ:-Europe/London}
+      - TZ=${TZ:-Africa/Johannesburg}
     volumes:
       - /DATA/AppData/backrest/data:/data
       - /DATA/AppData/backrest/config:/config
