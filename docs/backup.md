@@ -34,6 +34,10 @@ this repo is already deployed.
   originally defer this document in Phase 1.
 - **`/DATA/Infrastructure/developer`** — recreatable from `bootstrap.sh` and
   `zimaos.md`, not runtime state.
+- **`/DATA/AppData/decypharr/mnt`** (`/data/appdata/decypharr/mnt/**` in
+  both Plans' excludes) — added 2026-07-30, see "Known Limitations" below
+  for why this one caused a real incident, not just a theoretical
+  cleanliness concern.
 
 ## How It Runs
 
@@ -161,6 +165,50 @@ above.
   files and the same files pulled back out of the repository via
   `restic dump latest <path>` — proves the encrypt/store/retrieve path is
   correct, not just that `restic backup` exits `0`.
+
+## Incident: Nightly Backup Overloaded the Server (2026-07-30)
+
+**Symptom**: server sustained ~100% CPU / load average ~24 (on 8 threads)
+for 6+ hours overnight, Grafana unresponsive. Diagnosis (`top` showing
+load wildly disproportionate to per-core `%CPU`, `ps -eo pid,stat,...`
+showing multiple processes stuck in `D` state) pointed to disk/network
+I/O contention, not raw CPU compute — confirmed by `docker stats`
+showing Decypharr at 261GB network I/O and Backrest at 355GB block I/O
+overnight, both wildly out of proportion to every other container.
+
+**Root cause**: both Backrest Plans (`homelab-nightly` and
+`homelab-offsite-nightly`) backed up `/data/appdata` wholesale, which
+includes `decypharr/mnt` — Decypharr's **FUSE-mounted DFS view into
+Real-Debrid's cloud storage**, not real local files. Backing it up meant
+restic tried to read (and therefore effectively download) potentially
+the entire remote-hosted media library over the network just to include
+it in a snapshot, all night, hitting repeated `input/output error` and
+`connection timed out` failures along the way (visible directly in
+Backrest's own logs) rather than completing or failing fast.
+
+**This affected the local plan first and foremost** — the errors were
+observed in `homelab-nightly` (the local `/DATA/Backup` repo), not just
+the offsite one. Both plans share identical `paths`, so both were
+equally exposed; the fix was applied to both.
+
+**No data-integrity impact.** Restic/Backrest cleanly scrub incomplete
+operations on restart (confirmed in its own startup logs) — the existing
+snapshot history on both repos is unaffected, this was purely an
+overload/availability problem, not a corruption risk.
+
+**Fix**: `/data/appdata/decypharr/mnt/**` added as an exclude pattern on
+both Plans in Backrest's UI. Immediate relief was `docker restart
+backrest` to kill the stuck run. Conceptually, this path never needed
+backing up in the first place — if the server were rebuilt, Decypharr
+just remounts the same Real-Debrid content fresh; there's nothing unique
+there to lose, unlike its actual config/database under
+`decypharr/config` and `decypharr/downloads`, which remain covered by
+the normal `/data/appdata` backup.
+
+**Worth generalizing**: any future service that mounts a FUSE/virtual/
+remote-backed filesystem under `/DATA/AppData` needs the same exclude
+treatment added to both Backrest Plans *before* its first scheduled
+backup run, not discovered the way this one was.
 
 ## Known Limitations
 

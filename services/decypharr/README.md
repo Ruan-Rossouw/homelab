@@ -152,3 +152,19 @@ proven end-to-end with real content. See
 `services/jellyfin/README.md`'s "Stage 2c" section for the confirmed
 result — the scanner bug this section used to warn about did not recur
 against real, properly-organized content.
+
+## Known Issue: Never Let Backups Read Through `/mnt`
+
+`decypharr/mnt` is a **FUSE-mounted virtual view into Real-Debrid's
+cloud storage**, not real local files — reading through it triggers an
+actual network fetch from Real-Debrid per file. On 2026-07-30, Backrest's
+nightly backup (which backs up `/DATA/AppData` wholesale) swept through
+this path and tried to back up the entire remote-hosted library over the
+network, overnight, hitting repeated I/O errors and timeouts and pegging
+the server at ~100% CPU / load ~24 for 6+ hours in the process. See
+`docs/backup.md`'s "Incident" section for the full diagnosis. Fixed by
+excluding `/data/appdata/decypharr/mnt/**` on both Backrest Plans — this
+path never needed its own backup anyway, since a rebuilt server just
+remounts the same Real-Debrid content fresh. Any future backup tooling
+pointed at `/DATA/AppData` needs the same exclusion applied *before*
+its first run against this path, not discovered the same way twice.
