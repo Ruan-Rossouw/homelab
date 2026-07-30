@@ -143,3 +143,49 @@ nothing to import by hand:
 
 Confirm both appear under **Dashboards → Homelab** and render real data
 (not "No data") once Prometheus, node-exporter, and cAdvisor are all up.
+
+## Alerting: Provisioned as Code, Routed Through ntfy
+
+`config/provisioning/alerting/` — same "config as code" reasoning as the
+datasource and dashboards above, not clicked together in
+**Alerting → Notification configuration**. Added 2026-07-30, verified
+working end-to-end (all 6 rules load cleanly, notification policy
+confirmed routing to the `ntfy` contact point, contact point's own
+**Test** button confirmed a real notification arrives).
+
+**Six rules, one "System Health" folder:**
+
+| Rule | Fires when | Why |
+|---|---|---|
+| Sustained High CPU | >85% for 15min | Baseline resource alert |
+| Sustained High Load Average | >1.5x core count (8 cores) for 15min | Would have caught the 2026-07-30 backup I/O storm *faster* than CPU% alone — that incident's load average was wildly disproportionate to raw CPU usage, the actual tell that something was I/O-bound |
+| Backup Drive Capacity High | `/DATA/Backup` >90% full | Direct capacity alert |
+| Internal Drive Capacity High | `/DATA` >90% full | Increasingly relevant now that Renovate (`renovate.json`) drives regular image version bumps, each leaving the superseded image on disk until pruned |
+| Sustained Swap Usage | >80% for 15min | Usually the earlier warning sign, before a system gets as sluggish as the 2026-07-30 incident |
+| Container Restart Loop | >2 restarts in 15min | cAdvisor has no direct restart-count metric (unlike Kubernetes' `kube_pod_container_status_restarts_total`) — detected indirectly via `changes(container_start_time_seconds[15m])`, since that gauge only changes value when a container actually restarts |
+
+**Contact point uses ntfy's native JSON publish API directly**
+(`url: https://ntfy.sh`, structured `payload.template` producing ntfy's
+own `{topic, title, message, priority, tags}` JSON shape) rather than
+Grafana's default webhook payload format, which doesn't match what ntfy
+expects at all.
+
+**The `NTFY_TOPIC` secret is deliberately not committed** — same
+treatment as every other credential in this repo (Backrest's repo
+password, B2 keys): a placeholder in `.env.example`, the real value in a
+gitignored `.env`, resolved inside the provisioning YAML via Grafana's
+own `$VARIABLE_NAME` provisioning-time substitution. A public ntfy.sh
+topic name is effectively a shared secret (anyone who knows/guesses it
+can read or publish to it), and this repo is public.
+
+**Real gotcha hit building this, worth remembering**: Grafana's webhook
+contact point `payload` setting is **not** a plain string — it's a
+`CustomPayload` struct requiring a `template` sub-field
+(`payload: {template: "..."}`, not `payload: "..."`). Getting this wrong
+isn't a soft failure: Grafana's alerting provisioning is **fatal at
+startup** on a bad contact point, crash-looping the *entire instance* —
+existing dashboards went down along with the broken alerting config,
+not just the new feature. Confirmed the correct shape directly from
+Grafana's own source
+(`pkg/services/ngalert/api/tooling/definitions/contact_points.go`)
+rather than guessing a second time.
