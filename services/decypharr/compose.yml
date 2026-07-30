@@ -1,6 +1,6 @@
 services:
   decypharr:
-    image: cy01/blackhole:v2.3
+    image: cy01/blackhole:v2.4
     container_name: decypharr
     restart: unless-stopped
     ports:
