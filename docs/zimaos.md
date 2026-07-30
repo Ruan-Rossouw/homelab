@@ -114,6 +114,17 @@ switch isn't wired to display power on this hardware, only to system
 suspend, which is separately configured to do nothing). This service
 turns the backlight off unconditionally at every boot instead.
 
+The exact device path is hardcoded (`intel_backlight`, this hardware's
+Intel UHD 620), not a glob — a glob (`/sys/class/backlight/*/bl_power`)
+worked fine when run interactively but failed under systemd's
+non-interactive `ExecStart=` context ("No such file or directory," the
+pattern left unexpanded), even though the device clearly existed at the
+time. Root cause not fully chased down; hardcoding the known-good path
+sidesteps it entirely and is more predictable for a boot-time unit
+regardless. **On different hardware**, confirm the actual device name
+first — `ls /sys/class/backlight/` — rather than assuming `intel_backlight`
+carries over.
+
 ```ini
 [Unit]
 Description=Turn off laptop display backlight at boot (headless server, screen not needed)
@@ -121,7 +132,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'echo 1 > /sys/class/backlight/*/bl_power'
+ExecStart=/bin/sh -c 'echo 1 > /sys/class/backlight/intel_backlight/bl_power'
 RemainAfterExit=yes
 
 [Install]
@@ -132,7 +143,7 @@ WantedBy=multi-user.target
 access):
 
 ```bash
-echo 0 | sudo tee /sys/class/backlight/*/bl_power
+echo 0 | sudo tee /sys/class/backlight/intel_backlight/bl_power
 ```
 
 It'll turn itself off again on the next reboot via this service — that's
@@ -149,7 +160,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'echo 1 > /sys/class/backlight/*/bl_power'
+ExecStart=/bin/sh -c 'echo 1 > /sys/class/backlight/intel_backlight/bl_power'
 RemainAfterExit=yes
 
 [Install]
