@@ -5,8 +5,11 @@ services:
     restart: unless-stopped
     ports:
       - "${GRAFANA_PORT:-3002}:3000"
+    environment:
+      - NTFY_TOPIC=${NTFY_TOPIC}
     volumes:
       - /DATA/AppData/grafana:/var/lib/grafana
       - ./config/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./config/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
       - ./config/dashboards:/etc/grafana/dashboards:ro
