@@ -10,14 +10,15 @@ contactPoints:
         settings:
           url: https://ntfy.sh
           httpMethod: POST
-          payload: |
-            {
-              "topic": "$NTFY_TOPIC",
-              "title": "Grafana: {{ .CommonLabels.alertname }}",
-              "message": "{{ .Status | toUpper }} - {{ .CommonAnnotations.summary }}",
-              "priority": 4,
-              "tags": ["warning"]
-            }
+          payload:
+            template: |
+              {
+                "topic": "$NTFY_TOPIC",
+                "title": "Grafana: {{ .CommonLabels.alertname }}",
+                "message": "{{ .Status | toUpper }} - {{ .CommonAnnotations.summary }}",
+                "priority": 4,
+                "tags": ["warning"]
+              }
 
 policies:
   - orgId: 1
