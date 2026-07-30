@@ -58,7 +58,17 @@ sudo mkdir -p /DATA/Media /DATA/Backup
 sudo mount -a
 ```
 
-### 3. Restore the Developer Environment and Repo
+### 3. Recreate Host-Level systemd Customizations
+
+Two things live directly on the host, outside Git entirely — see
+`zimaos.md`'s "Host-Level systemd Customizations" for the full reasoning
+and exact recreate commands: the `docker.service.d` override that makes
+Docker wait for `/DATA/Media`/`/DATA/Backup` to mount before starting
+containers, and the `backlight-off.service` that keeps the laptop's
+screen off at boot (cosmetic/hardware-longevity, not recovery-critical —
+fine to skip under real time pressure and come back to later).
+
+### 4. Restore the Developer Environment and Repo
 
 Follow the bootstrap process in `zimaos.md` (`GIT_CONFIG_GLOBAL`,
 `DOCKER_CONFIG`, XDG directories), then:
@@ -70,20 +80,20 @@ git clone https://github.com/Ruan-Rossouw/homelab.git homelab
 cd homelab
 ```
 
-### 4. Redeploy Services
+### 5. Redeploy Services
 
 For every directory under `services/`, follow that service's own `README.md`
 — each is an independent Compose project (`architecture.md`). Check the
 container's expected UID before first start and `chown` the corresponding
 `AppData` subdirectory if it's non-root (`storage.md`'s standing rule) —
-though if `AppData` is being restored from backup in step 5 below, ownership
+though if `AppData` is being restored from backup in step 6 below, ownership
 comes back with it and this is just a sanity check, not a fresh setup.
 
 **Exception: SMB.** It's ZimaOS's native Samba, not a container — its
 configuration lives in ZimaOS's own database, not Git. Follow the manual
 runbook in `services/smb/README.md` to recreate the shares by hand.
 
-### 5. Restore Data From the Backup Repository
+### 6. Restore Data From the Backup Repository
 
 You need the restic repository password from the Hard Prerequisite above,
 entered directly — there's no `scripts/backup.env` to read it from anymore
@@ -104,7 +114,7 @@ docker run --rm \
   restic/restic:0.17.3 restore latest --target /
 ```
 
-### 6. Verify Before Trusting It
+### 7. Verify Before Trusting It
 
 Don't assume the restore worked — check it, the same way it was verified
 when this document was written (`backup.md`):
@@ -121,22 +131,22 @@ Spot-check a handful of restored files in `/DATA/Media` and `/DATA/AppData`
 by eye (do photos open, does Grafana start with its dashboards intact) before
 considering the server "recovered."
 
-### 7. Confirm the Backup Schedule Came Back Too
+### 8. Confirm the Backup Schedule Came Back Too
 
 Unlike the retired systemd-based design (whose unit files lived outside
 `/DATA`, in `/etc/systemd/system/`, and needed a manual reinstall step
 here), Backrest's configuration — including the Plan's schedule and
-retention policy — lives in `/DATA/AppData/backrest/config/`, which step 5
+retention policy — lives in `/DATA/AppData/backrest/config/`, which step 6
 already restored as part of the normal `AppData` restore. Once
-`services/backrest/` is redeployed (step 4 above), its existing Plan should
+`services/backrest/` is redeployed (step 5 above), its existing Plan should
 already be there — confirm at `http://192.168.68.110:9898` rather than
 assuming, and re-enter the repository password in the Backrest UI if it
 prompts for one (its own stored copy should have come back with the
 restore, but it's cheap to double-check).
 
-### 8. Reapply Anything Configured Outside Git
+### 9. Reapply Anything Configured Outside Git
 
 Anything stored in a service's own database rather than this repo needs
-manual reapplication — e.g. AdGuard DNS rewrites, SMB shares (step 4 above).
+manual reapplication — e.g. AdGuard DNS rewrites, SMB shares (step 5 above).
 Check each service's `README.md` for what, if anything, falls into this
 category before considering the rebuild complete.
