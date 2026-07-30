@@ -61,6 +61,104 @@ verify by `UUID`/label (`lsblk`, not assumed `/dev/sdX` ordering) and confirm
 the mount point you expect (e.g. `/DATA/Media`) is the one actually in
 `/etc/fstab`, rather than trusting ZimaOS's own storage UI to reflect it.
 
+## Host-Level systemd Customizations (Not Tracked in Git)
+
+A couple of things live directly in `/etc/systemd/system/` on the server
+itself rather than in this repo — genuine host configuration, not a Docker
+Compose concern, so `git pull` never touches them. Documented here so a
+rebuild (or a confused "why isn't this in the repo" moment) has a paper
+trail; `disaster-recovery.md` points back here rather than duplicating it.
+
+### Docker Waits for External Mounts Before Starting
+
+`/etc/systemd/system/docker.service.d/wait-for-mounts.conf`, added
+2026-07-29:
+
+```ini
+[Unit]
+After=DATA-Media.mount DATA-Backup.mount
+```
+
+`/DATA/Media` and `/DATA/Backup` are external USB drives mounted via
+`fstab` with `nofail` (so a missing drive never blocks boot), but `nofail`
+also means nothing guarantees they're mounted *before* Docker starts
+trying to bring containers up — a real risk on a cold boot after a full
+power cut, where USB enumeration can be slower than after a warm reboot.
+`services/backrest/compose.yml` bind-mounts both directly; without this,
+Docker's default behavior for a missing bind-mount source (silently
+create an empty directory instead of erroring) could leave Backrest
+pointed at nothing. Deliberately **`After=`, not `RequiresMountsFor=`** —
+the latter would make all of Docker hard-fail to start if either drive
+were ever genuinely missing, undoing the entire reason `nofail` was
+chosen for these mounts in the first place.
+
+Recreate on a rebuild:
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo tee /etc/systemd/system/docker.service.d/wait-for-mounts.conf > /dev/null <<'EOF'
+[Unit]
+After=DATA-Media.mount DATA-Backup.mount
+EOF
+sudo systemctl daemon-reload
+```
+
+### Backlight Off at Boot
+
+`/etc/systemd/system/backlight-off.service`, added 2026-07-30. The server
+is a laptop with its own built-in screen, which otherwise stays on 24/7
+for no reason — this is a headless box, managed over SSH and web UIs,
+nobody's meant to be looking at the physical display. Closing the lid
+doesn't turn the backlight off on its own here (confirmed live — the lid
+switch isn't wired to display power on this hardware, only to system
+suspend, which is separately configured to do nothing). This service
+turns the backlight off unconditionally at every boot instead.
+
+```ini
+[Unit]
+Description=Turn off laptop display backlight at boot (headless server, screen not needed)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 1 > /sys/class/backlight/*/bl_power'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**To turn the screen back on** (e.g. for a BIOS check or other physical
+access):
+
+```bash
+echo 0 | sudo tee /sys/class/backlight/*/bl_power
+```
+
+It'll turn itself off again on the next reboot via this service — that's
+by design, not something to "fix." To disable the automatic behavior
+entirely: `sudo systemctl disable --now backlight-off.service`.
+
+Recreate on a rebuild:
+
+```bash
+sudo tee /etc/systemd/system/backlight-off.service > /dev/null <<'EOF'
+[Unit]
+Description=Turn off laptop display backlight at boot (headless server, screen not needed)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 1 > /sys/class/backlight/*/bl_power'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now backlight-off.service
+```
+
 ## Developer Bootstrap
 
 To provide a standard Linux developer experience, this project redirects developer tooling using:
