@@ -153,6 +153,70 @@ proven end-to-end with real content. See
 result — the scanner bug this section used to warn about did not recur
 against real, properly-organized content.
 
+## Real-Debrid Content Filtering (2026-05) — TorBox Added as Backup Provider
+
+Starting ~2026-05-10, Real-Debrid began enforcing automated filename-keyword
+content filtering (blocking release tags like `WEB-DL`, `WEBRip`, `AMZN`,
+`NF`, `CR`, `YTS`, `RARBG`, `[eztv]`, etc.) after legal pressure from a
+French rights-holder group (FNEF), under the EU DSA "trusted flagger"
+mechanism. This is a server-side, content-based block — nothing to do with
+this stack being misconfigured. Symptom: Sonarr/Radarr grabs fail with
+
+```
+realdebrid API error: Status: 451
+```
+
+surfaced by Decypharr at the `/unrestrict/link` step, right after a
+successful grab. It hits hardest on brand-new episodes of currently-airing
+shows, because *arr quality-profile scoring naturally prefers exactly the
+scene-tagged releases that trip the filter, whereas Stremio's addon
+ecosystem (Torrentio, Comet, etc.) got patched to filter those tags out
+*before* presenting results — which is why the identical content can fail
+via Sonarr but stream fine via Stremio or Real-Debrid's own website
+seconds later. No config flag, request-header trick, or retry pattern
+avoids it — confirmed via Decypharr's and rdt-client's own issue trackers,
+no workaround exists upstream. Real-Debrid also removed its Instant
+Availability endpoint in 2025, so pre-checking cache status isn't an
+option either.
+
+**Fix: TorBox added as a second debrid provider (2026-07-31).** TorBox is
+Delaware-incorporated, outside the EU DSA mechanism that pressured
+Real-Debrid, and has no equivalent filter as of this writing (AllDebrid,
+by contrast, is Paris-based — same legal exposure as Real-Debrid, a weaker
+long-term bet). Decypharr already supports multiple configured debrid
+providers natively: on a `SubmitMagnet`/`CheckStatus` error from one
+provider (including a 451), it automatically tries the next configured
+provider rather than failing the grab outright
+([`pkg/manager/processor.go`](https://github.com/sirrobot01/decypharr/blob/main/pkg/manager/processor.go)).
+Added via Decypharr's own Settings UI, same place Real-Debrid was
+originally configured — both providers stay active side by side, no
+architecture change.
+
+**Known limitation, not yet fixed upstream**: provider try-order is
+currently non-deterministic (backed by a concurrent hash map, not config
+array order) — there's no way yet to force "always try Real-Debrid
+first." Tracked in
+[decypharr#285](https://github.com/sirrobot01/decypharr/issues/285), with
+two competing unmerged fixes
+([#294](https://github.com/sirrobot01/decypharr/pull/294),
+[#355](https://github.com/sirrobot01/decypharr/pull/355)). Not a practical
+problem for playback — failover still works, it just doesn't guarantee
+preferring Real-Debrid's larger cache on a given grab. Worth revisiting
+once priority ordering lands upstream.
+
+**Confirmed working end-to-end (2026-07-31)**: tested against a
+previously-blocked release, Decypharr failed over to TorBox automatically,
+grab succeeded, played back cleanly including on TV — no issues.
+
+Considered and rejected before landing on this fix: **Gelato** (Jellyfin
+plugin bridging Stremio addons for on-demand streaming) — mechanically
+sound (same resolve-at-playtime approach Stremio uses, sidesteps the
+qBittorrent-emulation code path entirely) but its own issue tracker
+documents open bugs where its search feature corrupts/breaks existing
+local library items in exactly the "coexist with Sonarr-managed library"
+mode this use case needed. Parked, not ruled out forever — worth
+reconsidering only if TorBox-as-backup stops being sufficient.
+
 ## Known Issue: Never Let Backups Read Through `/mnt`
 
 `decypharr/mnt` is a **FUSE-mounted virtual view into Real-Debrid's
