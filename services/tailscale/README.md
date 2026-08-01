@@ -98,6 +98,7 @@ model for "one friend, one app." Funnel exposes exactly one port publicly
 instead, with no client install required on the friend's end.
 
 **Trade-offs accepted, not hidden:**
+
 - Tailscale does not publish a bandwidth number for Funnel traffic (only
   "non-configurable limits" per their own docs) — there's no way to confirm
   in advance it holds up for multiple concurrent Jellyfin streams. Being

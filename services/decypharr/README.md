@@ -162,7 +162,7 @@ French rights-holder group (FNEF), under the EU DSA "trusted flagger"
 mechanism. This is a server-side, content-based block — nothing to do with
 this stack being misconfigured. Symptom: Sonarr/Radarr grabs fail with
 
-```
+```text
 realdebrid API error: Status: 451
 ```
 
