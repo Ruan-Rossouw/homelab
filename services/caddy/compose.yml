@@ -1,0 +1,11 @@
+services:
+  caddy:
+    image: caddy:2.11.4
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /DATA/AppData/caddy/certs:/certs:ro
+      - /DATA/AppData/caddy/data:/data
