@@ -14,8 +14,81 @@
 # service means regenerating that cert with the full hostname list, not just
 # adding a Caddyfile block -- see the README's "Adding Another Service"
 # section for the exact command.
+#
+# Hostnames match this repo's existing AdGuard DNS rewrites (runtime config,
+# not tracked here) as of 2026-08-01 -- see services/adguard/README.md.
 
 adguard.home {
 	tls /certs/home-services.pem /certs/home-services-key.pem
 	reverse_proxy 192.168.68.110:3000
+}
+
+# ZimaOS's own dashboard, not one of this repo's tracked services -- port 80
+# per the existing "Known Gotcha" note in services/adguard/README.md.
+server.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:80
+}
+
+# Portainer serves HTTPS itself (self-signed, port 9443) -- Caddy connects
+# to it over HTTPS too and skips upstream cert verification, since that
+# leg never leaves the host and the self-signed cert is Portainer's own
+# known, expected default, not a spoofing risk to guard against here.
+portainer.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy https://192.168.68.110:9443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+uptime.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:3001
+}
+
+grafana.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:3002
+}
+
+backrest.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:9898
+}
+
+jellyfin.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:8096
+}
+
+decypharr.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:8282
+}
+
+prowlarr.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:9696
+}
+
+radarr.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:7878
+}
+
+sonarr.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:8989
+}
+
+seerr.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:5055
+}
+
+home-assistant.home {
+	tls /certs/home-services.pem /certs/home-services-key.pem
+	reverse_proxy 192.168.68.110:8123
 }
