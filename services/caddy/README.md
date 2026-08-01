@@ -47,11 +47,13 @@ it out:
 
 **[`mkcert`](https://github.com/FiloSottile/mkcert)** is the standard tool
 for exactly this: it generates a private Certificate Authority and
-installs its root into your own device's trust store (Keychain, and
-Firefox's separate store if present) with one command. Any certificate it
-then issues is trusted by that device specifically, with zero ongoing
-cost and zero risk to anything else the domain touches -- because no real
-domain is involved at all.
+installs its root into your own device's trust store (the OS Keychain,
+plus Firefox-based browsers' own separate store -- *if* a prerequisite
+package is already present, see "Firefox-Family Browsers" below, learned
+the hard way) with one command. Any certificate it then issues is trusted
+by that device specifically, with zero ongoing cost and zero risk to
+anything else the domain touches -- because no real domain is involved at
+all.
 
 **The trade-off, named plainly:** this cert is trusted only on devices
 where the CA root has been installed. Your own Mac/phone: yes. A
@@ -129,31 +131,44 @@ installing it per-device, since that's the whole point of a *private* CA).
 
 Also done on the Mac, not the server -- the CA's private key should stay
 on as few machines as possible, so only the resulting leaf certificate
-and key (not the CA itself) get copied to the server:
+and key (not the CA itself) get copied to the server.
+
+**First attempt used a wildcard (`mkcert "*.home" "home"`) and it does
+not work in practice** -- not just the theoretical caveat mkcert prints
+at generation time, but a confirmed real failure: `curl`, Safari, and
+Zen all rejected `*.home` for `adguard.home` with `SSL: no alternative
+certificate subject name matches target host name`. Many TLS stacks
+(this one included) treat a wildcard directly under a single-label base
+domain like `.home` the same as `*.com` -- structurally indistinguishable
+from wildcarding an entire TLD, so it's rejected regardless of `.home`
+not being on the real public suffix list. Confirmed via macOS Keychain's
+own `security verify-cert` (chain trusted fine) versus `curl -v` against
+the real hostname (hostname match failed) -- the CA trust was never the
+problem, the wildcard's SAN was.
+
+**What actually works: list every hostname explicitly**, one shared cert
+covering all of them:
 
 ```bash
-mkcert "*.home" "home"
-# produces _wildcard.home+1.pem and _wildcard.home+1-key.pem
+mkcert -cert-file home-services.pem -key-file home-services-key.pem \
+  adguard.home
+# add more names to the same command as more services get fronted, e.g.:
+#   mkcert -cert-file home-services.pem -key-file home-services-key.pem \
+#     adguard.home portainer.home grafana.home
 ```
 
-One wildcard cert covers every current and future `.home` name -- no need
-to regenerate when a new service is added to the Caddyfile.
-
-**mkcert flags a real caveat here, worth testing rather than assuming
-away**: "many browsers don't support second-level wildcards like
-`*.home`." This restriction is normally about domains on the public
-suffix list (real TLDs); `.home` isn't on that list, so it likely doesn't
-apply -- confirmed working in practice with the AdGuard pilot below, but
-if a future browser/service combination shows the warning again despite
-the cert being installed, this wildcard-scope caveat is the first thing
-to check, not the CA trust itself.
+Named `home-services.*` rather than after any one service, since the same
+file is meant to be regenerated with a growing hostname list over time --
+**there's no way to add a name to an existing cert, only regenerate it
+with the full list** each time a service is added. More manual than the
+wildcard idea would have been, but the wildcard idea didn't work.
 
 ## Deploy
 
 ```bash
 mkdir -p /DATA/AppData/caddy/{certs,data}
 # copy the two files generated above -- e.g. from the Mac:
-#   scp _wildcard.home+1.pem _wildcard.home+1-key.pem \
+#   scp home-services.pem home-services-key.pem \
 #     ruan@192.168.68.110:/DATA/AppData/caddy/certs/
 cd /DATA/Infrastructure/homelab/services/caddy
 docker compose up -d
@@ -161,22 +176,58 @@ docker compose up -d
 
 ## Adding Another Service
 
-Append a block to `config/Caddyfile`, no new certificate needed:
+Two steps, not one -- regenerate the shared cert with the new hostname
+added to the list (see "Generate the Certificate" above), re-copy both
+files to `/DATA/AppData/caddy/certs/` (overwriting the old ones), *then*
+append a block to `config/Caddyfile`:
 
 ```caddyfile
 portainer.home {
-  tls /certs/_wildcard.home+1.pem /certs/_wildcard.home+1-key.pem
+  tls /certs/home-services.pem /certs/home-services-key.pem
   reverse_proxy 192.168.68.110:9443
 }
 ```
 
-Then `docker compose restart caddy` to pick up the change.
+Then `docker compose restart caddy` to pick up both changes.
 
-## Pilot: AdGuard — status pending live verification
+## Firefox-Family Browsers (Zen, Firefox itself): a Separate Trust Store
 
-`adguard.home` is the first (and so far only) service fronted by this
-proxy, per the original ask ("rather than `http://adguard.home:3000/`, I
-want `https://adguard.home/` with no browser warning"). Confirm the
-padlock shows with no warning before adding more services -- if the
-wildcard-scope caveat above turns out to be real in practice, better to
-find out on one service than after wiring up several.
+Confirmed the hard way: Firefox and Firefox-based browsers (Zen here)
+**do not use the OS Keychain** -- they keep their own certificate store
+per-profile, and `mkcert -install` only reaches it if the `nss` package
+(`certutil`) was already installed at the time. If not, `mkcert -install`
+silently succeeds for Keychain-based browsers (Safari, Chrome) and skips
+Firefox-based ones with no error -- worth knowing before assuming a
+"trusted" CA covers every browser on a device.
+
+Fix, per Firefox-based browser:
+
+```bash
+brew install nss
+```
+
+Then find that browser's actual active profile directory -- check
+`profiles.ini` inside its Application Support folder for a `Locked=1`
+`Install...` section, which names the real default profile (a plain
+`Default=1` flag elsewhere in the same file can be stale/misleading) --
+and add the CA to it directly:
+
+```bash
+CAROOT=$(mkcert -CAROOT)
+certutil -A -n "mkcert local CA" -t "C,," -i "$CAROOT/rootCA.pem" \
+  -d "sql:/path/to/that/profile"
+```
+
+Requires a full quit and reopen of the browser to take effect, not just
+closing the window.
+
+## Pilot: AdGuard — confirmed working (2026-08-01)
+
+`adguard.home` is the first service fronted by this proxy, per the
+original ask ("rather than `http://adguard.home:3000/`, I want
+`https://adguard.home/` with no browser warning"). Took two real fixes
+beyond the initial deploy to get there -- the wildcard-cert failure and
+the Firefox/Zen separate-trust-store gap, both above -- confirmed clean
+in both Safari and Zen after both were resolved. Worth adding the next
+service deliberately, one at a time, rather than batching several before
+the next round of "which of these three things broke it" guessing.
