@@ -165,8 +165,8 @@ Append a block to `config/Caddyfile`, no new certificate needed:
 
 ```caddyfile
 portainer.home {
-	tls /certs/_wildcard.home+1.pem /certs/_wildcard.home+1-key.pem
-	reverse_proxy 192.168.68.110:9443
+  tls /certs/_wildcard.home+1.pem /certs/_wildcard.home+1-key.pem
+  reverse_proxy 192.168.68.110:9443
 }
 ```
 
