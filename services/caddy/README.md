@@ -223,11 +223,37 @@ closing the window.
 
 ## Pilot: AdGuard — confirmed working (2026-08-01)
 
-`adguard.home` is the first service fronted by this proxy, per the
+`adguard.home` was the first service fronted by this proxy, per the
 original ask ("rather than `http://adguard.home:3000/`, I want
 `https://adguard.home/` with no browser warning"). Took two real fixes
 beyond the initial deploy to get there -- the wildcard-cert failure and
 the Firefox/Zen separate-trust-store gap, both above -- confirmed clean
-in both Safari and Zen after both were resolved. Worth adding the next
-service deliberately, one at a time, rather than batching several before
-the next round of "which of these three things broke it" guessing.
+in both Safari and Zen after both were resolved. Deliberately kept to one
+service until both of those were understood, rather than batching several
+in front of an unproven mechanism.
+
+## Full Rollout — All Existing `.home` Names (2026-08-01)
+
+Once the pilot confirmed clean, extended to every hostname already
+present in AdGuard's DNS rewrites at the time (`server.home`,
+`portainer.home`, `uptime.home`, `adguard.home`, `grafana.home`,
+`backrest.home`, `jellyfin.home`, `decypharr.home`, `prowlarr.home`,
+`radarr.home`, `sonarr.home`, `seerr.home`, `home-assistant.home`) — see
+`config/Caddyfile` for the full list, ports cross-checked against each
+service's own README rather than assumed. One exception worth naming:
+`server.home` isn't a service tracked in this repo at all -- it's
+ZimaOS's own dashboard, inferred to be port 80 from the existing "Known
+Gotcha" note in `services/adguard/README.md`, not independently
+confirmed the way every other entry here was.
+
+**Jellyfin already has its own remote-access story via Tailscale Funnel**
+(`services/tailscale/README.md`) -- `jellyfin.home` here is a separate,
+purely local convenience (no browser warning on the home LAN) and doesn't
+change or replace that; the two solve different problems (local cosmetic
+fix vs. actual remote access for friends) and don't conflict.
+
+Not yet fronted, deliberately: FlareSolverr, cAdvisor, Prometheus,
+node-exporter -- none of these have an AdGuard `.home` rewrite today,
+being admin/API-only surfaces nobody browses to directly. Add them the
+same way (regenerate the cert with the new name, add a Caddyfile block)
+if that ever changes.
