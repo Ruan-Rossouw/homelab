@@ -7,11 +7,15 @@
 # compose projects with no shared Docker network, so containers reach each
 # other via the host's LAN IP, never a container name or localhost).
 #
-# Adding a new service: copy the block below, change the hostname and the
-# target port. No new certificate is needed -- the wildcard cert already
-# covers any *.home name.
+# One shared cert (home-services.pem/-key.pem) covers every hostname below --
+# NOT a wildcard (*.home was tried first and rejected in practice by curl/
+# Safari/Firefox: a wildcard directly under a single-label base domain like
+# `.home` is treated the same as `*.com`, too broad to trust). Adding a new
+# service means regenerating that cert with the full hostname list, not just
+# adding a Caddyfile block -- see the README's "Adding Another Service"
+# section for the exact command.
 
 adguard.home {
-	tls /certs/_wildcard.home+1.pem /certs/_wildcard.home+1-key.pem
+	tls /certs/home-services.pem /certs/home-services-key.pem
 	reverse_proxy 192.168.68.110:3000
 }
