@@ -79,6 +79,111 @@ server would also require rewriting the `ssh` block (tagged devices drop
 out of `autogroup:self`, the same issue hit with the phone/Mac above), so
 it needs its own deliberate pass rather than folding into this change.
 
+## Funnel: Scoped Public Access for Jellyfin (added 2026-08-01)
+
+**Decision: use Tailscale Funnel to share Jellyfin with a handful of friends
+outside the household**, rather than inviting them into the tailnet as
+members. Chosen after comparing against Cloudflare Tunnel, a self-hosted
+tunnel (Pangolin), a hardened reverse-proxy + router port-forward, and
+Tailscale's own single-device sharing — Funnel won on ease of use (reuses
+this already-running container, two CLI commands, no new infrastructure)
+and cost (free on the Personal plan). Full comparison not reproduced here;
+the point is this was a deliberate choice among several real options, not
+the only one considered.
+
+**Why not just invite friends to the tailnet:** the baseline ACL grant
+above (`autogroup:member → autogroup:member`) means any tailnet member can
+reach any other member device — fine for personal devices you trust, wrong
+model for "one friend, one app." Funnel exposes exactly one port publicly
+instead, with no client install required on the friend's end.
+
+**Trade-offs accepted, not hidden:**
+- Tailscale does not publish a bandwidth number for Funnel traffic (only
+  "non-configurable limits" per their own docs) — there's no way to confirm
+  in advance it holds up for multiple concurrent Jellyfin streams. Being
+  validated empirically, not assumed safe; if playback degrades under real
+  friend usage, that's the signal to fall back to a different option.
+- Once Funnel is on, **Jellyfin's own login is the sole auth gate** — no
+  network-layer backstop the way the tailnet normally provides. Friend
+  accounts need real, unique passwords before this goes live.
+- `tailscale funnel off` has a documented failure mode where it doesn't
+  fully disable exposure ([tailscale/tailscale#15248](https://github.com/tailscale/tailscale/issues/15248)) —
+  treat stopping the container as the actual kill switch if something looks
+  wrong, don't trust the CLI toggle alone.
+
+### ACL Grant Required (console-only, same as the ACL Policy above)
+
+Funnel requires an explicit `nodeAttrs` grant in the same
+[admin console policy file](https://login.tailscale.com/admin/acls):
+
+```json
+"nodeAttrs": [
+  {
+    "target": ["<tailnet-owner-email>"],
+    "attr":   ["funnel"],
+  },
+],
+```
+
+(`<tailnet-owner-email>` — the account's own login, same as `alice@example.com`
+in Tailscale's own docs. Not reproduced here since, like the rest of this
+policy, it lives only in the admin console and isn't mirrored into this
+repo — see the note at the top of the ACL Policy section above.)
+
+`nodeAttrs` targets only accept a tag, a specific user, a group, or `*` —
+no autogroups (`autogroup:self` is invalid here, unlike in `grants`/`ssh`
+rules). Naming the owner's own identity scopes this to the devices that sit
+under it, which today includes `homelab-server` since it's still untagged
+— see the parked `tag:server` follow-up above. Same caveat applies here:
+this technically also grants Funnel capability to the phone and Mac under
+the same identity, not just the server. Accepted for now for the same
+reason tagging the server was parked — revisit together if the server is
+ever tagged as infrastructure.
+
+### Rollout — Staged, Not Straight to Public
+
+**Stage 1: `serve` only (tailnet-private), verify, then Stage 2: `funnel`
+(public).** Don't skip straight to public — confirming the tailnet-only
+path works first isolates "is Jellyfin reachable at all" from "is it
+reachable from the public internet," so a failure in Stage 2 is unambiguous.
+
+```bash
+# Stage 1 — serve Jellyfin over HTTPS to the tailnet only, backgrounded
+docker exec tailscale tailscale serve --bg --https=443 localhost:8096
+
+# Verify from a tailnet device off the home network (e.g. phone on cellular):
+# https://homelab-server.<your-tailnet-name>.ts.net should load Jellyfin's
+# login page. Confirm this works before Stage 2.
+
+# Stage 2 — make it public
+docker exec tailscale tailscale funnel --bg --https=443 localhost:8096
+
+# Verify from a device NOT on the tailnet (e.g. a friend, or your own phone
+# with Tailscale temporarily off) that the same URL loads.
+```
+
+**Confirmed working end-to-end 2026-08-01.** Note the `funnel` syntax above
+— `tailscale funnel 443 on` (an older pre-1.52 toggle form that shows up in
+some docs/blog posts) errors on current Tailscale with "the CLI for serve
+and funnel has changed." Current syntax mirrors `serve`'s target-based form
+instead: `tailscale funnel --bg --https=443 localhost:8096`.
+
+Check status any time with `docker exec tailscale tailscale funnel status`.
+To fully back out: `docker exec tailscale tailscale funnel --https=443 localhost:8096 off`
+followed by `docker exec tailscale tailscale serve reset` — and if either
+doesn't visibly take effect, stop the container (`docker compose stop
+tailscale` in this directory) rather than trusting the toggle, per the
+caveat above.
+
+No compose/`.env` changes are needed for this — Funnel/Serve config is
+runtime `tailscaled` state, already persisted in the existing
+`/DATA/AppData/tailscale` volume mount.
+
+**Not yet done:** friend account passwords in Jellyfin haven't been audited
+for this yet, and real-world bandwidth under concurrent streams is
+untested. Both are pre-requisites before actually handing the URL to
+friends, not optional follow-ups.
+
 ## Deploy — Enabling the Subnet Route
 
 Two things are required beyond `docker compose up -d`, since routing
