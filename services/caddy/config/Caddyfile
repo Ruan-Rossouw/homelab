@@ -1,0 +1,17 @@
+# Local-only TLS termination for .home services, using a private CA (mkcert)
+# trusted only on this household's own devices -- not a publicly-trusted
+# certificate, and not meant to be. See services/caddy/README.md for why.
+#
+# Every block below points at the target service's LAN IP:port, per the
+# established cross-container rule in this repo (services are independent
+# compose projects with no shared Docker network, so containers reach each
+# other via the host's LAN IP, never a container name or localhost).
+#
+# Adding a new service: copy the block below, change the hostname and the
+# target port. No new certificate is needed -- the wildcard cert already
+# covers any *.home name.
+
+adguard.home {
+	tls /certs/_wildcard.home+1.pem /certs/_wildcard.home+1-key.pem
+	reverse_proxy 192.168.68.110:3000
+}
