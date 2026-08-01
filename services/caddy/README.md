@@ -257,3 +257,39 @@ node-exporter -- none of these have an AdGuard `.home` rewrite today,
 being admin/API-only surfaces nobody browses to directly. Add them the
 same way (regenerate the cert with the new name, add a Caddyfile block)
 if that ever changes.
+
+## Known Issue: Home Assistant 400s on Its Own Trusted-Proxy Check
+
+`home-assistant.home` returned `400 Bad Request` even with a correctly
+routed Caddyfile block -- not a Caddy problem, Home Assistant's own
+`http` integration rejects requests carrying forwarded-proxy headers
+(which Caddy adds) unless the proxy's source IP is explicitly
+allow-listed in HA's `configuration.yaml` (`/DATA/AppData/home-assistant/
+config/configuration.yaml`, not tracked in this repo):
+
+```yaml
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 192.168.0.2
+```
+
+**That IP is not `192.168.68.110`, and guessing it wrong looks identical
+to not having fixed it at all** -- confirmed only via
+`docker logs home-assistant | grep -i proxy`, which names the actual
+rejected source IP directly. The reason it's not the host's LAN address:
+Caddy's compose file doesn't use `network_mode: host` (unlike Tailscale
+and Home Assistant), so it runs on Docker's normal per-project bridge
+network. Hairpin NAT (source IP rewritten to the host's own LAN address)
+only applies when a bridge-networked container reaches something that's
+genuinely external to the host; since HA is *also* bound directly to this
+same host's network stack via `network_mode: host`, the connection never
+really "leaves," and HA sees Caddy's own bridge-internal IP instead.
+
+This IP is Docker's auto-assigned address for Caddy's container, not
+something explicitly chosen -- stable in practice (a single-container
+compose network, nothing else competing for addresses), but not
+guaranteed permanent (a full `docker compose down` + `up` recreating the
+network, rather than `restart`, could in principle reassign it). If HA
+starts 400ing again after an unrelated Caddy change, re-run the same
+`docker logs` check before assuming the fix regressed some other way.
