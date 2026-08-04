@@ -37,6 +37,14 @@ mqtt:
   port: 1883
   username: homeassistant
   password: changeme           # match Mosquitto's mosquitto_passwd value
+  publish_individual_input: true # without this, a register block that fails
+                                # its structured decode (ReadInput1..6 —
+                                # confirmed happening against this SNA 5K,
+                                # see README's "Known Issue") publishes
+                                # *nothing at all* for that packet, not a
+                                # fallback. This publishes each raw register
+                                # as its own <datalog>/input/<register> topic
+                                # unconditionally, bypassing that decode path.
   namespace: eg4                # topic prefix for readings; discovery config
                                 # itself always goes under homeassistant/
                                 # (mqtt.homeassistant.prefix, left at its
@@ -45,6 +53,16 @@ mqtt:
 
 influx:
   enabled: false
+  # url/username/password/database are required fields in the schema even
+  # when enabled: false — serde deserializes the whole struct shape before
+  # any "is this section enabled" logic runs, unlike `databases:` above
+  # (a Vec, so an empty list never triggers per-entry field validation at
+  # all). Confirmed the hard way: `enabled: false` alone isn't enough,
+  # eg4-bridge refuses to start with "missing field `url`" otherwise.
+  url: http://localhost:8086
+  username: unused
+  password: unused
+  database: unused
 
 scheduler:
   enabled: false

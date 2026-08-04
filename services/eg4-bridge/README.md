@@ -59,6 +59,50 @@ re-check both the binary name (`cargo install`'s own "Installed package"
 log line states it plainly) and that `doc/`'s contents haven't moved,
 rather than assuming either has stayed put.
 
+## Patched: Upstream Never Starts Its Own Scheduler
+
+Found this the hard way, live against the real dongle: the first-ever
+connection produced real telemetry instantly, but every reconnect after
+that produced nothing but `Heartbeat`/`ReadParam` traffic — no more
+`ReadInput` packets, ever, no matter how long it ran. LuxCloud was
+confirmed still getting live updates from the same dongle at the same
+time, which ruled out the dongle itself being wedged or session-confused.
+
+Root cause, confirmed by reading the source rather than guessing further:
+`src/scheduler.rs`'s `Scheduler::start()` contains the loop that
+periodically calls `read_input_registers()` on `register_read_interval`
+(60s by default) — but nothing in the codebase ever calls
+`Scheduler::start()`. There's a separate `Components` struct in
+`coordinator/mod.rs` with a `scheduler` field and a proper shutdown
+sequence, clearly intended to own this, but `Components` itself is never
+constructed anywhere either — `main.rs` → `Coordinator::app()` →
+`Coordinator::new()` bypasses it entirely. Two dead-code paths pointing at
+each other, neither ever run. The one burst of real data on first connect
+comes from whatever the dongle pushes unprompted at connection time, which
+has nothing to do with this scheduler at all.
+
+Patched at build time (`patches/scheduler-spawn.rs`, spliced into
+`coordinator/mod.rs` via `sed` right after the `// Verify subscribers are
+ready` marker — a `docker buildx build --build-context` addition, since
+the patch file lives in this repo but the build context is the upstream
+checkout) to spawn the scheduler exactly the way `mqtt`/`influx`/`database`
+already get spawned a few lines above it. Small, surgical, and reproducible
+against the exact pinned commit — not a fork we now maintain wholesale.
+
+**Known residual issue, not yet fixed**: with the scheduler now actually
+running, one register block (`ReadInput2`, offset 40) still fails its
+structured decode (`Failed to parse ReadInput2: Incomplete(Size(1))`),
+likely a register-layout mismatch between this SNA 5K and whatever
+hardware upstream primarily tested against. `mqtt.publish_individual_input:
+true` (set in `config.yaml.example`) works around this by publishing raw
+per-register values regardless of whether the structured decode succeeds,
+but it means Home Assistant discovery (which likely keys off the
+structured `ReadInput1..6` variants in `home_assistant.rs`) may not
+produce clean named sensors for whatever fields live in that block —
+worth checking once HA integration is wired up, and revisiting
+(potentially a second small patch, or an upstream issue report) if it
+matters in practice.
+
 ## Built On the Mac, Not the Server
 
 The server is the same 8 GB RAM / i5-8265U box that Immich got deferred
@@ -128,19 +172,21 @@ git checkout 0475d855b48dd64256cd785093a0b59a805a31ff   # pinned commit, 2026-07
 docker buildx build \
   --platform linux/amd64 \
   -f /Users/ruanrossouw/Development/homelab/services/eg4-bridge/Dockerfile \
-  -t eg4-bridge:0475d85 \
+  --build-context patches=/Users/ruanrossouw/Development/homelab/services/eg4-bridge/patches \
+  -t eg4-bridge:0475d85-p1 \
   --load \
   .
 
-docker save eg4-bridge:0475d85 | gzip > /tmp/eg4-bridge-0475d85.tar.gz
-scp /tmp/eg4-bridge-0475d85.tar.gz <user>@192.168.68.110:/tmp/
+docker save eg4-bridge:0475d85-p1 | gzip > /tmp/eg4-bridge-0475d85-p1.tar.gz
+scp /tmp/eg4-bridge-0475d85-p1.tar.gz <user>@192.168.68.110:/tmp/
 ```
 
 On the server:
 
 ```bash
-gunzip -c /tmp/eg4-bridge-0475d85.tar.gz | docker load
-rm /tmp/eg4-bridge-0475d85.tar.gz   # and the local copy on the Mac, once loaded
+gunzip -c /tmp/eg4-bridge-0475d85-p1.tar.gz | docker load
+rm /tmp/eg4-bridge-0475d85-p1.tar.gz   # and the local copy on the Mac, once loaded
+docker rmi eg4-bridge:0475d85   # the earlier unpatched build — never got real telemetry past the first connection, see "Patched" above
 ```
 
 `-f` points at *this* repo's corrected `Dockerfile` while the build context

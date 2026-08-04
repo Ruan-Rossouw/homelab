@@ -18,12 +18,18 @@
 # https://github.com/jaredmauch/eg4-bridge at the pinned commit documented
 # in README.md — NOT this repo. See README's "Build" section for the exact
 # clone + build command.
+#
+# Also expects a second, named build context called "patches" pointing at
+# this service's own patches/ directory (docker buildx's --build-context
+# flag) — see README's "Patched: Upstream Never Starts Its Own Scheduler".
 
 FROM rust:1-bookworm AS builder
 WORKDIR /usr/src/eg4-bridge
 COPY Cargo.toml Cargo.lock ./
 COPY src src
 COPY db db
+COPY --from=patches scheduler-spawn.rs /tmp/scheduler-spawn.rs
+RUN sed -i '/\/\/ Verify subscribers are ready/r /tmp/scheduler-spawn.rs' src/coordinator/mod.rs
 RUN cargo install --path .
 
 FROM debian:bookworm-slim

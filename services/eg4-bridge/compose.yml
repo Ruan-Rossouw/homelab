@@ -4,7 +4,7 @@
 # documented in README.md's "Build" section, never by hand.
 services:
   eg4-bridge:
-    image: eg4-bridge:0475d85
+    image: eg4-bridge:0475d85-p1
     container_name: eg4-bridge
     restart: unless-stopped
     volumes:
