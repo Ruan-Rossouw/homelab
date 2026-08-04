@@ -1,0 +1,11 @@
+# Image is built on the dev Mac (not the server — see README's "Build") and
+# loaded via `docker load`, not pulled. Still pinned in spirit: the tag
+# below is only ever produced by building the exact upstream commit
+# documented in README.md's "Build" section, never by hand.
+services:
+  eg4-bridge:
+    image: eg4-bridge:0475d85
+    container_name: eg4-bridge
+    restart: unless-stopped
+    volumes:
+      - /DATA/AppData/eg4-bridge/config.yaml:/etc/config.yaml:ro
