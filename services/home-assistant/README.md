@@ -165,15 +165,39 @@ was deliberately **not** set up. Home Assistant work is being closed out
 here for now with that scope; Bridge can be added later without
 redoing anything above if it turns out to be wanted.
 
+## Stage 3: LuxPower Inverter — Done (2026-08-04)
+
+The inverter (LuxPower/EG4-family hardware, marketed as **SNA 5K**, WiFi
+datalogger serial `BA11340095`) is integrated via
+[`ant0nkr/luxpower-ha-integration`](https://github.com/ant0nkr/luxpower-ha-integration)
+(pinned commit `d3d101498bc2796d6d57142b0e8d7351fdd3cab6`) — a native Home
+Assistant `custom_component` (`lxp_modbus`) that talks directly to the
+dongle over local Modbus TCP. No MQTT, no separate bridge container, no
+cloud dependency: just the one Python component dropped into
+`custom_components/` and configured through the normal Add Integration UI.
+Installed by manual copy rather than bootstrapping HACS — same call as the
+CBI breaker's Tuya integration (Stage 2 above): not worth HACS's setup
+surface for a single component. Produces 700+ entities across sensible
+device groupings (Battery, Grid, PV, EPS, Generator, Smart Load,
+Schedules), all confirmed showing live, real-time-updating values.
+
+**First attempt, abandoned**: tried `jaredmauch/eg4-bridge` first (an
+MQTT-based bridge, which would have meant standing up this repo's first
+Mosquitto broker too). Found and patched two real upstream bugs along the
+way — including one where upstream constructs its own periodic re-poll
+scheduler but never actually spawns it anywhere in the codebase, so it
+only ever received data once, at initial connection — but a deeper
+protocol-level issue remained even after patching. Initially suspected to
+be newer LuxPower firmware deliberately blocking local port 8000 (a
+real, documented phenomenon for *some* dongle hardware generations), but
+`lxp_modbus` successfully reading the exact same dongle/IP/port proved
+that theory wrong: `eg4-bridge` simply had a broken protocol
+implementation for this hardware, not a vendor-imposed wall. Full
+investigation (including the Dockerfile/scheduler patches) lived in PR #73,
+closed without merging once superseded — this repo doesn't carry
+non-functional code forward, per `docs/architecture.md`.
+
 ## Not Yet Built
 
-- **LuxPower/LuxCloud inverter dongle** — still blocked on the user
-  completing setup in the vendor's own app; not picked back up. Likely
-  candidates once that's done: a local bridge (e.g. `lxp-bridge`,
-  talking to the dongle directly over LAN plus MQTT into Home Assistant)
-  versus polling LuxCloud's own API — the local-bridge pattern is
-  generally preferred across this project (Decypharr over polling a
-  slower remote refresh is the closest precedent), but not confirmed as
-  available/current for this specific dongle yet.
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
   Assistant entities to Apple Home via the HomePod, if wanted later.
