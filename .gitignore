@@ -1,7 +1,10 @@
-# Secrets and environment-specific values (see docs/conventions.md).
-# .env.example files are the committed, placeholder-value counterpart.
+# Secrets and environment-specific values (see docs/conventions.md,
+# docs/secrets.md). Two committed, non-secret counterparts are exempted:
+# .env.example (placeholder values, documents shape) and secrets.enc.env
+# (real values, sops+age ciphertext — safe to commit because it's encrypted).
 .env
 *.env
 !*.env.example
+!*.enc.env
 
 .DS_Store
