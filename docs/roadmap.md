@@ -109,7 +109,7 @@ Home Assistant are where irreplaceable data starts accumulating.
 
 ---
 
-## Phase 4 – Application Services (Current)
+## Phase 4 – Application Services (Complete)
 
 **Goal:** Deploy end-user applications.
 
@@ -147,28 +147,39 @@ simpler than tracking it per-service.
       wanted) and the LuxPower/LuxCloud inverter dongle (blocked on
       vendor-app setup, not picked back up). See
       `services/home-assistant/README.md`.
-- [ ] Immich — deliberately deferred 2026-07-29, not started. Reason:
-      the server's resource headroom is already getting tight running
-      the current stack; rather than add Immich's heavier footprint
-      (Postgres + pgvector, Redis, a separate ML container) on top and
-      become reliant on it for irreplaceable photos before the hardware
-      can comfortably carry it, holding until an SSD + RAM upgrade
-      lands. Not blocked on anything else — the backup gate is already
-      satisfied (`docs/backup.md`).
+- [x] Immich — re-scoped out of Phase 4 2026-08-15, not just deferred.
+      Originally held back (2026-07-29) pending an SSD + RAM upgrade to
+      cover its heavier footprint (Postgres + pgvector, Redis, a
+      separate ML container). Decision on 2026-08-15: rather than wait
+      on a hardware upgrade to run Immich on this single box, pair it
+      with the Kubernetes/second-node exploration planned for Phase 6 —
+      Immich becomes that second node's first real workload instead of
+      a synthetic hello-world deployment, and a second machine solves
+      the resource-headroom problem more durably than upgrading the
+      first one. Formally out of Phase 4's scope now, tracked under
+      Phase 6 instead (see below). Not blocked on anything else — the
+      backup gate was already satisfied (`docs/backup.md`).
 
 **Focus:** Media, home automation, photo management.
 
-**Deliverable:** A production-ready application platform.
+**Deliverable:** A production-ready application platform. ✅
 
 ---
 
-## Phase 5 – Operations
+## Phase 5 – Operations (Current)
 
 **Goal:** Make the homelab resilient and maintainable.
 
 **Tasks:** Automated backups, restore testing, GitHub Actions (if
 appropriate), container updates, security hardening, secret management, UPS
 integration, storage monitoring, documentation review.
+
+**Already underway, ahead of this phase formally opening:** automated
+backups + restore testing (done, was actually Phase 4's gate), alerting
+(ntfy + 6 Grafana Alerting rules), container updates (Renovate, proven
+live), and baseline GitHub Actions CI (lint + secret scanning). Remaining,
+in priority order: secret management, UPS integration, security
+hardening, deeper storage monitoring, documentation review.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures.
 
@@ -180,6 +191,17 @@ This phase never ends. Possible future additions, roughly in order of
 likely relevance: Kubernetes, Terraform, Ansible, GitOps, reverse proxy, SSL
 automation, identity provider / SSO, object storage, CI/CD, local AI
 workloads, additional monitoring, VLANs, high availability.
+
+**Immich lives here now** (re-scoped out of Phase 4 on 2026-08-15 — see
+above), tied specifically to the Kubernetes/second-node work: the plan is
+a second machine, joined as a real multi-node cluster rather than a
+single-node one, with Immich as its first workload. Worth remembering if
+picked up: Immich's first-ever deployment coinciding with this project's
+first-ever Kubernetes deployment stacks two new, unfamiliar things on top
+of a workload holding irreplaceable photos. Standing Immich up standalone
+on Compose first (on whichever box), then migrating it into the cluster
+once Kubernetes itself is proven, is the safer order if that risk ever
+matters more than the learning value of doing both at once.
 
 The goal is to continuously improve the platform while maintaining the
 architectural standards established in the earlier phases.
@@ -198,7 +220,9 @@ architectural standards established in the earlier phases.
 8. Jellyfin pipeline — Prowlarr, Radarr, Sonarr, Decypharr, FlareSolverr,
    Jellyfin, Seerr (done, 2026-07-28)
 9. Home Assistant
-10. Immich
+
+Immich no longer appears in this Phase 4 list — re-scoped to Phase 6,
+paired with the future Kubernetes/second-node work (see above).
 
 Each service is expected to be production quality: independent Compose
 project, isolated, documented, version controlled.
