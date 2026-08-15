@@ -177,9 +177,19 @@ integration, storage monitoring, documentation review.
 **Already underway, ahead of this phase formally opening:** automated
 backups + restore testing (done, was actually Phase 4's gate), alerting
 (ntfy + 6 Grafana Alerting rules), container updates (Renovate, proven
-live), and baseline GitHub Actions CI (lint + secret scanning). Remaining,
-in priority order: secret management, UPS integration, security
-hardening, deeper storage monitoring, documentation review.
+live), and baseline GitHub Actions CI (lint + secret scanning).
+
+**Secret management — in progress (2026-08-15):** evaluated sops+age
+against password-manager-backed CLI injection and a hardened-`.env`-only
+approach; picked sops+age (see `docs/secrets.md` for the full trade-off
+writeup). Mechanism built and proven end-to-end against one pilot service
+(Prefetcharr, placeholder values) — not yet rolled out to the other ~19
+services or the server itself. See `docs/secrets.md`'s Status section for
+exactly what's left.
+
+Remaining, in priority order: finish secret management rollout, UPS
+integration, security hardening, deeper storage monitoring, documentation
+review.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures.
 
