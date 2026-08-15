@@ -1,0 +1,28 @@
+services:
+  prefetcharr:
+    image: phueber/prefetcharr:1.6.2
+    container_name: prefetcharr
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      - TZ=${TZ:-Africa/Johannesburg}
+      - |
+        PREFETCHARR_CONFIG=
+        interval = 900           # Polling interval in seconds
+        log_dir = "/log"
+        log_level = "Info"
+        prefetch_num = 2         # Episodes left in the current season before triggering a grab
+        request_seasons = true   # Grab the whole next season, not individual episodes
+        append_to_queue = false  # Not compatible with Jellyfin's own session polling used here
+        connection_retries = 6
+
+        [media_server]
+        type = "Jellyfin"
+        url = "${JELLYFIN_URL}"
+        api_key = "${JELLYFIN_API_KEY}"
+
+        [sonarr]
+        url = "${SONARR_URL}"
+        api_key = "${SONARR_API_KEY}"
+    volumes:
+      - /DATA/AppData/prefetcharr/log:/log
