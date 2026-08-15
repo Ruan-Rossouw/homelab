@@ -148,7 +148,7 @@ before it): confirm this piece works on its own before calling it done.
 5. Once confirmed, set `log_level` back to `"Info"` and redeploy — `Debug`
    is noisy for something meant to run unattended long-term.
 
-## Status
+## Status: Confirmed Working in Isolation (2026-08-15)
 
-Deployed on `feature/prefetcharr`, not yet merged to `main` — isolation
-testing per above still in progress.
+Deployed on `feature/prefetcharr` and confirmed polling Jellyfin and
+reaching Sonarr successfully.
