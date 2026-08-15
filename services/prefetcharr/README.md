@@ -68,6 +68,12 @@ values, same tier as Grafana's internal container port. Only what's
 genuinely per-environment (the two service URLs) and genuinely secret (the
 two API keys) live in `.env`.
 
+`.env` itself is generated, not hand-maintained — its real values live
+encrypted at `secrets.enc.env` (sops+age; see `docs/secrets.md`), and
+`make secrets-decrypt SERVICE=prefetcharr` produces `.env` from it. This
+service was the pilot for that mechanism; see `docs/secrets.md`'s Status
+section for what's proven vs. still pending.
+
 **`request_seasons = true`** was the deliberate choice for "grab the next
 season," matching the ask directly — Sonarr is told to fetch the whole
 season as a pack rather than episode-by-episode, which also plays nicer
@@ -111,11 +117,14 @@ cd /DATA/Infrastructure/homelab/services/prefetcharr
 docker pull phueber/prefetcharr:1.6.2
 ```
 
+`secrets.enc.env` currently holds placeholder values (mechanism pilot, see
+`docs/secrets.md`) — replace them with the real keys before first deploy:
+
 ```bash
-cp .env.example .env
+make secrets-edit SERVICE=prefetcharr   # opens $EDITOR with decrypted content
 ```
 
-Fill in `.env`:
+Fill in:
 
 - `JELLYFIN_API_KEY` — Jellyfin admin → **Administration → Dashboard →
   Advanced → API Keys** → add a new key.
@@ -127,7 +136,10 @@ Fill in `.env`:
   repo (separate `docker compose` projects, no shared internal network).
   Only change these if the server's LAN IP changes.
 
+Saving re-encrypts automatically. Then generate the real `.env` and deploy:
+
 ```bash
+make secrets-decrypt SERVICE=prefetcharr
 docker compose up -d
 ```
 
@@ -160,3 +172,10 @@ before it): confirm this piece works on its own before calling it done.
 
 Deployed on `feature/prefetcharr` and confirmed polling Jellyfin and
 reaching Sonarr successfully.
+
+**Secrets migrated to sops+age (2026-08-15, mechanism pilot):**
+`secrets.enc.env` exists and round-trips correctly, but still holds
+placeholder values, not the real API keys the deployed instance above
+actually used — see `docs/secrets.md` Status section. Replace them via
+`make secrets-edit SERVICE=prefetcharr` before treating this service as
+migrated.
