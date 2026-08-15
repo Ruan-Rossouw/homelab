@@ -29,6 +29,7 @@ services/<service-name>/
 ├── compose.yml
 ├── README.md
 ├── .env.example
+├── secrets.enc.env   # sops+age ciphertext — see docs/secrets.md
 └── config/
 ```
 
@@ -51,6 +52,7 @@ question, named for the question it answers (`networking.md`, not `notes.md`):
 | `conventions.md` | What are the rules everything else follows? |
 | `zimaos.md` | What's non-standard about this OS, and how did we work around it? |
 | `roadmap.md` | What are we building, in what order, and why? |
+| `secrets.md` | How are secrets stored, and how do they get onto a running container? |
 
 `README.md` stays high-level — a pitch and a map, linking into `docs/` for
 anything implementation-specific. If you find yourself explaining *how* a
@@ -139,7 +141,10 @@ touches the server; CI validates the repo, deployment is still a manual
   different days — that's the opposite of reproducible.
 - Secrets and environment-specific values go in `.env` (gitignored); a
   `.env.example` with placeholder values is committed so the shape of the
-  configuration is documented even though the values aren't.
+  configuration is documented even though the values aren't. The real
+  values are also committed, encrypted, as `secrets.enc.env` (sops+age —
+  see `secrets.md`); `.env` is generated from it (`make secrets-decrypt
+  SERVICE=<name>`), not maintained by hand.
 - `restart: unless-stopped` as the default restart policy, so services
   survive a server reboot without needing the ZimaOS app layer.
 - Container networking model (shared network vs. per-service isolation) is
@@ -150,7 +155,7 @@ touches the server; CI validates the repo, deployment is still a manual
 ## What's Deliberately Not Decided Yet
 
 Per the phase philosophy in [`roadmap.md`](roadmap.md), the following are
-out of scope until their phase arrives: reverse proxy / TLS conventions,
-inter-service networking, secret management tooling beyond `.env`, and backup
-scheduling mechanics (`backup.md` and `disaster-recovery.md` land later in
-Phase 1, but the automation itself is Phase 5).
+out of scope until their phase arrives: reverse proxy / TLS conventions and
+inter-service networking. Secret management tooling was decided in Phase 5
+(sops+age — see `secrets.md`); backup scheduling mechanics landed as part of
+the Phase 4 gate (`backup.md`, `disaster-recovery.md`).
