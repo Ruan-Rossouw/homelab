@@ -84,6 +84,14 @@ for the usual `docker inspect --format '{{.Config.User}}'` step from
 `docs/storage.md` — just `chown` the log directory to `1000:1000` before
 first start, same as it would've told us anyway.
 
+**Use `sudo` for that `chown`.** The server login (`ruan`) is UID 999, not
+1000 — a non-root user can't reassign a file's owner to a UID it isn't,
+only root can. Running the chown unprivileged fails silently (no error
+surfaced in the container logs, just a permission-denied crash loop from
+Prefetcharr's Rust logger trying to create the log file), so verify with
+`ls -la` that the directory actually shows `1000` as owner before starting
+the container, not just that the `chown` command returned.
+
 ## Volumes
 
 - `/DATA/AppData/prefetcharr/log` → `/log` — Prefetcharr's own log file.
