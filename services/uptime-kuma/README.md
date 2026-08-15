@@ -86,9 +86,12 @@ service from now on, not as a later cleanup pass.
 | FlareSolverr | HTTP(S) | `http://192.168.68.110:8191` |
 | Seerr | HTTP(S) | `http://192.168.68.110:5055` |
 | Backrest | HTTP(S) | `http://192.168.68.110:9898` |
+| Home Assistant | HTTP(S) | `http://192.168.68.110:8123` |
+| Caddy | TCP Port | `192.168.68.110:443` |
 
-Tailscale is deliberately **not** monitored here — see "Known Limitation:
-Tailscale Isn't Monitored" below for why, rather than assuming it was
+Prefetcharr and Tailscale are deliberately **not** monitored here — see
+"Known Limitation: Tailscale Isn't Monitored" and "Known Limitation:
+Prefetcharr Isn't Monitored" below for why, rather than assuming it was
 overlooked.
 
 ## Known Limitation: Tailscale Isn't Monitored
@@ -137,6 +140,28 @@ but it isn't a monitoring blind spot in practice — every other monitor above
 depends on the server being reachable at all, and remote access (Portainer
 from off-network, etc.) breaking is itself an immediate, obvious signal that
 Tailscale is down. Coarser than a dedicated check, but not silent.
+
+## Known Limitation: Prefetcharr Isn't Monitored
+
+Prefetcharr (`services/prefetcharr/README.md`) is headless by design — no
+web UI, no port, nothing for an HTTP or TCP monitor to check. The correct
+monitor type for a service like this is Uptime Kuma's **Docker Container**
+check (polls the Docker Engine API for the container's running state,
+not a network probe), but that requires bind-mounting the host's
+`/var/run/docker.sock` into `uptime-kuma`'s own container — deliberately
+not done here. That socket is root-equivalent control over the *entire*
+Docker host, not scoped read-only access to one container's status; adding
+it just to monitor one headless service is a bigger security trade-off
+than the visibility gap it closes.
+
+**In the meantime:** Prefetcharr's failures aren't silent in practice, just
+not dashboarded. A crash (like the log-permission crash-loop hit on
+2026-08-15) shows immediately in Portainer as a restarting container, and
+a hung-but-running Prefetcharr just means Sonarr stops getting proactive
+prefetch triggers — noticeable within a season's watch, not a
+silent-forever failure. Revisit if `/var/run/docker.sock` ever gets added
+for a stronger reason (fleet-wide container monitoring, say) — at that
+point, wiring Prefetcharr into it becomes nearly free.
 
 ## Alerting: Deferred
 
