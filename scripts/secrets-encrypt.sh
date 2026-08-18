@@ -6,7 +6,8 @@ set -eu
 
 SERVICE="${1:?Usage: scripts/secrets-encrypt.sh <service-name>}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
-cp "$REPO_ROOT/services/$SERVICE/.env" "$REPO_ROOT/services/$SERVICE/secrets.enc.env"
+cp "services/$SERVICE/.env" "services/$SERVICE/secrets.enc.env"
 sops --encrypt --input-type dotenv --output-type dotenv -i \
-	"$REPO_ROOT/services/$SERVICE/secrets.enc.env"
+	"services/$SERVICE/secrets.enc.env"
