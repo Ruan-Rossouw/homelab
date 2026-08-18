@@ -100,7 +100,14 @@ does not, since the right path differs by machine (see Key Management).
 Deploy flow gains exactly one step: `scripts/secrets-decrypt.sh <name>`
 before `docker compose up -d`, for any service whose secrets changed since
 the last deploy. Services with an already-current `.env` on disk need
-nothing extra.
+nothing extra. Run `docker compose up -d` from inside `services/<name>/`
+as the README for each service already says — Compose's automatic `.env`
+loading is relative to where it's invoked, not to the compose file's own
+location, so running it from elsewhere (e.g. `docker compose -f
+services/<name>/compose.yml up -d` from the repo root) can silently miss
+the freshly-decrypted `.env` and leave an old container running against
+stale config (this actually happened during Prefetcharr's migration —
+see Status).
 
 `sops` itself has no native install on the server either — same
 "read-only root, no package manager" constraint as everything else on
@@ -199,32 +206,38 @@ ghcr.io/getsops/sops:v3.13.2`, wrapped in a shim script at
 `/DATA/Infrastructure/developer/bin/sops` so it's invoked exactly like a
 native binary from every script and `PATH` lookup.
 
-## Status: Mechanism Proven End-to-End, Real Secrets Not Yet In Place
+## Status: Prefetcharr Fully Migrated, ~19 Services Remaining
 
 What exists, confirmed working on **both** machines (not assumed to carry
 over from one to the other): tooling (`sops`, `age` installed natively on
 the Mac via `brew`; `sops` on the server via the Docker-wrapped shim
 above), `.sops.yaml`, `scripts/secrets-*.sh` (the portable interface) plus
-`make secrets-*` (Mac-only convenience wrapper around the same scripts),
-and one pilot file (`services/prefetcharr/secrets.enc.env`) that
-round-trips correctly end-to-end: encrypted on the Mac, committed,
-`git pull`ed and decrypted on the server, output identical — still with
-placeholder values, not real secrets.
+`make secrets-*` (Mac-only convenience wrapper around the same scripts).
 
-**What's still open, deliberately not done in the same pass as the
-mechanism itself:**
+**Prefetcharr (2026-08-18): fully migrated, not just mechanism-proven.**
+`secrets.enc.env` holds its real `JELLYFIN_API_KEY`/`SONARR_API_KEY`.
+Confirmed by actually redeploying against them — `docker compose up -d
+--force-recreate`, run from `services/prefetcharr/` (not `-f` from the
+repo root; Compose's `.env` auto-loading is directory-relative, and
+invoking from elsewhere silently left the old container running against
+stale config the first time this was tried) — produced a genuinely fresh
+container with a clean startup log and no connection error, the failure
+mode a wrong key/URL would actually produce. See
+`services/prefetcharr/README.md`'s Status section.
 
-- Prefetcharr's `secrets.enc.env` needs its placeholder values replaced
-  with the real `JELLYFIN_API_KEY` / `SONARR_API_KEY`
-  (`scripts/secrets-edit.sh prefetcharr` on the Mac, where real secrets
-  can be typed in — not the server), and the resulting `.env` verified
-  against what's actually running before calling Prefetcharr migrated.
+**What's still open:**
+
 - The other ~19 services are still on plain gitignored `.env` — untouched
   by this pass. Converting them is mechanical
   (`scripts/secrets-encrypt.sh <name>` against each real `.env`) but real
   secret values only exist on the server, not this Mac, so each
   conversion needs to happen from wherever the real value can be read,
-  then committed from the Mac per the normal git flow.
+  then committed from the Mac per the normal git flow. Doing this as
+  smaller follow-up batches rather than one large sweep, given what
+  Prefetcharr's migration alone surfaced (a stale `.env`, a `make`
+  gap, an absolute-path bug, a directory-relative Compose gotcha) —
+  each one is a real thing to get wrong per service, not a purely
+  mechanical copy-paste.
 - No rotation cadence is written down yet (see Rotation above).
 - Backing the private key up to the password manager, per Key Management
   above, hasn't happened yet.
