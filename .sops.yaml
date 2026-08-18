@@ -2,4 +2,8 @@ creation_rules:
   - path_regex: services/.*/secrets\.enc\.env$
     input_type: dotenv
     output_type: dotenv
+    # Only actually-secret values get encrypted; non-secret config in the
+    # same file (TZ, LAN URLs, ports, ...) stays plaintext and diffable.
+    # See docs/secrets.md.
+    encrypted_regex: '_KEY$|_SECRET$|_TOKEN$|_PASSWORD$'
     age: age18nugc9xqelfpas0k0eufqw7qkklx547xmxruwnkz6et4k5dkpcdsy86r48
