@@ -177,9 +177,12 @@ before it): confirm this piece works on its own before calling it done.
 Deployed on `feature/prefetcharr` and confirmed polling Jellyfin and
 reaching Sonarr successfully.
 
-**Secrets migrated to sops+age (2026-08-15, mechanism pilot):**
-`secrets.enc.env` exists and round-trips correctly, but still holds
-placeholder values, not the real API keys the deployed instance above
-actually used — see `docs/secrets.md` Status section. Replace them via
-`scripts/secrets-edit.sh prefetcharr` before treating this service as
-migrated.
+**Secrets fully migrated to sops+age (2026-08-18):** `secrets.enc.env`
+holds the real `JELLYFIN_API_KEY`/`SONARR_API_KEY`, not placeholders.
+Confirmed by redeploying against them, not just by decrypting and
+inspecting: `docker compose up -d --force-recreate` on the server
+produced a genuinely fresh container (`Started`, not just left running)
+whose logs show a clean startup and `Start watching Jellyfin sessions`
+with no connection error — the failure mode a bad key/URL would produce.
+See `docs/secrets.md`'s Status section — this is the first (and so far
+only) service fully migrated; the rest are still on plain `.env`.
