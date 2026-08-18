@@ -159,25 +159,57 @@ the *mechanism*, not a completed migration:
   `services/prefetcharr/.env` correctly, confirmed gitignored (`.env`) vs.
   committable (`secrets.enc.env`) status with `git status --ignored`.
 
-**Finding (2026-08-18):** the first attempt to run this on the server hit
-`make: command not found` — ZimaOS's base image doesn't ship `make` at
-all, so the original Makefile-only design would have silently only ever
-worked on the Mac. Fixed by moving the actual logic into
-`scripts/secrets-*.sh` (plain `sh`, no dependency beyond `sops`), with the
-Makefile now a thin Mac-only wrapper around the same scripts. This is why
-the Makefile's own history matters less than the scripts' — the scripts
-are the thing every machine actually depends on.
+## Verified Working (2026-08-18, server-side)
 
-## Status: Mechanism Proven on the Mac, Server Rollout In Progress
+Proven against the real server (ZimaOS, physical console — no SSH access
+from the Mac, see `reference` notes), not assumed to carry over from the
+Mac-only proof above. Two real bugs surfaced and were fixed in the
+process, not glossed over:
 
-What exists: tooling (`sops`, `age` installed natively on the Mac via
-`brew`; `sops` on the server via a Docker-wrapped shim at
-`/DATA/Infrastructure/developer/bin/sops`, since ZimaOS allows no native
-binary installs — same reasoning as restic), `.sops.yaml`,
-`scripts/secrets-*.sh` (the portable interface) plus `make secrets-*`
-(Mac-only convenience wrapper around the same scripts), and one pilot file
-(`services/prefetcharr/secrets.enc.env`) with placeholder values proving
-the round-trip.
+- **`make: command not found`.** ZimaOS's base image doesn't ship `make`
+  at all — the original Makefile-only design would have silently only
+  ever worked on the Mac. Fixed by moving the actual logic into
+  `scripts/secrets-*.sh` (plain `sh`, no dependency beyond `sops`), with
+  the Makefile now a thin Mac-only wrapper around the same scripts.
+- **`cannot operate on non-existent file`**, even though the file
+  genuinely existed on disk at the exact path in the error. Root cause:
+  the scripts resolved an *absolute host path*
+  (`/DATA/Infrastructure/homelab/services/...`) and handed it to `sops` —
+  but on the server, `sops` runs inside a Docker container (see below)
+  with only `$PWD` bind-mounted, as `/work`. An absolute host path simply
+  doesn't exist from inside that container's filesystem namespace, even
+  though the same file is real on the host. Reproduced directly against
+  `ghcr.io/getsops/sops:v3.13.2` on the Mac (Docker Desktop, not just
+  reasoned about) to confirm the exact failure, then confirmed the fix —
+  `cd` to the repo root first, use paths relative to it — resolves it
+  through the same wrapper. Native `sops` on the Mac was unaffected
+  either way, which is why this wasn't caught before the real server
+  test.
+- **Final result:** `scripts/secrets-decrypt.sh prefetcharr` on the
+  server produced a `.env` byte-for-byte identical to the Mac's decrypt
+  output — full round trip (encrypt on Mac → commit → `git pull` on
+  server → decrypt via the Docker-wrapped `sops`) confirmed working
+  end-to-end, still with placeholder values (see Status).
+
+**Server-side `sops` mechanism**, for reference: no native install
+(ZimaOS's read-only root, no package manager — `zimaos.md`), so `sops`
+runs via `docker run --rm --entrypoint sops -v "$PWD":/work -v
+<key>:/key.txt:ro -e SOPS_AGE_KEY_FILE=/key.txt -w /work
+ghcr.io/getsops/sops:v3.13.2`, wrapped in a shim script at
+`/DATA/Infrastructure/developer/bin/sops` so it's invoked exactly like a
+native binary from every script and `PATH` lookup.
+
+## Status: Mechanism Proven End-to-End, Real Secrets Not Yet In Place
+
+What exists, confirmed working on **both** machines (not assumed to carry
+over from one to the other): tooling (`sops`, `age` installed natively on
+the Mac via `brew`; `sops` on the server via the Docker-wrapped shim
+above), `.sops.yaml`, `scripts/secrets-*.sh` (the portable interface) plus
+`make secrets-*` (Mac-only convenience wrapper around the same scripts),
+and one pilot file (`services/prefetcharr/secrets.enc.env`) that
+round-trips correctly end-to-end: encrypted on the Mac, committed,
+`git pull`ed and decrypted on the server, output identical — still with
+placeholder values, not real secrets.
 
 **What's still open, deliberately not done in the same pass as the
 mechanism itself:**
