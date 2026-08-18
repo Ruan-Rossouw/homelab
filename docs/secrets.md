@@ -160,17 +160,18 @@ losing every copy of the age key makes every `secrets.enc.env` file in
 this repo permanently unreadable, the same failure mode `backup.md`
 describes for the restic password.
 
-**Not yet done:** backing the key up to the password manager (see Status
-below).
+**Backed up to the password manager (2026-08-18)** — the third copy this
+section describes as the actual disaster-recovery backstop, closing the
+loop on the restic-password pattern this deliberately mirrors.
 
 ## Rotation
 
 sops makes rotation *auditable* (git log shows when a value last changed)
 but doesn't automate or enforce it — that part is still a documented
-discipline, same as it would be under any tool. No fixed cadence is set
-yet; this needs a real policy (likely: annually, or immediately on
-suspected exposure) before this section can claim more than "the mechanism
-supports it."
+discipline, same as it would be under any tool. **No fixed cadence is set
+yet — deliberately deferred (2026-08-18), not forgotten.** This section
+can only claim "the mechanism supports it" until a real policy (likely:
+annually, or immediately on suspected exposure) is picked up.
 
 ## Verified Working (2026-08-15, mechanism proof)
 
@@ -309,9 +310,11 @@ pre-generated auth key is ever set for unattended redeploys.
 
 **What's still open:**
 
-- No rotation cadence is written down yet (see Rotation above).
-- Backing the private key up to the password manager, per Key Management
-  above, hasn't happened yet.
+- No rotation cadence is written down yet (see Rotation above) —
+  deliberately deferred, not forgotten.
 
-Tracked as Phase 5's "secret management" item — not closed until the above
-is done and verified, not just built.
+Everything else this document originally tracked as open is done: the
+age key is backed up to the password manager, and both real migration
+candidates (Prefetcharr, Grafana) are fully migrated and verified. Only
+rotation remains before this closes fully as Phase 5's "secret
+management" item.
