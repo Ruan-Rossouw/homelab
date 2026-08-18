@@ -58,13 +58,38 @@ and its history is a real audit trail, not just "trust me, I rotated it."
 ## What's Encrypted, and What Isn't
 
 Per service: `services/<name>/secrets.enc.env` is the new committed
-artifact — a `.env`-shaped file with every value encrypted, replacing the
-role the gitignored `.env` used to play as "the real values." Decrypting it
-produces `services/<name>/.env`, gitignored, exactly as before —
-`compose.yml` doesn't change at all, it still just reads `.env`.
+artifact, replacing the role the gitignored `.env` used to play as "the
+real values." Decrypting it produces `services/<name>/.env`, gitignored,
+exactly as before — `compose.yml` doesn't change at all, it still just
+reads `.env`. This split is forced by how Docker Compose works, not a
+design preference: Compose does no decryption of its own, so whatever
+file it reads at `up` time has to already hold literal plaintext values —
+there's no way for one file to be both safely encrypted and directly
+usable by Compose. The only choice is whether the plaintext form is
+committed (defeats the point) or generated on demand and gitignored
+(what this is).
 
-`.env.example` is unchanged and still committed — it documents the shape
-for anyone reading the repo without sops installed, same as always.
+**Not every value in that file is encrypted.** `.sops.yaml`'s
+`encrypted_regex` (`_KEY$|_SECRET$|_TOKEN$|_PASSWORD$`) only encrypts
+keys matching that pattern — so `JELLYFIN_API_KEY` becomes `ENC[...]` but
+`TZ` and `JELLYFIN_URL` stay plaintext in the same committed file.
+Deliberate, not an oversight: encrypting a timezone or a known LAN IP adds
+no security value, and it means a non-secret config change (e.g. the LAN
+IP changing) still shows up as a readable `git diff` instead of an opaque
+ciphertext blob every time.
+
+`.env.example` stays committed alongside `secrets.enc.env`, not made
+redundant by it — they answer different questions. sops keeps *key names*
+readable even inside the ciphertext, so `secrets.enc.env` already tells
+you what keys exist without decrypting anything; what it can't give you
+is a *usable* default without the age key, since (per above) even the
+non-secret defaults are only genuinely useful once combined with whatever
+secret fields are still encrypted. `.env.example` remains the zero-tooling,
+no-key-required copy of the shape and non-secret defaults — matching this
+repo's "recoverable from Git alone" identity (`roadmap.md`) for the parts
+that don't actually need protecting. It's also, as of this pass, still
+the *only* committed config documentation for the ~19 services not yet
+migrated (see Status).
 
 Only the age **public** key lives in the repo (`.sops.yaml`, one entry,
 one key — a single maintainer on a single box doesn't need per-service or
@@ -205,6 +230,25 @@ runs via `docker run --rm --entrypoint sops -v "$PWD":/work -v
 ghcr.io/getsops/sops:v3.13.2`, wrapped in a shim script at
 `/DATA/Infrastructure/developer/bin/sops` so it's invoked exactly like a
 native binary from every script and `PATH` lookup.
+
+## Verified Working (2026-08-18, narrowed encryption scope)
+
+Reworked to only encrypt actual secrets (see "What's Encrypted, and What
+Isn't") rather than every value in the file, prompted by a direct
+question about whether `.env.example` was still pulling its weight next
+to `secrets.enc.env` — it surfaced that the original whole-file approach
+was encrypting non-secret values (`TZ`, LAN URLs) for no security benefit.
+
+Re-encrypted Prefetcharr's real `secrets.enc.env` under the new
+`encrypted_regex` rule without exposing the real values in the process
+(decrypted to a private scratch file, re-encrypted in place, diffed
+against the pre-change plaintext to confirm an exact match, scratch file
+removed) — confirmed: `JELLYFIN_API_KEY`/`SONARR_API_KEY` are `ENC[...]`,
+`TZ`/`JELLYFIN_URL`/`SONARR_URL` are plaintext in the same file, and the
+full `scripts/secrets-decrypt.sh` pipeline still produces a correct `.env`
+against the new format. Not yet re-verified against the server's Docker-
+wrapped `sops` specifically, since decryption is format-agnostic there —
+covered by the Mac-side proof above, not a separate mechanism.
 
 ## Status: Prefetcharr Fully Migrated, ~19 Services Remaining
 
