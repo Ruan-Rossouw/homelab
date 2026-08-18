@@ -5,5 +5,6 @@ set -eu
 
 SERVICE="${1:?Usage: scripts/secrets-edit.sh <service-name>}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
-sops "$REPO_ROOT/services/$SERVICE/secrets.enc.env"
+sops "services/$SERVICE/secrets.enc.env"
