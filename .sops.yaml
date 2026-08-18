@@ -4,6 +4,9 @@ creation_rules:
     output_type: dotenv
     # Only actually-secret values get encrypted; non-secret config in the
     # same file (TZ, LAN URLs, ports, ...) stays plaintext and diffable.
-    # See docs/secrets.md.
-    encrypted_regex: '_KEY$|_SECRET$|_TOKEN$|_PASSWORD$'
+    # See docs/secrets.md. _TOPIC$ covers Grafana's NTFY_TOPIC: a public
+    # ntfy.sh topic name is effectively a shared secret (anyone who
+    # knows/guesses it can read or publish to it) despite not being a
+    # key/token/password/secret by name.
+    encrypted_regex: '_KEY$|_SECRET$|_TOKEN$|_PASSWORD$|_TOPIC$'
     age: age18nugc9xqelfpas0k0eufqw7qkklx547xmxruwnkz6et4k5dkpcdsy86r48
