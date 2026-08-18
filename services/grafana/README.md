@@ -110,9 +110,17 @@ mkdir -p /DATA/AppData/grafana
 docker pull grafana/grafana:13.1.1
 docker inspect grafana/grafana:13.1.1 --format '{{.Config.User}}'
 sudo chown -R 472:472 /DATA/AppData/grafana
-cd /DATA/Infrastructure/homelab/services/grafana
+cd /DATA/Infrastructure/homelab
+scripts/secrets-decrypt.sh grafana
+cd services/grafana
 docker compose up -d
 ```
+
+`scripts/secrets-decrypt.sh` is repo-root-relative — run it before `cd`ing
+into `services/grafana/`, not after (same directory gotcha documented in
+`docs/secrets.md`, just the reverse: that one was about running `docker
+compose` from the wrong directory, this is about running the script from
+the wrong one).
 
 The `docker pull` has to come before `docker inspect` — `inspect` only
 works on images already present locally, and `docker compose up` hasn't
@@ -170,13 +178,23 @@ own `{topic, title, message, priority, tags}` JSON shape) rather than
 Grafana's default webhook payload format, which doesn't match what ntfy
 expects at all.
 
-**The `NTFY_TOPIC` secret is deliberately not committed** — same
-treatment as every other credential in this repo (Backrest's repo
-password, B2 keys): a placeholder in `.env.example`, the real value in a
-gitignored `.env`, resolved inside the provisioning YAML via Grafana's
-own `$VARIABLE_NAME` provisioning-time substitution. A public ntfy.sh
-topic name is effectively a shared secret (anyone who knows/guesses it
-can read or publish to it), and this repo is public.
+**The `NTFY_TOPIC` secret is encrypted, not just gitignored** — migrated
+to sops+age (2026-08-18, see `docs/secrets.md`): the real value lives at
+`secrets.enc.env` (committed, `NTFY_TOPIC=ENC[...]`), decrypted via
+`scripts/secrets-decrypt.sh grafana` into the same gitignored `.env`
+Grafana's provisioning YAML already resolved via its own `$VARIABLE_NAME`
+substitution — nothing about the provisioning mechanism changed, only
+where the real value is stored between deploys. A public ntfy.sh topic
+name is effectively a shared secret (anyone who knows/guesses it can read
+or publish to it), and this repo is public — this was, in fact, the
+second service migrated (after Prefetcharr) specifically because
+`.sops.yaml`'s original `encrypted_regex` didn't cover a `_TOPIC`-suffixed
+key by default and needed widening.
+
+**`secrets.enc.env` currently holds a placeholder value, not the real
+topic** — replace it via `scripts/secrets-edit.sh grafana` on the Mac
+before treating this as migrated (real secrets should never be typed on
+the server — see `docs/secrets.md`'s Key Management section for why).
 
 **Real gotcha hit building this, worth remembering**: Grafana's webhook
 contact point `payload` setting is **not** a plain string — it's a

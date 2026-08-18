@@ -250,7 +250,7 @@ against the new format. Not yet re-verified against the server's Docker-
 wrapped `sops` specifically, since decryption is format-agnostic there —
 covered by the Mac-side proof above, not a separate mechanism.
 
-## Status: Prefetcharr Fully Migrated, ~19 Services Remaining
+## Status: Full Scope Audited, Two of Two Real Candidates In Progress
 
 What exists, confirmed working on **both** machines (not assumed to carry
 over from one to the other): tooling (`sops`, `age` installed natively on
@@ -258,30 +258,57 @@ the Mac via `brew`; `sops` on the server via the Docker-wrapped shim
 above), `.sops.yaml`, `scripts/secrets-*.sh` (the portable interface) plus
 `make secrets-*` (Mac-only convenience wrapper around the same scripts).
 
-**Prefetcharr (2026-08-18): fully migrated, not just mechanism-proven.**
-`secrets.enc.env` holds its real `JELLYFIN_API_KEY`/`SONARR_API_KEY`.
-Confirmed by actually redeploying against them — `docker compose up -d
---force-recreate`, run from `services/prefetcharr/` (not `-f` from the
-repo root; Compose's `.env` auto-loading is directory-relative, and
-invoking from elsewhere silently left the old container running against
-stale config the first time this was tried) — produced a genuinely fresh
-container with a clean startup log and no connection error, the failure
-mode a wrong key/URL would actually produce. See
-`services/prefetcharr/README.md`'s Status section.
+**The scope turned out much smaller than "~19 services remaining"
+implied.** That figure originally just meant "services with a `.env`
+pattern," which isn't the same as "services with a secret to protect."
+Auditing every `.env.example` directly (2026-08-18) found:
+
+- **Grafana** (`NTFY_TOPIC`) and **Tailscale** (`TS_AUTHKEY`) are the
+  *only* services with a genuine secret in `.env`.
+- The other 13 services with `.env.example` (adguard, backrest,
+  cadvisor, flaresolverr, jellyfin, node-exporter, portainer,
+  prometheus, prowlarr, radarr, seerr, sonarr, uptime-kuma) have nothing
+  but ports/timezone in `.env` — migrating them would produce a
+  `secrets.enc.env` with zero `ENC[...]` fields, no security benefit,
+  just process overhead. Not migrating these.
+- **Decypharr** (Real-Debrid API key) and **Home Assistant** (Tuya cloud
+  credentials) have real secrets, but entered through each app's own UI
+  and stored in its internal config/database under `/DATA/AppData/`, not
+  as env vars — this mechanism doesn't reach them at all. Bringing those
+  under the same umbrella would mean encrypting live application
+  config/database files, a materially different and bigger undertaking.
+  Deliberately out of scope here, not silently dropped.
+- Caddy and SMB don't use the `.env` pattern in the first place.
+
+**Prefetcharr (2026-08-18): fully migrated.** `secrets.enc.env` holds its
+real `JELLYFIN_API_KEY`/`SONARR_API_KEY`. Confirmed by actually
+redeploying against them — `docker compose up -d --force-recreate`, run
+from `services/prefetcharr/` (not `-f` from the repo root; Compose's
+`.env` auto-loading is directory-relative, and invoking from elsewhere
+silently left the old container running against stale config the first
+time this was tried) — produced a genuinely fresh container with a clean
+startup log and no connection error, the failure mode a wrong key/URL
+would actually produce. See `services/prefetcharr/README.md`'s Status
+section.
+
+**Grafana (2026-08-18): mechanism in place, placeholder value.**
+`.sops.yaml`'s `encrypted_regex` widened to also catch `_TOPIC$` (a
+public ntfy.sh topic name is a real secret despite the name not ending in
+`_KEY`/`_SECRET`/`_TOKEN`/`_PASSWORD`). `secrets.enc.env` created with
+`GRAFANA_PORT` plaintext, `NTFY_TOPIC` a placeholder — still needs the
+real topic (`scripts/secrets-edit.sh grafana` on the Mac) and a real
+redeploy check before this counts as migrated, same standard Prefetcharr
+was held to.
+
+**Tailscale: deliberately not migrated.** `TS_AUTHKEY` is genuinely blank
+on the server (interactive first-run auth was used, confirmed in
+`services/tailscale/README.md`) — nothing to protect today. Revisit if a
+pre-generated auth key is ever set for unattended redeploys.
 
 **What's still open:**
 
-- The other ~19 services are still on plain gitignored `.env` — untouched
-  by this pass. Converting them is mechanical
-  (`scripts/secrets-encrypt.sh <name>` against each real `.env`) but real
-  secret values only exist on the server, not this Mac, so each
-  conversion needs to happen from wherever the real value can be read,
-  then committed from the Mac per the normal git flow. Doing this as
-  smaller follow-up batches rather than one large sweep, given what
-  Prefetcharr's migration alone surfaced (a stale `.env`, a `make`
-  gap, an absolute-path bug, a directory-relative Compose gotcha) —
-  each one is a real thing to get wrong per service, not a purely
-  mechanical copy-paste.
+- Grafana's real `NTFY_TOPIC` needs to replace the placeholder, and the
+  result verified against a real redeploy.
 - No rotation cadence is written down yet (see Rotation above).
 - Backing the private key up to the password manager, per Key Management
   above, hasn't happened yet.
