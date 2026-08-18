@@ -70,7 +70,7 @@ two API keys) live in `.env`.
 
 `.env` itself is generated, not hand-maintained — its real values live
 encrypted at `secrets.enc.env` (sops+age; see `docs/secrets.md`), and
-`make secrets-decrypt SERVICE=prefetcharr` produces `.env` from it. This
+`scripts/secrets-decrypt.sh prefetcharr` produces `.env` from it. This
 service was the pilot for that mechanism; see `docs/secrets.md`'s Status
 section for what's proven vs. still pending.
 
@@ -118,10 +118,12 @@ docker pull phueber/prefetcharr:1.6.2
 ```
 
 `secrets.enc.env` currently holds placeholder values (mechanism pilot, see
-`docs/secrets.md`) — replace them with the real keys before first deploy:
+`docs/secrets.md`) — replace them with the real keys before first deploy.
+Do this from the Mac, not the server (that's where real values get typed
+in and committed; the server only ever decrypts):
 
 ```bash
-make secrets-edit SERVICE=prefetcharr   # opens $EDITOR with decrypted content
+scripts/secrets-edit.sh prefetcharr   # or: make secrets-edit SERVICE=prefetcharr
 ```
 
 Fill in:
@@ -136,10 +138,12 @@ Fill in:
   repo (separate `docker compose` projects, no shared internal network).
   Only change these if the server's LAN IP changes.
 
-Saving re-encrypts automatically. Then generate the real `.env` and deploy:
+Saving re-encrypts automatically. Commit and push, then on the **server**
+(no `make` there — see `docs/secrets.md`), pull and decrypt:
 
 ```bash
-make secrets-decrypt SERVICE=prefetcharr
+git pull
+scripts/secrets-decrypt.sh prefetcharr
 docker compose up -d
 ```
 
@@ -177,5 +181,5 @@ reaching Sonarr successfully.
 `secrets.enc.env` exists and round-trips correctly, but still holds
 placeholder values, not the real API keys the deployed instance above
 actually used — see `docs/secrets.md` Status section. Replace them via
-`make secrets-edit SERVICE=prefetcharr` before treating this service as
+`scripts/secrets-edit.sh prefetcharr` before treating this service as
 migrated.
