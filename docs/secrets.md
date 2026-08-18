@@ -250,7 +250,7 @@ against the new format. Not yet re-verified against the server's Docker-
 wrapped `sops` specifically, since decryption is format-agnostic there —
 covered by the Mac-side proof above, not a separate mechanism.
 
-## Status: Full Scope Audited, Two of Two Real Candidates In Progress
+## Status: Full Scope Audited, Both Real Candidates Migrated
 
 What exists, confirmed working on **both** machines (not assumed to carry
 over from one to the other): tooling (`sops`, `age` installed natively on
@@ -291,14 +291,16 @@ startup log and no connection error, the failure mode a wrong key/URL
 would actually produce. See `services/prefetcharr/README.md`'s Status
 section.
 
-**Grafana (2026-08-18): mechanism in place, placeholder value.**
-`.sops.yaml`'s `encrypted_regex` widened to also catch `_TOPIC$` (a
-public ntfy.sh topic name is a real secret despite the name not ending in
-`_KEY`/`_SECRET`/`_TOKEN`/`_PASSWORD`). `secrets.enc.env` created with
-`GRAFANA_PORT` plaintext, `NTFY_TOPIC` a placeholder — still needs the
-real topic (`scripts/secrets-edit.sh grafana` on the Mac) and a real
-redeploy check before this counts as migrated, same standard Prefetcharr
-was held to.
+**Grafana (2026-08-18): fully migrated.** `.sops.yaml`'s `encrypted_regex`
+widened to also catch `_TOPIC$` (a public ntfy.sh topic name is a real
+secret despite the name not ending in
+`_KEY`/`_SECRET`/`_TOKEN`/`_PASSWORD`). `secrets.enc.env` holds the real
+topic, not a placeholder. Confirmed by an actual redeploy
+(`docker compose up -d --force-recreate`) with a clean log — alerting
+provisioning started and finished with nothing fatal in between — and the
+`ntfy` contact point's own **Test** button confirming a real notification
+still arrives, the same standard the original 2026-07-30 setup was
+verified against. See `services/grafana/README.md`'s Alerting section.
 
 **Tailscale: deliberately not migrated.** `TS_AUTHKEY` is genuinely blank
 on the server (interactive first-run auth was used, confirmed in
@@ -307,8 +309,6 @@ pre-generated auth key is ever set for unattended redeploys.
 
 **What's still open:**
 
-- Grafana's real `NTFY_TOPIC` needs to replace the placeholder, and the
-  result verified against a real redeploy.
 - No rotation cadence is written down yet (see Rotation above).
 - Backing the private key up to the password manager, per Key Management
   above, hasn't happened yet.

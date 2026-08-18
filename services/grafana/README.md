@@ -191,10 +191,14 @@ second service migrated (after Prefetcharr) specifically because
 `.sops.yaml`'s original `encrypted_regex` didn't cover a `_TOPIC`-suffixed
 key by default and needed widening.
 
-**`secrets.enc.env` currently holds a placeholder value, not the real
-topic** — replace it via `scripts/secrets-edit.sh grafana` on the Mac
-before treating this as migrated (real secrets should never be typed on
-the server — see `docs/secrets.md`'s Key Management section for why).
+**Fully migrated (2026-08-18):** `secrets.enc.env` holds the real topic,
+not a placeholder. Confirmed by an actual redeploy
+(`docker compose up -d --force-recreate`) with a clean log —
+`starting to provision alerting` → `finished to provision alerting` with
+nothing fatal in between — followed by the contact point's own **Test**
+button in **Alerting → Notification configuration → Contact points**
+confirming a real notification still arrives. Same verification standard
+the original 2026-07-30 setup was held to.
 
 **Real gotcha hit building this, worth remembering**: Grafana's webhook
 contact point `payload` setting is **not** a plain string — it's a
