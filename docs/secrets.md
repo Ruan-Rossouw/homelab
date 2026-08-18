@@ -75,41 +75,61 @@ committed; see Key Management below.
 
 ```bash
 # Decrypt one service's secrets into the .env docker compose reads:
-make secrets-decrypt SERVICE=<name>
+scripts/secrets-decrypt.sh <name>
 
 # Edit a service's encrypted secrets (opens $EDITOR, re-encrypts on save):
-make secrets-edit SERVICE=<name>
+scripts/secrets-edit.sh <name>
 
 # One-time migration: encrypt an existing plaintext .env:
-make secrets-encrypt SERVICE=<name>
+scripts/secrets-encrypt.sh <name>
 ```
 
-These wrap `sops` directly (see `Makefile`) rather than introducing a
-separate script — sops is already the right level of abstraction, the
-Makefile targets just save typing `--input-type dotenv --output-type
-dotenv` every time and give the workflow a name.
+`scripts/secrets-*.sh` are the actual portable entry point — plain `sh`,
+no dependencies beyond `sops` itself, so they work identically on the Mac
+and the server. `make secrets-decrypt SERVICE=<name>` (and the `-edit`/
+`-encrypt` equivalents) are a thinner, nicer-to-type wrapper around the
+same scripts, but **Mac-only**: `make` isn't present on the ZimaOS server
+at all (confirmed 2026-08-18 — no package manager, nothing outside the
+base image, same reasoning as the read-only-root constraints below). Use
+the scripts directly wherever `make` isn't available.
 
-Deploy flow gains exactly one step: `make secrets-decrypt SERVICE=<name>`
+Both forms need `SOPS_AGE_KEY_FILE` set in the environment first — the
+Makefile exports a Mac-appropriate default; calling the scripts directly
+does not, since the right path differs by machine (see Key Management).
+
+Deploy flow gains exactly one step: `scripts/secrets-decrypt.sh <name>`
 before `docker compose up -d`, for any service whose secrets changed since
 the last deploy. Services with an already-current `.env` on disk need
 nothing extra.
 
+`sops` itself has no native install on the server either — same
+"read-only root, no package manager" constraint as everything else on
+ZimaOS (`zimaos.md`), so it runs via `docker run` there, wrapped in a
+small shim script on `PATH` rather than a long command typed out each
+time. See Status below for exactly what's in place.
+
 ## Key Management
 
-The age private key lives at `~/.config/sops/age/keys.txt` on whichever
-machine needs to decrypt — the Mac (to author/edit committed ciphertext)
-and the server (to decrypt at deploy time). This mirrors the restic
-repository password's pattern exactly (`backup.md`): a secret that
-*cannot* live in Git backing something that *does*, so it has to exist
-outside the repo on every machine that needs it, plus one more copy in the
-password manager as the actual backup — losing every copy of the age key
-makes every `secrets.enc.env` file in this repo permanently unreadable,
-the same failure mode `backup.md` describes for the restic password.
+The age private key needs to exist on whichever machine decrypts — the Mac
+(to author/edit committed ciphertext) and the server (to decrypt at deploy
+time) — but not at the same path on both, because ZimaOS's `HOME=/DATA`
+isn't writable by non-root users (`zimaos.md`):
 
-**Not yet done:** the private key exists only on this Mac right now (see
-Status below). It still needs to be placed on the server and backed up to
-the password manager before this becomes the real deploy mechanism rather
-than a proven-but-unused pattern.
+- **Mac:** `~/.config/sops/age/keys.txt` (sops's default lookup location).
+- **Server:** `/DATA/Infrastructure/developer/config/sops/age/keys.txt` —
+  alongside the rest of the redirected developer tooling config
+  (`GIT_CONFIG_GLOBAL`, `DOCKER_CONFIG`), not under `$HOME`.
+
+This mirrors the restic repository password's pattern exactly
+(`backup.md`): a secret that *cannot* live in Git backing something that
+*does*, so it has to exist outside the repo on every machine that needs
+it, plus one more copy in the password manager as the actual backup —
+losing every copy of the age key makes every `secrets.enc.env` file in
+this repo permanently unreadable, the same failure mode `backup.md`
+describes for the restic password.
+
+**Not yet done:** backing the key up to the password manager (see Status
+below).
 
 ## Rotation
 
@@ -134,15 +154,28 @@ the *mechanism*, not a completed migration:
   readable.
 - `sops --decrypt ...` piped back to plaintext and diffed byte-for-byte
   against the original — identical.
-- `make secrets-decrypt SERVICE=prefetcharr` — the actual Makefile target,
-  not just the raw `sops` command — produced `services/prefetcharr/.env`
-  correctly, confirmed gitignored (`.env`) vs. committable
-  (`secrets.enc.env`) status with `git status --ignored`.
+- `make secrets-decrypt SERVICE=prefetcharr` **and**
+  `scripts/secrets-decrypt.sh prefetcharr` directly — both produced
+  `services/prefetcharr/.env` correctly, confirmed gitignored (`.env`) vs.
+  committable (`secrets.enc.env`) status with `git status --ignored`.
 
-## Status: Mechanism Proven, Rollout Not Started
+**Finding (2026-08-18):** the first attempt to run this on the server hit
+`make: command not found` — ZimaOS's base image doesn't ship `make` at
+all, so the original Makefile-only design would have silently only ever
+worked on the Mac. Fixed by moving the actual logic into
+`scripts/secrets-*.sh` (plain `sh`, no dependency beyond `sops`), with the
+Makefile now a thin Mac-only wrapper around the same scripts. This is why
+the Makefile's own history matters less than the scripts' — the scripts
+are the thing every machine actually depends on.
 
-What exists after this: tooling (`sops`, `age` installed on the Mac),
-`.sops.yaml`, Makefile targets, and one pilot file
+## Status: Mechanism Proven on the Mac, Server Rollout In Progress
+
+What exists: tooling (`sops`, `age` installed natively on the Mac via
+`brew`; `sops` on the server via a Docker-wrapped shim at
+`/DATA/Infrastructure/developer/bin/sops`, since ZimaOS allows no native
+binary installs — same reasoning as restic), `.sops.yaml`,
+`scripts/secrets-*.sh` (the portable interface) plus `make secrets-*`
+(Mac-only convenience wrapper around the same scripts), and one pilot file
 (`services/prefetcharr/secrets.enc.env`) with placeholder values proving
 the round-trip.
 
@@ -150,18 +183,16 @@ the round-trip.
 mechanism itself:**
 
 - Prefetcharr's `secrets.enc.env` needs its placeholder values replaced
-  with the real `JELLYFIN_API_KEY` / `SONARR_API_KEY` (`make secrets-edit
-  SERVICE=prefetcharr`), and the resulting `.env` verified against what's
-  actually running before calling Prefetcharr migrated.
+  with the real `JELLYFIN_API_KEY` / `SONARR_API_KEY`
+  (`scripts/secrets-edit.sh prefetcharr` on the Mac, where real secrets
+  can be typed in — not the server), and the resulting `.env` verified
+  against what's actually running before calling Prefetcharr migrated.
 - The other ~19 services are still on plain gitignored `.env` — untouched
-  by this pass. Converting them is mechanical (`make secrets-encrypt
-  SERVICE=<name>` against each real `.env`) but real secret values only
-  exist on the server, not this Mac, so each conversion needs to happen
-  from wherever the real value can be read, then committed from the Mac
-  per the normal git flow.
-- `sops`/`age` aren't installed on the server yet, and the age private key
-  isn't there either — both required before `make secrets-decrypt` can run
-  as part of an actual deploy.
+  by this pass. Converting them is mechanical
+  (`scripts/secrets-encrypt.sh <name>` against each real `.env`) but real
+  secret values only exist on the server, not this Mac, so each
+  conversion needs to happen from wherever the real value can be read,
+  then committed from the Mac per the normal git flow.
 - No rotation cadence is written down yet (see Rotation above).
 - Backing the private key up to the password manager, per Key Management
   above, hasn't happened yet.
