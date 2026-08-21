@@ -170,6 +170,122 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now backlight-off.service
 ```
 
+### Restrict Internal-Only Services to Loopback + Docker Traffic
+
+`/etc/systemd/system/restrict-internal-ports.sh` +
+`/etc/systemd/system/restrict-internal-ports.service`, added 2026-08-21 as
+the first fix out of Phase 5's security-hardening audit (see
+`docs/roadmap.md`). A Trivy/manual compose review found Prometheus (9090),
+cAdvisor (8080), node-exporter (9100), and FlareSolverr (8191) all
+published on every interface (`0.0.0.0`) with no built-in authentication
+and no Caddy TLS/auth in front — reachable by any device on the LAN, not
+just this household's own.
+
+None of the four could simply be rebound to `127.0.0.1`: this repo's
+cross-container convention is that services reach each other via the
+**host's real LAN IP** (see `services/caddy/config/Caddyfile`'s own
+comment on this), since each service is an independent Compose project
+with no shared Docker network. Binding to loopback would have silently
+broken Grafana's Prometheus queries, Prometheus's own scrapes of
+cAdvisor/node-exporter, and Prowlarr's FlareSolverr calls.
+
+The fix instead filters by **interface** in iptables, not IP range or
+rebinding: container-to-container traffic between two Compose projects
+hairpins through the host and always arrives at the target port via a
+Docker bridge interface (`br-<hash>`, one per Compose project on this
+box — confirmed via `docker network ls`), even though it's addressed to
+the host's LAN IP. A genuine external LAN device's packet arrives via the
+real NIC (`eth1` on this hardware — `eth0` is present but unused/down).
+So "allow `lo` + `docker0` + `br-*`, drop everything else" blocks real LAN
+access while leaving every legitimate internal path untouched, without
+needing to track Docker's shifting bridge subnets at all (two of them,
+`caddy_default` and `prefetcharr_default`, use `192.168.0.0/20` and
+`192.168.16.0/20` — awkwardly LAN-adjacent by address, unambiguous by
+interface).
+
+**Two separate chains, because these four services don't all reach the
+host the same way:**
+
+- Prometheus, cAdvisor, and FlareSolverr are ordinary bridge-networked
+  Compose services with published ports — that traffic is DNAT'd and
+  evaluated by the `FORWARD` chain, specifically `DOCKER-USER` (the one
+  hook point Docker itself respects for user-added filtering, guaranteed
+  to run before Docker's own generated ACCEPT rules).
+- node-exporter runs with `network_mode: host` (like Tailscale) — it
+  binds directly to the host's real interfaces rather than going through
+  Docker's bridge/port-publish path, so `DOCKER-USER` never sees its
+  traffic at all. That's evaluated by the plain `INPUT` chain instead.
+  Found the hard way: the `DOCKER-USER` rule alone correctly blocked LAN
+  access to the other three ports but left 9100 wide open.
+
+Both chains use the same idempotent pattern (`iptables -C` checks before
+`iptables -I <chain> 1` inserts, so re-runs never stack duplicate rules),
+with rules inserted in reverse order so the final chain order reads
+allow/allow/allow/drop.
+
+**Known gap, not yet closed:** IPv4-only (`iptables`, not `ip6tables`).
+Every one of these ports is also published dual-stack (confirmed via
+`ps aux | grep docker-proxy`, showing paired `-host-ip 0.0.0.0` /
+`-host-ip ::` processes for each), so if IPv6 is actually routable
+between devices on this LAN, that's an open bypass — not evaluated yet.
+
+Recreate on a rebuild:
+
+```bash
+sudo tee /etc/systemd/system/restrict-internal-ports.sh > /dev/null <<'EOF'
+#!/bin/sh
+# Restrict Prometheus (9090), cAdvisor (8080), node-exporter (9100), and
+# FlareSolverr (8191) to loopback + Docker-bridge-originated traffic only.
+# None of these four have their own auth and none are fronted by Caddy;
+# cross-container access (Grafana->Prometheus, Prometheus->cAdvisor/
+# node-exporter, Prowlarr->FlareSolverr) arrives via a br-* interface even
+# though it's addressed to the host's LAN IP, so this doesn't break that.
+# Real LAN NIC on this box is eth1 -- everything not lo/docker0/br-* is
+# treated as external and dropped. Idempotent: safe to re-run.
+PORTS="8080,8191,9090,9100"
+
+add_rule_once() {
+  iptables -C DOCKER-USER "$@" 2>/dev/null || iptables -I DOCKER-USER 1 "$@"
+}
+
+add_rule_once -p tcp -m multiport --dports "$PORTS" -j DROP
+add_rule_once -i br-+ -p tcp -m multiport --dports "$PORTS" -j RETURN
+add_rule_once -i docker0 -p tcp -m multiport --dports "$PORTS" -j RETURN
+add_rule_once -i lo -p tcp -m multiport --dports "$PORTS" -j RETURN
+
+# node-exporter (9100) runs with network_mode: host (like Tailscale) --
+# it binds directly to the host's real interfaces rather than going
+# through Docker's bridge/port-publish path, so DOCKER-USER (a FORWARD-
+# chain hook) never sees this traffic. It's evaluated by INPUT instead.
+add_input_rule_once() {
+  iptables -C INPUT "$@" 2>/dev/null || iptables -I INPUT 1 "$@"
+}
+
+add_input_rule_once -p tcp --dport 9100 -j DROP
+add_input_rule_once -i br-+ -p tcp --dport 9100 -j ACCEPT
+add_input_rule_once -i docker0 -p tcp --dport 9100 -j ACCEPT
+add_input_rule_once -i lo -p tcp --dport 9100 -j ACCEPT
+EOF
+sudo chmod +x /etc/systemd/system/restrict-internal-ports.sh
+
+sudo tee /etc/systemd/system/restrict-internal-ports.service > /dev/null <<'EOF'
+[Unit]
+Description=Restrict Prometheus/cAdvisor/node-exporter/FlareSolverr to loopback + Docker-internal traffic (no built-in auth on these)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /etc/systemd/system/restrict-internal-ports.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now restrict-internal-ports.service
+```
+
 ## Developer Bootstrap
 
 To provide a standard Linux developer experience, this project redirects developer tooling using:
