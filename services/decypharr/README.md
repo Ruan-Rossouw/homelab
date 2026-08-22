@@ -43,6 +43,22 @@ FUSE from inside a container fundamentally requires these, there's no
 lighter-weight way to do it with this tool. Just don't lose sight of it
 when reasoning about this box's overall attack surface later.
 
+**`no-new-privileges` is also deliberately omitted here, unlike the other
+18 services in this repo.** Confirmed by incident on 2026-08-22: the
+Docker Bench hardening pass (#92) added `no-new-privileges:true`
+uniformly across every Compose service. Once Decypharr picked it up on
+its next restart, the DFS mount broke outright —
+`fusermount3: mount failed: Operation not permitted` — because
+`fusermount3` needs its own setuid-root escalation to attach the mount,
+which is exactly what `no-new-privileges` blocks, even with
+`cap_add: SYS_ADMIN` already granted. The container stayed
+`Up ... (healthy)` throughout, since its healthcheck doesn't verify the
+mount, so this was silent until playback failed for anything relying on
+`/mnt` (symptom: Jellyfin `FileNotFoundException` on a symlink that
+looked completely normal via `ls`). Do not re-add `no-new-privileges` to
+this service without a different mount backend that doesn't shell out to
+`fusermount3`.
+
 ## Port: 8282, Checked Against the Existing Map
 
 | Port | Service |
