@@ -1,0 +1,18 @@
+services:
+  byparr:
+    image: ghcr.io/thephaseless/byparr:3.0.4
+    container_name: byparr
+    restart: unless-stopped
+    mem_limit: 2g
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${BYPARR_PORT:-8192}:8191"
