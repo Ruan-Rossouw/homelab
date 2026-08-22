@@ -51,6 +51,24 @@ regardless of what a non-root SSH user can read directly on the host. If
 `docker inspect` shows a non-root user, `chown` the four
 `/DATA/AppData/backrest/*` directories to match before first start.
 
+## Container User: Root — No Upstream Non-Root Support, and a Good Reason of Our Own
+
+Beyond the image simply defaulting to root (see the UID-check step
+above): Backrest's own GitHub has open, unresolved issues about running
+non-root at all (permission-denied errors on `user: 1000:1000`, restored
+files losing their original ownership) -- there's no supported path here,
+unlike Jellyfin's case.
+
+Independent of that, root is also the practically correct choice for
+*this* deployment specifically: Backrest's whole job is reading across
+every other service's `/DATA/AppData`, and those are owned by a genuine
+mix of UIDs -- root for AdGuard/Portainer/Caddy, `1000` for the `*arr`
+apps and Prefetcharr, `999` for Decypharr's actual runtime UID (see
+`services/decypharr/README.md`). A single non-root backup user would need
+group membership or ACLs across all of them just to read what it already
+reads today for free. Worth revisiting only if Backrest's own non-root
+support matures upstream, not something to route around here.
+
 ## First Run
 
 Browse to `http://192.168.68.110:9898` and create an admin account — first

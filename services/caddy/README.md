@@ -113,6 +113,19 @@ interface (`network_mode: host`, but scoped to the `tailscale0`
 interface), while Caddy publishes 443 on the normal LAN-facing interface.
 Different interfaces, same port number, no collision.
 
+## Container User: Root — Same Shape as AdGuard's Port-53 Case
+
+Binding `443` (see above) is a privileged port (<1024), which traditionally
+requires root or the `CAP_NET_BIND_SERVICE` capability regardless of
+`/DATA` permission concerns -- the same structural reason AdGuard runs
+root for port 53 (`services/adguard/README.md`). Caddy's own maintainers
+have been explicit about this being a deliberate call, not an oversight:
+a non-root image is possible via `CAP_NET_BIND_SERVICE`, but `setcap`
+doesn't reliably work inside a container, and the project's own
+cost-benefit analysis favored the simpler root default over the extra
+complexity for most deployments. Consistent with that upstream reasoning
+rather than a project-specific judgment call here.
+
 ## Prerequisite: Generate and Trust the Local CA (once, on each device)
 
 Done once already for this repo's Mac (2026-08-01) via:
