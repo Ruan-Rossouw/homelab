@@ -265,7 +265,7 @@ purely local convenience (no browser warning on the home LAN) and doesn't
 change or replace that; the two solve different problems (local cosmetic
 fix vs. actual remote access for friends) and don't conflict.
 
-Not yet fronted, deliberately: FlareSolverr, cAdvisor, Prometheus,
+Not yet fronted, deliberately: Byparr, cAdvisor, Prometheus,
 node-exporter -- none of these have an AdGuard `.home` rewrite today,
 being admin/API-only surfaces nobody browses to directly. Add them the
 same way (regenerate the cert with the new name, add a Caddyfile block)

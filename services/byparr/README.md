@@ -3,8 +3,10 @@
 A drop-in replacement for FlareSolverr — same job (a headless browser that
 solves Cloudflare's JavaScript challenge on behalf of Prowlarr, for
 indexers like extratorrent-st that sit behind it), different
-implementation. See `services/flaresolverr/README.md` for why this proxy
-exists at all and the Trivy finding that prompted this migration.
+implementation. Migrated from FlareSolverr 2026-08-22 and now the
+production proxy; FlareSolverr's own service directory has been removed
+(its history is preserved in `docs/roadmap.md`'s Phase 5 section and this
+file's own migration notes below).
 
 ## Why Migrate: FlareSolverr's Chromium Is Stuck, Byparr's Isn't
 
@@ -32,16 +34,16 @@ This is why the migration is a URL repoint in Prowlarr, not a
 reconfiguration — same interface Prowlarr's FlareSolverr indexer-proxy
 type already speaks.
 
-## Proving Phase: Deployed Alongside FlareSolverr, Not Cut Over Yet
+## Migration History: Proving Phase, Then Cutover (Complete)
 
 Following this repo's pattern for swapping a pipeline dependency (see
 Decypharr's original standalone test before Prowlarr/Radarr/Sonarr got
-wired to it): Byparr runs alongside FlareSolverr first, on a different
-host port (`8192`, not FlareSolverr's `8191`), so both can be compared
-directly before anything in Prowlarr changes. FlareSolverr keeps serving
-production traffic until Byparr is confirmed to actually clear Cloudflare
-challenges for the indexers currently tagged for it (extratorrent-st;
-1337x is not currently in active use — see below).
+wired to it): Byparr was deployed alongside FlareSolverr first, on a
+different host port (`8192`, not FlareSolverr's `8191`), so both could be
+compared directly before anything in Prowlarr changed. FlareSolverr kept
+serving production traffic until Byparr was confirmed to actually clear
+Cloudflare challenges for the indexers tagged for it (extratorrent-st;
+1337x was not in active use — see below).
 
 **Once deployed**, verify with a direct request before touching Prowlarr:
 
@@ -72,15 +74,15 @@ entirely, so this is accepted as a known, pre-existing gap rather than a
 migration blocker. extratorrent-st passing is the real gate, and it
 passed.
 
-**Cutover**: in Prowlarr, **Settings → Indexers → Indexer Proxies**, edit
-the existing FlareSolverr proxy entry to point at
-`http://192.168.68.110:8192` instead of `:8191` (same tag, same
-indexers — nothing else changes), **Test**, **Save**. Confirm
-extratorrent-st searches still work in Prowlarr. Once confirmed, stop and
-remove the FlareSolverr container/service and drop its firewall rule
-(`docs/zimaos.md`), then update `docs/roadmap.md`'s Phase 5 section to
-close out the migration. If 1337x is later removed entirely, drop its
-indexer-proxy tag at the same time.
+**Cutover (done, 2026-08-22)**: Prowlarr's indexer-proxy entry was
+repointed from `http://192.168.68.110:8191` to `:8192` (same tag, same
+indexers — nothing else changed), tested, and confirmed working for
+extratorrent-st. FlareSolverr's container/compose project was then
+removed and its firewall restriction (`docs/zimaos.md`'s
+`restrict-internal-ports` service) was moved to Byparr's port instead of
+just being dropped, since Byparr has the same unauthenticated-LAN-exposure
+shape FlareSolverr did. If 1337x is later removed from Prowlarr entirely,
+drop its indexer-proxy tag at the same time.
 
 ## Resource Trade-Off
 
@@ -112,7 +114,7 @@ images) — the UID is fixed at build time. No `config/` volume is mounted
 non-root default, not a gap needing a README justification per
 `docs/conventions.md`'s root-user rule.
 
-## Port: 8192 (Deliberately Not 8191), Checked Against the Existing Map
+## Port: 8192, Checked Against the Existing Map
 
 | Port | Service |
 |---|---|
@@ -122,7 +124,6 @@ non-root default, not a gap needing a README justification per
 | 7878 | Radarr |
 | 8080 | cAdvisor |
 | 8096 | Jellyfin |
-| 8191 | FlareSolverr (being replaced) |
 | 8192 | **Byparr** |
 | 8282 | Decypharr |
 | 8989 | Sonarr |
@@ -132,9 +133,10 @@ non-root default, not a gap needing a README justification per
 | 9696 | Prowlarr |
 | 9898 | Backrest |
 
-`8191` stays free for FlareSolverr until it's decommissioned; `8192` is
-Byparr's permanent port even after cutover, since there's no reason to
-reclaim `8191` and force a second Prowlarr reconfiguration later.
+`8191` (FlareSolverr's old port) is free again post-retirement. Byparr
+deliberately stayed on `8192` rather than reclaiming `8191` after
+cutover — no reason to force a second Prowlarr reconfiguration for a
+purely cosmetic port change.
 
 ## Volumes
 
