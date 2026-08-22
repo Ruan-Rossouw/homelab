@@ -50,6 +50,21 @@ more targeted `SYS_ADMIN`/`apparmor:unconfined` grants
 (`services/decypharr/README.md`), rather than defaulting to the broadest
 option available.
 
+## Container User: Root — Vendor-Mandated, Not a Deployment Choice
+
+Different in kind from every other root-running service in this repo:
+this isn't a case of "the image happens to run root by default" (AdGuard,
+Backrest) or "root is simpler to configure" (Caddy) — Home Assistant's
+own project explicitly does not support and does not want non-root
+operation of the official image. A real technical driver exists (some
+integrations install Python packages site-wide at runtime, which only
+root can do), and running non-root anyway causes Home Assistant to
+mis-detect its own installation as an "Unsupported Third Party
+Container," breaking its update/supervisor UX. Community workarounds
+exist but aren't something to take on for a stock deployment. Nothing to
+evaluate or revisit here the way Jellyfin's case might be — this one's
+closed by the vendor, not by this repo's own judgment call.
+
 ## Port: 8123, Checked Against the Existing Map
 
 Not published via a `ports:` entry — `network_mode: host` binds directly

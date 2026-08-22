@@ -23,6 +23,24 @@ services — Portainer's `:9443` today, Jellyfin/Home Assistant/Immich later —
 reachable at the same tailnet address, since they all end up sharing one
 network namespace.
 
+## Container User: Root, and Why It's Only `NET_ADMIN`, Not `--privileged`
+
+Runs root, the official image's current default. Tailscale's own project
+has stated the direction they want to go — running `tailscaled` as a
+dedicated non-root system user with specific capabilities granted via
+netlink — but that's not what ships today, so this is documented as
+current state, not a permanent decision.
+
+What *is* already deliberate here: `cap_add: NET_ADMIN` plus the
+`/dev/net/tun` device, not `--privileged`. `NET_ADMIN` is upstream's own
+recommended minimum for TUN-based operation (creating and configuring the
+tunnel interface, setting up routes) — granting the whole host's
+capability set via `--privileged` would be strictly broader than this
+container ever needs, the same least-privilege reasoning already applied
+to Home Assistant's declined `--privileged` default and Decypharr's
+narrower `SYS_ADMIN` grant (`services/home-assistant/README.md`,
+`services/decypharr/README.md`).
+
 ## Scope: Whole Home LAN, via Subnet Routing (revised 2026-07-26)
 
 This node **advertises the home LAN (`192.168.68.0/24`) as a subnet route**

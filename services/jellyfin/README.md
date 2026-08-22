@@ -31,6 +31,24 @@ cellular, reached via Tailscale) where clients need a fixed address
 regardless. Bridge mode keeps Jellyfin's exposure the same shape as every
 other service on the box: one port, nothing else on the network stack.
 
+## Container User: Root, But an Untested Non-Root Path Actually Exists Here
+
+Unlike every other service flagged for this in the Phase 5 security audit
+(AdGuard, Home Assistant, Backrest), Jellyfin's official image genuinely
+supports running non-root — a plain `user: "1000:1000"` override works,
+no PUID/PGID env vars needed (see "Deploy" below for the UID-check step
+already in place). This one isn't run non-root for lack of an option.
+
+The likely practical reason is `/dev/dri` hardware-transcode access: that
+device is typically owned by `root:render`/`root:video` on the host, and
+a non-default container UID would need matching supplementary group
+membership (`group_add:`) to keep transcoding working, not just the
+`user:` line alone. That's a real, plausible reason — but it's honest to
+say this was never actually tested here, not a decision made after
+evaluating the trade-off the way cAdvisor's `--privileged` call was. If
+non-root ever becomes worth pursuing for this service specifically, that
+device-group question is the first thing to verify, not assume.
+
 ## Port: 8096, Checked Against the Existing Map
 
 Jellyfin's default port was free — nothing else on this host has claimed it:
