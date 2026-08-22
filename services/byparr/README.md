@@ -140,7 +140,7 @@ standard per-service shape (`docs/conventions.md`); it isn't mounted.
 
 ```bash
 cd /DATA/Infrastructure/homelab/services/byparr
-docker pull ghcr.io/thephaseless/byparr:v3.0.4
+docker pull ghcr.io/thephaseless/byparr:3.0.4
 cp .env.example .env
 docker compose up -d
 ```
