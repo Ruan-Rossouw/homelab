@@ -23,6 +23,30 @@ running two DHCP servers on one network causes real, hard-to-diagnose
 conflicts (two authorities handing out potentially different leases).
 AdGuard here does exactly one job: DNS.
 
+## Container User: Root — Structural, Not Just Convenience
+
+Unlike Uptime Kuma (which ships an official `-rootless` tag but uses the
+root build anyway, for `/DATA` permission-mapping convenience — see
+`services/uptime-kuma/README.md`'s "Container User" section), AdGuard
+doesn't actually have a non-root path available in the first place: the
+official `adguard/adguardhome` image supports neither PUID/PGID-style
+env vars (unlike the linuxserver.io images used elsewhere in this repo)
+nor a rootless build variant. Only unofficial third-party forks
+(`11notes/adguard`, `lkpot/adguardhome`) offer that, which would mean
+trusting a different maintainer's image, not a config change on this one.
+
+There's also a structural reason beyond image choice: AdGuard binds port
+53 for DNS, one of Linux's privileged ports (<1024) that traditionally
+requires root or the `CAP_NET_BIND_SERVICE` capability to bind at all —
+so even a hypothetical non-root variant would need that capability
+granted back specifically for this to work.
+
+Consistent with the same pattern as Portainer and Uptime Kuma (see
+`docs/architecture.md`) — running as root here isn't an oversight, and
+per `docs/storage.md`'s still-open question, whether a non-root UID would
+even get write access to freshly-created `AppData` subdirectories on this
+box remains unverified either way.
+
 ## Before You Deploy: Check Port 53
 
 ```bash
