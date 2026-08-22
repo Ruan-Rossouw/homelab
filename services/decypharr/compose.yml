@@ -3,6 +3,12 @@ services:
     image: cy01/blackhole:v2.5
     container_name: decypharr
     restart: unless-stopped
+    mem_limit: 3g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${DECYPHARR_PORT:-8282}:8282"
     volumes:

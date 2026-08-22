@@ -4,6 +4,12 @@ services:
     container_name: seerr
     init: true
     restart: unless-stopped
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - TZ=${TZ:-Africa/Johannesburg}
