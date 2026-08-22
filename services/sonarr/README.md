@@ -19,23 +19,10 @@ these if the "why" isn't obvious:
 as Prowlarr/Radarr, no official image published by the Sonarr project
 itself.
 
-## Port: 8989 (Default, Checked Against the Existing Map)
+## Port: 8989 (Default)
 
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 7878 | Radarr |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8282 | Decypharr |
-| 8989 | **Sonarr** |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9696 | Prowlarr |
-| 9898 | Backrest |
+See [`docs/networking.md`](../../docs/networking.md#port-map) for the
+full port map.
 
 ## Volumes
 

@@ -59,20 +59,10 @@ looked completely normal via `ls`). Do not re-add `no-new-privileges` to
 this service without a different mount backend that doesn't shell out to
 `fusermount3`.
 
-## Port: 8282, Checked Against the Existing Map
+## Port: 8282
 
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8282 | **Decypharr** |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9898 | Backrest |
+See [`docs/networking.md`](../../docs/networking.md#port-map) for the
+full port map.
 
 ## Volumes
 

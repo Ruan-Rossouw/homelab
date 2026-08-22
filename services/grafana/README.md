@@ -11,18 +11,9 @@ side of this.
 Grafana's container listens on `3000` internally, but the host port is
 overridden to `3002` by default (`GRAFANA_PORT` in `.env.example`) —
 AdGuard Home's admin UI already claimed `3000` on this host, and Uptime
-Kuma already claimed `3001`. Current port map across every deployed
-service:
-
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 8080 | cAdvisor |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
+Kuma already claimed `3001`. See
+[`docs/networking.md`](../../docs/networking.md#port-map) for the full
+port map.
 
 Picking `3002` proactively avoids repeating the exact kind of collision
 already hit once with AdGuard (which defaulted to port 80 during its own

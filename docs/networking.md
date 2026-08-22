@@ -84,3 +84,41 @@ Deco.
 Network-wide DNS filtering and local DNS resolution for homelab services
 (e.g. `portainer.home` → `192.168.68.110`) — deployed in Phase 2. See
 `services/adguard/README.md` for configuration details.
+
+## Port Map
+
+The canonical list of what's listening on which port — kept in exactly
+one place rather than duplicated as a full table in ten separate
+service READMEs, which is how it was done through 2026-08-22. That
+pattern had already drifted by the time it was noticed during a
+documentation review: several README copies still listed FlareSolverr
+after it was retired, one was missing Byparr entirely, and no two
+copies had the same row count. Each service's own README now states
+only its own port and links back here instead of re-copying the whole
+table.
+
+| Port | Service |
+|---|---|
+| 53 | AdGuard Home (DNS) |
+| 443 | Caddy |
+| 445 | SMB |
+| 3000 | AdGuard Home (web UI) |
+| 3001 | Uptime Kuma |
+| 3002 | Grafana |
+| 5055 | Seerr |
+| 7878 | Radarr |
+| 8080 | cAdvisor |
+| 8096 | Jellyfin |
+| 8123 | Home Assistant |
+| 8192 | Byparr |
+| 8282 | Decypharr |
+| 8989 | Sonarr |
+| 9090 | Prometheus |
+| 9100 | node-exporter |
+| 9443 | Portainer |
+| 9696 | Prowlarr |
+| 9898 | Backrest |
+
+Not listed: **Prefetcharr** (headless, exposes nothing) and
+**Tailscale** (a VPN daemon, not a LAN-reachable web/API port — see
+"Server Reachability" above for how it's actually reached).

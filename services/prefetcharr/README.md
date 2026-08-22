@@ -24,27 +24,9 @@ floating tags.
 
 Unlike every other service in this repo, Prefetcharr has no web UI and
 exposes nothing. It's a single polling loop that reads its config once at
-startup and calls two other services' APIs. Confirmed against the existing
-port map below only in the sense that it takes nothing off it:
-
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 5055 | Seerr |
-| 7878 | Radarr |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8191 | FlareSolverr |
-| 8282 | Decypharr |
-| 8989 | Sonarr |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9696 | Prowlarr |
-| 9898 | Backrest |
-| — | **Prefetcharr (no port)** |
+startup and calls two other services' APIs. See
+[`docs/networking.md`](../../docs/networking.md#port-map) for the full
+port map — Prefetcharr is listed there as taking no port at all.
 
 ## Config: `PREFETCHARR_CONFIG`, Not a Mounted File
 

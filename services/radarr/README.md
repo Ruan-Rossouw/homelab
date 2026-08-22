@@ -20,22 +20,10 @@ standard. If this exact tag turns out to be wrong or superseded by the
 time of deploy, `docker pull` will fail cleanly rather than silently
 running something unexpected.
 
-## Port: 7878 (Default, Checked Against the Existing Map)
+## Port: 7878 (Default)
 
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 7878 | **Radarr** |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8282 | Decypharr |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9696 | Prowlarr |
-| 9898 | Backrest |
+See [`docs/networking.md`](../../docs/networking.md#port-map) for the
+full port map.
 
 ## Volumes
 
