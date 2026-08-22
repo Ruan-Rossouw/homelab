@@ -212,8 +212,24 @@ remapping, disabling Docker's userland-proxy, read-only root
 filesystems, a Docker daemon audit-rule setup, and a handful of SSH
 hardening suggestions from Lynis.
 
-Remaining, in priority order: UPS integration, deeper storage
-monitoring, documentation review.
+**UPS integration — closed 2026-08-22, no hardware purchased.** This
+server is a laptop with a real, present internal battery (confirmed via
+`/sys/class/power_supply/BAT0/`, already exposed to Prometheus by
+node-exporter with no extra setup) — used as the UPS instead of buying
+one. A Grafana Alerting rule fires instantly on mains loss
+(`server_on_battery_power`, reusing the existing ntfy channel), and a
+new host-level systemd timer (`docs/zimaos.md`'s "Battery-Based Graceful
+Shutdown" section — the repo's first genuine recurring `.timer`, not
+just an at-boot oneshot) shuts the box down cleanly once the battery
+hits 20%, before it's actually exhausted. BIOS AC Recovery already
+handles booting back up unattended once power returns. **Known caveat,
+not yet closed**: the battery is measurably degraded (~76% of original
+design capacity, Dell `Y3F7Y6B`) and real runtime under this server's
+actual load hasn't been measured — 20% is a conservative starting
+threshold, to be tuned after a real unplug test.
+
+Remaining, in priority order: deeper storage monitoring, documentation
+review.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures.
 

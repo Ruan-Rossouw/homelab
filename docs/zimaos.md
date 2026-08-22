@@ -335,6 +335,107 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now restrict-internal-ports.service
 ```
 
+### Battery-Based Graceful Shutdown (No External UPS)
+
+`/etc/systemd/system/battery-shutdown.sh` + `.service` + `.timer`, added
+2026-08-22 as Phase 5's UPS-integration task (see `docs/roadmap.md`).
+This server is a laptop (see the Backlight section above) with a real,
+present internal battery — confirmed via `/sys/class/power_supply/BAT0/`
+(`present=1`, `capacity=100`, `status=Full` at the time of writing) and
+already exposed to Prometheus by node-exporter's power-supply collector
+(`node_power_supply_online{power_supply="AC"}`,
+`node_power_supply_capacity{power_supply="BAT0"}`) with no extra setup
+needed. Rather than buy a dedicated UPS, this repo uses that existing
+battery as one: an instant Grafana alert on mains loss (reusing the ntfy
+channel every other alert already goes through — see
+`services/grafana/config/provisioning/alerting/rules.yaml`'s
+`server_on_battery_power` rule) plus a host-level systemd timer that
+shuts the box down gracefully before the battery is actually exhausted.
+BIOS AC Recovery (`docs/secrets.md`) already handles the other half —
+booting back up unattended once mains power returns — so this closes the
+loop without any new hardware.
+
+**Battery health, honestly, not assumed**: `charge_full` (2.811 Ah) vs.
+`charge_full_design` (3.684 Ah) — about 76% of original design capacity,
+not a fresh battery (Dell `Y3F7Y6B`, per
+`node_power_supply_info`'s `model_name` label). At its rated 12.585V
+that's roughly 35 Wh usable at full charge. **Real runtime under this
+server's actual load hasn't been measured yet** — the 20% shutdown
+threshold below is a conservative starting guess, not a validated
+number. A real unplug test is the next step to tune it; until then, this
+errs toward shutting down earlier than strictly necessary rather than
+risking an unclean power-off.
+
+**This is the first genuine `.service` + `.timer` pair in this repo** —
+the other host-level customizations above (`wait-for-mounts`,
+`backlight-off`, `restrict-internal-ports`) are all `Type=oneshot`
+triggered once at boot via `After=`, not actually recurring. This one
+needs to keep checking on a schedule for as long as the box is up, which
+is exactly the case `docs/zimaos.md`'s own "Anything that needs to run
+on a schedule uses a systemd `.service` + `.timer` pair" rule (see the
+`/var` section above) was written for.
+
+Checks every 2 minutes: if AC power is offline (`/sys/class/
+power_supply/AC/online` reads `0`) *and* battery capacity is at or below
+20%, it issues a graceful `shutdown -h now`. Both conditions have to be
+true together, and the capacity threshold itself only becomes true after
+a genuinely sustained drain (hours, not a single flaky reading), so this
+doesn't need extra debounce logic layered on top — deliberately kept as
+simple as the rest of this repo's host-level scripts, not engineered
+against edge cases that don't apply on a homelab.
+
+Recreate on a rebuild:
+
+```bash
+sudo tee /etc/systemd/system/battery-shutdown.sh > /dev/null <<'EOF'
+#!/bin/sh
+# Gracefully shuts the server down before its internal battery is
+# exhausted during a mains power outage -- this box has no external UPS,
+# see docs/zimaos.md's "Battery-Based Graceful Shutdown" section for the
+# full reasoning. Threshold (20%) is a conservative starting guess, not
+# yet validated against a real unplug test.
+AC_ONLINE=$(cat /sys/class/power_supply/AC/online 2>/dev/null)
+CAPACITY=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
+
+if [ "$AC_ONLINE" = "0" ] && [ -n "$CAPACITY" ] && [ "$CAPACITY" -le 20 ]; then
+  logger -t battery-shutdown "AC offline, battery at ${CAPACITY}% -- shutting down"
+  /sbin/shutdown -h now "Battery critically low (${CAPACITY}%) -- shutting down to avoid an unclean power-off"
+fi
+EOF
+sudo chmod +x /etc/systemd/system/battery-shutdown.sh
+
+sudo tee /etc/systemd/system/battery-shutdown.service > /dev/null <<'EOF'
+[Unit]
+Description=Check AC/battery status, shut down gracefully if AC is offline and battery is critically low
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /etc/systemd/system/battery-shutdown.sh
+EOF
+
+sudo tee /etc/systemd/system/battery-shutdown.timer > /dev/null <<'EOF'
+[Unit]
+Description=Run battery-shutdown.service every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=battery-shutdown.service
+
+[Install]
+WantedBy=timers.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now battery-shutdown.timer
+```
+
+**Verify the timer is actually scheduled** (not just the service file
+existing):
+
+```bash
+sudo systemctl list-timers battery-shutdown.timer
+```
+
 ### Docker Daemon: `live-restore` Enabled
 
 `/etc/docker/daemon.json`, set 2026-08-22 during Phase 5's security

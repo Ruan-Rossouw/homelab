@@ -413,3 +413,71 @@ groups:
                     type: last
                     params: []
                   type: query
+
+      - uid: server_on_battery_power
+        title: Server Running on Battery Power
+        condition: C
+        for: 1m
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "This server has no external UPS -- its own internal laptop battery is the only thing keeping it up right now. It has a limited, untested runtime (see docs/roadmap.md's Phase 5 UPS-integration note); a host-level systemd timer will shut it down gracefully once the battery drops to 20% to avoid an unclean power-off."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: 'node_power_supply_online{power_supply="AC"}'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: []
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: B
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
