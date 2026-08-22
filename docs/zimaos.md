@@ -286,6 +286,44 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now restrict-internal-ports.service
 ```
 
+### Docker Daemon: `live-restore` Enabled
+
+`/etc/docker/daemon.json`, set 2026-08-22 during Phase 5's security
+hardening (Docker Bench for Security flagged 2.14 -- live restore not
+enabled). With this on, running containers survive a `dockerd`
+restart/crash instead of going down with it -- confirmed live: restarted
+`docker.service` and all 19 containers kept their original uptime
+throughout, not reset.
+
+**Found the file already broken before touching it**: `cat -A
+/etc/docker/daemon.json` showed a bare `{` followed by a blank line, no
+closing brace -- invalid JSON, not something either this repo or any
+documented change here produced. Docker only reads `daemon.json` at
+daemon startup, so it hadn't caused a problem yet, but a future
+`systemctl restart docker` for any unrelated reason (a Docker upgrade,
+say) would very likely have failed to start `dockerd` on that malformed
+file. Backed it up (`daemon.json.bak`, not tracked in git, host-only)
+and replaced it with a clean, valid file rather than trying to patch
+around the corruption -- there were no real keys in the broken version to
+preserve.
+
+```json
+{
+  "live-restore": true
+}
+```
+
+Recreate on a rebuild:
+
+```bash
+sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
+{
+  "live-restore": true
+}
+EOF
+sudo systemctl restart docker
+```
+
 ## Developer Bootstrap
 
 To provide a standard Linux developer experience, this project redirects developer tooling using:
