@@ -4,11 +4,14 @@ services:
     container_name: backrest
     restart: unless-stopped
     mem_limit: 4g
+    pids_limit: 512
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "${BACKREST_PORT:-9898}:9898"
     environment:

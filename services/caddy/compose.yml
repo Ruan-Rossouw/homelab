@@ -4,11 +4,14 @@ services:
     container_name: caddy
     restart: unless-stopped
     mem_limit: 128m
+    pids_limit: 512
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "443:443"
     volumes:

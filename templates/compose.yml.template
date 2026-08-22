@@ -29,6 +29,20 @@ services:
         max-size: "10m"
         max-file: "3"
 
+    # Uniform across every service -- caps fork-bomb-style runaway process
+    # spawning. Unlike mem_limit this doesn't need per-service measurement:
+    # 512 is generously above what any single-purpose service here needs
+    # under normal load, so it only bites during a real problem.
+    pids_limit: 512
+
+    # Uniform across every service -- blocks a compromised process from
+    # gaining additional privileges via setuid/setgid binaries at exec
+    # time. Not redundant with privileged/cap_add grants (those are
+    # capabilities already held; this blocks *gaining new* ones), so it
+    # applies even to services that also need privileged/cap_add.
+    security_opt:
+      - no-new-privileges:true
+
     # If this service needs PUID/PGID (most linuxserver.io images) or a
     # non-default `user:`, set it here. If it has no such option and ends
     # up running as root as a result (see docs/architecture.md and
@@ -40,8 +54,10 @@ services:
     #   - PGID=1000
     #   - TZ=${TZ:-Africa/Johannesburg}
 
-    # If this service needs `privileged: true`, `cap_add`, `security_opt`,
-    # or `network_mode: host`, add those here -- and add a README section
+    # If this service needs `privileged: true`, `cap_add`, an additional
+    # `security_opt` entry (append to the list above, don't duplicate the
+    # key -- see services/decypharr/compose.yml for the pattern), or
+    # `network_mode: host`, add those here -- and add a README section
     # justifying the specific need (see services/tailscale/README.md's
     # NET_ADMIN justification, or services/uptime-kuma/README.md's
     # "Container User" section, as the pattern to follow). Don't add any

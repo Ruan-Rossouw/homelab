@@ -4,11 +4,14 @@ services:
     container_name: grafana
     restart: unless-stopped
     mem_limit: 1536m
+    pids_limit: 512
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "${GRAFANA_PORT:-3002}:3000"
     environment:

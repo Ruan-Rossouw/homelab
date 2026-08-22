@@ -4,11 +4,14 @@ services:
     container_name: prowlarr
     restart: unless-stopped
     mem_limit: 512m
+    pids_limit: 512
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    security_opt:
+      - no-new-privileges:true
     environment:
       - PUID=1000
       - PGID=1000

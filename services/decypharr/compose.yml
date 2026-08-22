@@ -4,6 +4,7 @@ services:
     container_name: decypharr
     restart: unless-stopped
     mem_limit: 3g
+    pids_limit: 512
     logging:
       driver: json-file
       options:
@@ -22,3 +23,4 @@ services:
       - SYS_ADMIN
     security_opt:
       - apparmor:unconfined
+      - no-new-privileges:true
