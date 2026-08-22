@@ -147,6 +147,35 @@ touches the server; CI validates the repo, deployment is still a manual
   SERVICE=<name>`), not maintained by hand.
 - `restart: unless-stopped` as the default restart policy, so services
   survive a server reboot without needing the ZimaOS app layer.
+- **Every service sets `mem_limit`.** A per-container ceiling that stops
+  one runaway/compromised container from starving the other ~19 on this
+  RAM-constrained box (added Phase 5, after an audit found none of them
+  had one). A brand-new service has no usage history yet, so start with a
+  conservative estimate; revisit after ~1-2 weeks of real traffic using
+  the actual peak (Prometheus/cAdvisor are already deployed --
+  `max_over_time(container_memory_usage_bytes{name="<service>"}[14d])`
+  gives the real number) plus headroom, the same way the existing 19
+  services' limits were set. It's expected and fine for every service's
+  limit summed together to exceed the box's total RAM -- this is a ceiling
+  against one container going wrong, not a capacity reservation for all of
+  them running at max simultaneously.
+- **Every service sets the same `logging` block** (`json-file`,
+  `max-size: "10m"`, `max-file: "3"`, a 30MB cap per container) -- added
+  Phase 5 alongside `mem_limit`, after an audit found unbounded log growth
+  was possible on every service. No per-service tuning needed.
+- **Any deviation from the default non-root, unprivileged, bridge-networked
+  shape gets documented, not just added.** If a service ends up running as
+  root (no PUID/PGID option, or the image doesn't support one), needs
+  `privileged: true`, `cap_add`, `security_opt`, or `network_mode: host` --
+  add a section to that service's README explaining the specific need,
+  the same day it's added, not as a follow-up. `services/uptime-kuma/
+  README.md`'s "Container User" section and `services/tailscale/
+  README.md`'s `NET_ADMIN` justification are the pattern to match. This
+  became a real gap during the Phase 5 audit: AdGuard runs root with zero
+  documentation of why, and Decypharr's `SYS_ADMIN`/`apparmor:unconfined`
+  had no justification anywhere.
+- `templates/compose.yml.template` has the required shape (pinned tag,
+  `mem_limit`, `logging`) ready to copy for a new service.
 - Container networking model (shared network vs. per-service isolation) is
   intentionally **not** decided here — that's a Phase 2 architecture decision
   once Portainer/Tailscale/AdGuard give us a real topology to design against,
