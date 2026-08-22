@@ -242,7 +242,14 @@ capacity alert at all, unlike `/DATA` and `/DATA/Backup`. Known,
 documented limitation: the sector-count alert only covers SATA
 attributes, not NVMe.
 
-Remaining: documentation review.
+**Documentation review — closed 2026-08-22.** Found real drift while
+doing it, not just polish: 10 service READMEs each independently
+hand-copied a full port table (the root cause of the FlareSolverr/Byparr
+drift above), consolidated into a single canonical table in
+`docs/networking.md`; `docs/storage.md` and this section both had stale
+"in progress" language left over from phases/tasks that had already
+closed. See `docs/networking.md`'s "Port Map" section for the
+consolidated table.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures. ✅
 
