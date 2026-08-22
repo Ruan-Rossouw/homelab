@@ -176,31 +176,55 @@ sudo systemctl enable --now backlight-off.service
 `/etc/systemd/system/restrict-internal-ports.service`, added 2026-08-21 as
 the first fix out of Phase 5's security-hardening audit (see
 `docs/roadmap.md`). A Trivy/manual compose review found Prometheus (9090),
-cAdvisor (8080), node-exporter (9100), and Byparr (8192) all
-published on every interface (`0.0.0.0`) with no built-in authentication
-and no Caddy TLS/auth in front — reachable by any device on the LAN, not
-just this household's own.
+cAdvisor (8080), node-exporter (9100), and Byparr (its container-internal
+port, 8191 — see the correction below) all published on every interface
+(`0.0.0.0`) with no built-in authentication and no Caddy TLS/auth in
+front — reachable by any device on the LAN, not just this household's
+own.
 
 **Updated 2026-08-22**: FlareSolverr was retired and replaced by Byparr
 (`services/byparr/README.md`) — same unauthenticated-LAN-exposure
-reasoning applies to its port (8192), so it inherited FlareSolverr's slot
-in this restriction rather than shipping unrestricted. The script and
-prose below reflect the current (Byparr) state; the live iptables rules
-on the box needed a manual swap since a `git pull` doesn't touch running
-firewall state:
+reasoning applies, so Byparr needed a slot in this restriction rather
+than shipping unrestricted.
+
+**Corrected same day, after a real external-connection test caught it**:
+the first attempt at this swap used Byparr's *host*-published port
+(8192) in the `PORTS` list, which looked right but didn't actually block
+anything — verified via `curl` from a genuine LAN device (not the
+server, not through a Docker bridge), which showed the TCP handshake
+completing before hanging on the HTTP response, rather than the
+connection just failing to establish at all. Root cause: this rule lives
+in `DOCKER-USER`, a `FORWARD`-chain hook, which iptables evaluates
+*after* the `nat` table's `PREROUTING` DNAT has already rewritten the
+packet's destination port from the host-published port to the
+container's internal port. For Prometheus/cAdvisor, host and container
+ports are numerically identical (`9090:9090`, `8080:8080`), so this
+rewrite is invisible and the original rule worked by coincidence, not by
+correct design. Byparr publishes `8192:8191` (host:container) — its
+container always listens on hardcoded internal port `8191`, published
+externally as `8192` specifically to avoid colliding with FlareSolverr
+during the migration's parallel-run phase — so by the time `DOCKER-USER`
+sees the packet, its destination port is already `8191`, not `8192`, and
+a rule matching `8192` never fires. **The rule must match the
+container-side port for any service with an asymmetric host:container
+mapping**, not the externally-published one. The script and prose below
+already reflect the corrected value (`8191` — Byparr's container port,
+not a leftover FlareSolverr reference despite the matching digits). If
+you already applied the wrong (`8192`) version, re-running the commands
+below will correct it.
 
 ```bash
-sudo iptables -D DOCKER-USER -p tcp -m multiport --dports 8080,8191,9090,9100 -j DROP
-sudo iptables -D DOCKER-USER -i br-+ -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
-sudo iptables -D DOCKER-USER -i docker0 -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
-sudo iptables -D DOCKER-USER -i lo -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
+sudo iptables -D DOCKER-USER -p tcp -m multiport --dports 8080,8192,9090,9100 -j DROP
+sudo iptables -D DOCKER-USER -i br-+ -p tcp -m multiport --dports 8080,8192,9090,9100 -j RETURN
+sudo iptables -D DOCKER-USER -i docker0 -p tcp -m multiport --dports 8080,8192,9090,9100 -j RETURN
+sudo iptables -D DOCKER-USER -i lo -p tcp -m multiport --dports 8080,8192,9090,9100 -j RETURN
 ```
 
-then re-run the full "Recreate on a rebuild" block below (already
-updated to use port 8192) to rewrite the script file itself and restart
-the service — the delete above only clears the stale *live* rules, it
+then re-run the full "Recreate on a rebuild" block below (using the
+corrected port `8191`) to rewrite the script file itself and restart the
+service — the delete above only clears the stale *live* rules, it
 doesn't touch the script on disk, so skipping the recreate step would
-leave the service re-adding the old 8191 rules on its next restart/boot.
+leave the service re-adding the wrong rules on its next restart/boot.
 
 None of the four could simply be rebound to `127.0.0.1`: this repo's
 cross-container convention is that services reach each other via the
@@ -256,14 +280,18 @@ Recreate on a rebuild:
 sudo tee /etc/systemd/system/restrict-internal-ports.sh > /dev/null <<'EOF'
 #!/bin/sh
 # Restrict Prometheus (9090), cAdvisor (8080), node-exporter (9100), and
-# Byparr (8192) to loopback + Docker-bridge-originated traffic only.
+# Byparr (8191 -- its container-internal port; Byparr is published
+# externally as 8192, but DOCKER-USER sees packets post-DNAT, so the
+# rule has to match the container-side port, not the host-side one --
+# see this section's 2026-08-22 correction) to loopback +
+# Docker-bridge-originated traffic only.
 # None of these four have their own auth and none are fronted by Caddy;
 # cross-container access (Grafana->Prometheus, Prometheus->cAdvisor/
 # node-exporter, Prowlarr->Byparr) arrives via a br-* interface even
 # though it's addressed to the host's LAN IP, so this doesn't break that.
 # Real LAN NIC on this box is eth1 -- everything not lo/docker0/br-* is
 # treated as external and dropped. Idempotent: safe to re-run.
-PORTS="8080,8192,9090,9100"
+PORTS="8080,8191,9090,9100"
 
 add_rule_once() {
   iptables -C DOCKER-USER "$@" 2>/dev/null || iptables -I DOCKER-USER 1 "$@"
