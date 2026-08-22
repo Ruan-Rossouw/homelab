@@ -23,4 +23,7 @@ services:
       - SYS_ADMIN
     security_opt:
       - apparmor:unconfined
-      - no-new-privileges:true
+    # no-new-privileges intentionally omitted: fusermount3 needs its setuid-root
+    # escalation to attach the DFS mount even with cap_add: SYS_ADMIN already
+    # granted; blocking it breaks the mount outright. See README "Privilege
+    # Footprint" section.
