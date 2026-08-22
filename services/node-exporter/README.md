@@ -26,6 +26,20 @@ homelab-specific choice — there's no meaningfully less invasive way to get
 real host metrics out of a container, since the alternative (no host
 namespace access at all) means it can only ever report on itself.
 
+## Textfile Collector: SMART Disk Health
+
+Added 2026-08-22 (`--collector.textfile.directory=/host/DATA/
+Infrastructure/node-exporter/textfile_collector` in `compose.yml`). This
+is the standard way to feed node-exporter metrics it can't gather
+itself — a separate host-level systemd timer periodically writes a
+`.prom` file into that directory (see `docs/zimaos.md`'s "SMART Disk
+Health Capture" section for the full mechanism), and node-exporter picks
+it up and re-exposes it alongside its own metrics, no extra Prometheus
+scrape target needed. The path lives under `/host` because the existing
+`/:/host:ro,rslave` mount above already gives node-exporter visibility
+into that real host path — no new volume mount required, just telling it
+where to look.
+
 ## Deploy
 
 ```bash
