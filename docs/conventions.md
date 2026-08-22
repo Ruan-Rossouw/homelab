@@ -163,6 +163,19 @@ touches the server; CI validates the repo, deployment is still a manual
   `max-size: "10m"`, `max-file: "3"`, a 30MB cap per container) -- added
   Phase 5 alongside `mem_limit`, after an audit found unbounded log growth
   was possible on every service. No per-service tuning needed.
+- **Every service sets `pids_limit: 512`** -- caps fork-bomb-style runaway
+  process spawning, a different axis from the memory ceiling above. Unlike
+  `mem_limit`, this doesn't need per-service measurement: 512 is generously
+  above what any single-purpose service here needs under normal load, so a
+  uniform value is fine.
+- **Every service sets `security_opt: [no-new-privileges:true]`** -- blocks
+  a compromised process from gaining additional privileges via setuid/
+  setgid binaries at exec time. Not redundant with `privileged`/`cap_add`
+  (those grant capabilities upfront; this blocks gaining *new* ones), so it
+  applies even to services that also need those -- append to an existing
+  `security_opt` list rather than duplicating the key (see
+  `services/decypharr/compose.yml`). Both this and `pids_limit` were added
+  after running Docker Bench for Security during Phase 5.
 - **Any deviation from the default non-root, unprivileged, bridge-networked
   shape gets documented, not just added.** If a service ends up running as
   root (no PUID/PGID option, or the image doesn't support one), needs
