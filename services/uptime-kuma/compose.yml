@@ -3,6 +3,12 @@ services:
     image: louislam/uptime-kuma:2.5.0
     container_name: uptime-kuma
     restart: unless-stopped
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${UPTIME_KUMA_PORT:-3001}:3001"
     volumes:

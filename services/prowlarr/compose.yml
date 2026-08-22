@@ -3,6 +3,12 @@ services:
     image: lscr.io/linuxserver/prowlarr:2.5.2
     container_name: prowlarr
     restart: unless-stopped
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - PUID=1000
       - PGID=1000

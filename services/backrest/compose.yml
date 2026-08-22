@@ -3,6 +3,12 @@ services:
     image: ghcr.io/garethgeorge/backrest:v1.14.1
     container_name: backrest
     restart: unless-stopped
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${BACKREST_PORT:-9898}:9898"
     environment:

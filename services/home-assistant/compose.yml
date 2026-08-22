@@ -4,6 +4,12 @@ services:
     container_name: home-assistant
     network_mode: host
     restart: unless-stopped
+    mem_limit: 1024m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - TZ=${TZ:-Africa/Johannesburg}
     volumes:

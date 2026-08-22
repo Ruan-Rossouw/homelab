@@ -3,6 +3,12 @@ services:
     image: adguard/adguardhome:v0.107.78
     container_name: adguard
     restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "53:53/tcp"
       - "53:53/udp"
