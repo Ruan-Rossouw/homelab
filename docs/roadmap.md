@@ -179,17 +179,35 @@ backups + restore testing (done, was actually Phase 4's gate), alerting
 (ntfy + 6 Grafana Alerting rules), container updates (Renovate, proven
 live), and baseline GitHub Actions CI (lint + secret scanning).
 
-**Secret management — in progress (2026-08-15):** evaluated sops+age
-against password-manager-backed CLI injection and a hardened-`.env`-only
-approach; picked sops+age (see `docs/secrets.md` for the full trade-off
-writeup). Mechanism built and proven end-to-end against one pilot service
-(Prefetcharr, placeholder values) — not yet rolled out to the other ~19
-services or the server itself. See `docs/secrets.md`'s Status section for
-exactly what's left.
+**Secret management — closed (2026-08-18).** Evaluated sops+age against
+password-manager-backed CLI injection and a hardened-`.env`-only approach;
+picked sops+age (see `docs/secrets.md` for the full trade-off writeup).
+Rolled out to the only two services with real secrets in `.env`
+(Prefetcharr, Grafana) — every other service either has no secret to
+migrate or stores it outside `.env` entirely (Decypharr, Home Assistant).
+Age key backed up to the password manager; rotation cadence deliberately
+deferred, not an open gap.
 
-Remaining, in priority order: finish secret management rollout, UPS
-integration, security hardening, deeper storage monitoring, documentation
-review.
+**Security hardening — in progress (started 2026-08-22).** Wazuh rejected
+outright (its indexer alone needs this server's entire RAM budget); picked
+Docker Bench for Security + Trivy + Lynis instead, all one-shot/no
+persistent footprint. Closed so far: Prometheus/cAdvisor/node-exporter/
+FlareSolverr's unauthenticated LAN exposure (host-level firewall, see
+`docs/zimaos.md`); resource limits + log rotation across all 19 services,
+based on measured peak usage, not guessed; `pids_limit` +
+`no-new-privileges` across all 19; Docker daemon `live-restore`; a root
+account with no password set (`sudo passwd -S root` showed `NP`); and
+root-user justification docs for every service that needed one. Open:
+FlareSolverr's bundled Chromium has no upstream fix available (project
+appears stalled) — accepted as documented risk for now, with a planned
+migration to [Byparr](https://github.com/ThePhaseless/Byparr) as the next
+concrete step (see `services/flaresolverr/README.md`). Also deliberately
+parked, not urgent on a homelab: user namespace remapping, disabling
+Docker's userland-proxy, read-only root filesystems, a Docker daemon
+audit-rule setup, and a handful of SSH hardening suggestions from Lynis.
+
+Remaining, in priority order: migrate FlareSolverr to Byparr, UPS
+integration, deeper storage monitoring, documentation review.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures.
 
