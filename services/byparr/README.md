@@ -2,7 +2,7 @@
 
 A drop-in replacement for FlareSolverr — same job (a headless browser that
 solves Cloudflare's JavaScript challenge on behalf of Prowlarr, for
-indexers like 1337x and extratorrent-st that sit behind it), different
+indexers like extratorrent-st that sit behind it), different
 implementation. See `services/flaresolverr/README.md` for why this proxy
 exists at all and the Trivy finding that prompted this migration.
 
@@ -40,40 +40,46 @@ wired to it): Byparr runs alongside FlareSolverr first, on a different
 host port (`8192`, not FlareSolverr's `8191`), so both can be compared
 directly before anything in Prowlarr changes. FlareSolverr keeps serving
 production traffic until Byparr is confirmed to actually clear Cloudflare
-challenges for the indexers currently tagged for it (1337x,
-extratorrent-st).
+challenges for the indexers currently tagged for it (extratorrent-st;
+1337x is not currently in active use — see below).
 
 **Once deployed**, verify with a direct request before touching Prowlarr:
 
 ```bash
 curl -s -X POST http://192.168.68.110:8192/v1 \
   -H "Content-Type: application/json" \
-  -d '{"cmd":"request.get","url":"https://1337x.to","maxTimeout":60000}' | jq .
+  -d '{"cmd":"request.get","url":"https://extratorrent.st","maxTimeout":60000}' | jq .
 ```
 
 Expect `"status": "ok"` and a `solution.response` containing real page
 HTML (not a Cloudflare challenge page) and a non-empty `solution.cookies`
-list. Repeat against extratorrent-st's URL. Both passing is the gate for
-cutover.
+list.
 
-Pre-checked (2026-08-22) from a non-server sandbox before writing these
-instructions: the container builds, starts, and passes `/health` and a
-general `/v1` request (`google.com`) correctly. The 1337x-specific check
-above returned Cloudflare's own "Access denied" page rather than a
-challenge Byparr failed to solve — almost certainly the sandbox's
-datacenter IP getting blocked by Cloudflare's WAF layer before any
-JS-challenge-solving is even relevant, not a Byparr defect. This is
-exactly why the gate has to run from the server's own (residential) IP,
-not be taken as already proven here.
+**Run from the server (2026-08-22), results:**
+- **extratorrent-st: pass.** `status: ok`, a real `cf_clearance` cookie,
+  and genuine page HTML (torrent listings, category nav) — Byparr solved
+  the Cloudflare challenge correctly.
+- **1337x: not a challenge failure — a Cloudflare IP ban.** The response
+  was Cloudflare Error 1006, with the page stating outright *"The owner
+  of this website (1337x.to) has banned your IP address"*. That's 1337x's
+  own WAF rejecting this server's IP before any JS-challenge logic even
+  runs — it would happen to FlareSolverr too, from the same IP. Not a
+  Byparr defect, and not something either tool can route around.
 
-**Cutover** (only after the gate above passes): in Prowlarr, **Settings →
-Indexers → Indexer Proxies**, edit the existing FlareSolverr proxy entry
-to point at `http://192.168.68.110:8192` instead of `:8191` (same tags,
-same indexers — nothing else changes), **Test**, **Save**. Confirm
-1337x/extratorrent-st searches still work in Prowlarr. Once confirmed,
-stop and remove the FlareSolverr container/service and drop its firewall
-rule (`docs/zimaos.md`), then update `docs/roadmap.md`'s Phase 5 section
-to close out the migration.
+1337x isn't currently in active use and is being considered for removal
+entirely, so this is accepted as a known, pre-existing gap rather than a
+migration blocker. extratorrent-st passing is the real gate, and it
+passed.
+
+**Cutover**: in Prowlarr, **Settings → Indexers → Indexer Proxies**, edit
+the existing FlareSolverr proxy entry to point at
+`http://192.168.68.110:8192` instead of `:8191` (same tag, same
+indexers — nothing else changes), **Test**, **Save**. Confirm
+extratorrent-st searches still work in Prowlarr. Once confirmed, stop and
+remove the FlareSolverr container/service and drop its firewall rule
+(`docs/zimaos.md`), then update `docs/roadmap.md`'s Phase 5 section to
+close out the migration. If 1337x is later removed entirely, drop its
+indexer-proxy tag at the same time.
 
 ## Resource Trade-Off
 
