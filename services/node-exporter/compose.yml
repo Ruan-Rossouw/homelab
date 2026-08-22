@@ -18,3 +18,4 @@ services:
       - /:/host:ro,rslave
     command:
       - "--path.rootfs=/host"
+      - "--collector.textfile.directory=/host/DATA/Infrastructure/node-exporter/textfile_collector"

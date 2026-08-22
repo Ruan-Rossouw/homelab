@@ -481,3 +481,207 @@ groups:
                     type: last
                     params: []
                   type: query
+
+      - uid: media_disk_capacity
+        title: Media Drive Capacity High
+        condition: C
+        for: 10m
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "/DATA/Media is above 90% full -- the most actively growing volume via Radarr/Sonarr/Decypharr."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: '100 - (node_filesystem_avail_bytes{mountpoint="/DATA/Media"} / node_filesystem_size_bytes{mountpoint="/DATA/Media"} * 100)'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: []
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: B
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [90]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+
+      - uid: smart_health_failed
+        title: Disk SMART Health Failed
+        condition: C
+        for: 1m
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: "A drive's overall SMART health status is FAILED -- this box has no RAID at any layer (see docs/storage.md), so a failing drive is a single point of failure. Check `smartctl -a` on the affected device and back up anything not already covered by restic immediately."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: 'smartctl_device_smart_status'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: []
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: B
+              refId: C
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+
+      - uid: smart_reallocated_pending_sectors
+        title: Disk SMART Reallocated/Pending Sectors Detected
+        condition: C
+        for: 1m
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "A drive is reporting a nonzero Reallocated_Sector_Ct or Current_Pending_Sector count -- the classic early-warning sign of a failing drive, ahead of an outright SMART health FAILED status. Worth investigating even at a low count given this box has no RAID at any layer (see docs/storage.md). Known limitation: this only covers SATA-attribute drives, not NVMe -- see docs/zimaos.md's SMART Disk Health Capture section."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: 'smartctl_device_attribute{attribute_name=~"Reallocated_Sector_Ct|Current_Pending_Sector", attribute_value_type="raw"}'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: reduce
+              expression: A
+              reducer: max
+              refId: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: []
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: B
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query

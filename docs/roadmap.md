@@ -228,8 +228,20 @@ design capacity, Dell `Y3F7Y6B`) and real runtime under this server's
 actual load hasn't been measured — 20% is a conservative starting
 threshold, to be tuned after a real unplug test.
 
-Remaining, in priority order: deeper storage monitoring, documentation
-review.
+**Deeper storage monitoring — closed 2026-08-22.** `docs/storage.md` was
+explicit that all three drives are single points of failure with no
+RAID at any layer, but nothing watched for a drive actually *dying* —
+only for "drive is full." Added SMART health monitoring via a host-level
+systemd timer (`docs/zimaos.md`'s "SMART Disk Health Capture") feeding
+node-exporter's textfile collector, backing two new Grafana alerts
+(overall health FAILED, and Reallocated/Pending sector counts going
+nonzero — the earlier warning sign). Also closed a real gap found along
+the way: `/DATA/Media`, the most actively-growing volume, had no
+capacity alert at all, unlike `/DATA` and `/DATA/Backup`. Known,
+documented limitation: the sector-count alert only covers SATA
+attributes, not NVMe.
+
+Remaining: documentation review.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures.
 

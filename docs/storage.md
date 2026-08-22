@@ -31,6 +31,20 @@ failing mid-operation; it does nothing for accidental deletion, corruption,
 or ransomware. Until `backup.md`'s mechanism is actually running (not just
 documented), the data on `/DATA/Media` remains unprotected.
 
+**Disk health monitoring — closed 2026-08-22.** With no RAID at any layer,
+a capacity alert alone ("drive is full") was never enough — nothing
+watched for "drive is dying" until now. `docs/zimaos.md`'s "SMART Disk
+Health Capture" section adds a host-level systemd timer that feeds SMART
+health/attribute data into node-exporter's textfile collector, backing
+two Grafana alerts: overall SMART health FAILED
+(`smart_health_failed`), and a Reallocated/Pending sector count going
+nonzero (`smart_reallocated_pending_sectors`) — the classic early-warning
+sign that precedes an outright failure. All three drives get capacity
+alerts too as of the same date (`/DATA`, `/DATA/Media`, `/DATA/Backup` —
+Media had been missing one). Known gap: the sector-count alert only
+covers SATA-attribute drives, not NVMe (not confirmed which interface
+this box's drives actually use) — see `docs/zimaos.md` for detail.
+
 ### Mounting External Drives
 
 Both external drives are wired into `/etc/fstab` by `UUID` (not device name —

@@ -436,6 +436,136 @@ existing):
 sudo systemctl list-timers battery-shutdown.timer
 ```
 
+### SMART Disk Health Capture (Textfile Collector)
+
+`/etc/systemd/system/smart-textfile.sh` + `.service` + `.timer`, added
+2026-08-22 as Phase 5's "deeper storage monitoring" task (see
+`docs/roadmap.md`). `docs/storage.md` is explicit that all three of this
+box's drives are single points of failure with no RAID at any layer —
+the existing capacity alerts (`internal_disk_capacity`,
+`backup_disk_capacity` in
+`services/grafana/config/provisioning/alerting/rules.yaml`) only ever
+catch "drive is full," never "drive is dying." This adds the actual
+predictive-failure signal: SMART health status and attribute data,
+scraped periodically and fed into node-exporter's textfile collector so
+Prometheus/Grafana see it like any other host metric.
+
+**`smartmontools` isn't natively available on this box** (no package
+manager, see "Read-Only Root" above), so this runs via Docker like
+`sops`/`restic` already do — same pattern, same reasoning. Rather than
+hand-parsing `smartctl`'s raw text output (fragile across drive/vendor
+differences) or running a persistent `smartctl_exporter` daemon
+(rejected for the same "another always-on service" reason the battery
+timer above chose a timer over a container), this starts the official
+`prometheuscommunity/smartctl-exporter` image briefly, scrapes its
+`/metrics` once over `127.0.0.1` (never exposed to the LAN — no
+firewall rule needed, unlike the services in "Restrict Internal-Only
+Services" above), writes the result into node-exporter's textfile
+directory, then stops the container. This reuses the exporter's own
+well-tested SMART parsing (`smartctl_device_smart_status`,
+`smartctl_device_attribute`, etc. — verified directly against its
+source, `metrics.go`/`smartctl.go`, not guessed) instead of
+reimplementing it, while keeping the "no new persistent service"
+property intact. Follows the project's own documented deployment
+(`privileged: true`, `user: root` — not narrowed further, since even
+their own README doesn't commit to a smaller capability set as a
+supported interface).
+
+**node-exporter needed a config change to read this**:
+`services/node-exporter/compose.yml` now passes
+`--collector.textfile.directory=/host/DATA/Infrastructure/node-exporter/
+textfile_collector` — the path is under `/host` because node-exporter's
+existing `/:/host:ro,rslave` mount (see
+`services/node-exporter/README.md`) already gives it read-only visibility
+into the entire real host filesystem; no new volume mount needed, just
+telling it where to look.
+
+**Known limitation, not yet closed**: NVMe drives don't expose the
+classic SATA attributes (`Reallocated_Sector_Ct`,
+`Current_Pending_Sector`) this setup's second alert rule watches — they
+use separate NVMe-specific fields
+(`smartctl_device_media_errors`/`smartctl_device_critical_warning`,
+also emitted by the same exporter) that aren't alerted on yet. Not
+confirmed whether any of this box's three drives are actually NVMe
+rather than SATA — the overall-health alert
+(`smartctl_device_smart_status`) covers both interface types uniformly
+regardless, so this is a gap in the *early-warning* layer specifically,
+not in catching an outright failure.
+
+Recreate on a rebuild:
+
+```bash
+sudo tee /etc/systemd/system/smart-textfile.sh > /dev/null <<'EOF'
+#!/bin/sh
+# Captures SMART health/attribute data for every attached disk into a
+# Prometheus textfile-collector .prom file. Runs the official
+# smartctl_exporter image just long enough to scrape it once, rather
+# than as a permanent daemon -- see docs/zimaos.md's "SMART Disk Health
+# Capture" section for the full reasoning.
+set -eu
+
+TEXTFILE_DIR=/DATA/Infrastructure/node-exporter/textfile_collector
+CONTAINER=smartctl-exporter-scrape
+IMAGE=prometheuscommunity/smartctl-exporter:v0.14.0
+
+mkdir -p "$TEXTFILE_DIR"
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+docker run -d --name "$CONTAINER" --privileged --user root \
+  -p 127.0.0.1:9633:9633 "$IMAGE" >/dev/null
+
+# Give it time to complete its initial device scan + smartctl poll
+# before scraping -- USB drives in particular can be slower to respond
+# than the internal disk.
+sleep 15
+
+if curl -sf http://127.0.0.1:9633/metrics -o "$TEXTFILE_DIR/smart.prom.tmp"; then
+  mv "$TEXTFILE_DIR/smart.prom.tmp" "$TEXTFILE_DIR/smart.prom"
+else
+  logger -t smart-textfile "Failed to scrape smartctl_exporter -- leaving previous smart.prom in place"
+  rm -f "$TEXTFILE_DIR/smart.prom.tmp"
+fi
+
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+EOF
+sudo chmod +x /etc/systemd/system/smart-textfile.sh
+
+sudo tee /etc/systemd/system/smart-textfile.service > /dev/null <<'EOF'
+[Unit]
+Description=Scrape SMART disk health into node-exporter's textfile collector
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /etc/systemd/system/smart-textfile.sh
+EOF
+
+sudo tee /etc/systemd/system/smart-textfile.timer > /dev/null <<'EOF'
+[Unit]
+Description=Run smart-textfile.service every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Unit=smart-textfile.service
+
+[Install]
+WantedBy=timers.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now smart-textfile.timer
+```
+
+**Verify** — both that the timer ran and that node-exporter is actually
+reading the result:
+
+```bash
+sudo systemctl list-timers smart-textfile.timer
+cat /DATA/Infrastructure/node-exporter/textfile_collector/smart.prom | head -20
+curl -s http://127.0.0.1:9100/metrics | grep smartctl_device_smart_status
+```
+
 ### Docker Daemon: `live-restore` Enabled
 
 `/etc/docker/daemon.json`, set 2026-08-22 during Phase 5's security
