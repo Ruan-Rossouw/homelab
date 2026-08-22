@@ -1,0 +1,54 @@
+services:
+  <service-name>:
+    # Pin the exact tag -- never :latest. An unpinned tag means the same
+    # `git pull` + `docker compose up` can produce a different result on
+    # two different days.
+    image: <image>:<pinned-tag>
+    container_name: <service-name>
+    restart: unless-stopped
+
+    # Conservative starting ceiling -- a brand-new service has no cAdvisor
+    # history yet, so this is a guess, not a measurement. Revisit after
+    # ~1-2 weeks of real usage: Prometheus's own UI (Status -> Targets,
+    # or a query like
+    #   max_over_time(container_memory_usage_bytes{name="<service-name>"}[14d])
+    # ) gives the real peak: set the limit to that plus headroom, same as
+    # every other service in this repo. See docs/conventions.md's
+    # "Compose Conventions" section for the full reasoning. This is a
+    # per-container ceiling to stop one runaway/compromised container
+    # from starving the others on this RAM-constrained box -- it's fine,
+    # and expected, for every service's limit summed together to exceed
+    # the box's total RAM.
+    mem_limit: 256m
+
+    # Uniform across every service in this repo -- 30MB cap per
+    # container (10m x 3 files). No per-service tuning needed here.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # If this service needs PUID/PGID (most linuxserver.io images) or a
+    # non-default `user:`, set it here. If it has no such option and ends
+    # up running as root as a result (see docs/architecture.md and
+    # services/uptime-kuma/README.md's "Container User" section for the
+    # existing precedent), add a "Container User" section to this
+    # service's README explaining why -- don't leave it undocumented.
+    # environment:
+    #   - PUID=1000
+    #   - PGID=1000
+    #   - TZ=${TZ:-Africa/Johannesburg}
+
+    # If this service needs `privileged: true`, `cap_add`, `security_opt`,
+    # or `network_mode: host`, add those here -- and add a README section
+    # justifying the specific need (see services/tailscale/README.md's
+    # NET_ADMIN justification, or services/uptime-kuma/README.md's
+    # "Container User" section, as the pattern to follow). Don't add any
+    # of these without documenting why in the same PR.
+
+    # ports:
+    #   - "${SERVICE_PORT:-0000}:0000"
+
+    # volumes:
+    #   - /DATA/AppData/<service-name>/config:/config
