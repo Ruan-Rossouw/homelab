@@ -56,6 +56,7 @@ HTML (not a Cloudflare challenge page) and a non-empty `solution.cookies`
 list.
 
 **Run from the server (2026-08-22), results:**
+
 - **extratorrent-st: pass.** `status: ok`, a real `cf_clearance` cookie,
   and genuine page HTML (torrent listings, category nav) — Byparr solved
   the Cloudflare challenge correctly.
