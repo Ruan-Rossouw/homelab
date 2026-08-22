@@ -23,6 +23,49 @@ Real-Debrid content-availability blocks — see `services/sonarr/README.md`
 project history), but if resource pressure ever becomes a real problem
 on this box, this is one of the first places to look.
 
+## Known Vulnerability: Bundled Chromium, Accepted Risk — Migration to Byparr Planned Next
+
+Flagged by Trivy during Phase 5's security audit: this image bundles a
+stale Debian-packaged Chromium (`148.0.7778.178-1~deb12u1`, several point
+releases behind fixed upstream versions) — it accounts for 2138 of the
+2141 HIGH/CRITICAL CVEs Trivy reports against this image, one root cause,
+not thousands of independent problems. This is a real, meaningful risk
+specifically for this service: FlareSolverr's whole job is fetching and
+rendering whatever page an indexer sends it to solve a Cloudflare
+challenge, which is exactly the vector a Chromium rendering-engine bug
+would get triggered through — narrower network exposure (see below)
+doesn't touch this.
+
+**No local fix exists.** Checked directly (2026-08-22): FlareSolverr's
+own latest release is `v3.5.0`, published 2026-05-26 — exactly what this
+service already runs. Nothing newer has shipped in three months, and
+community consensus is the project is no longer actively maintained.
+Renovate is correctly configured to pick up any future release the
+moment one exists (no exclusions in `renovate.json`), but there's
+currently nothing for it to pick up, and that may not change.
+
+**Accepted for now, not indefinitely.** Phase 5's `restrict-internal-ports`
+firewall work (`docs/zimaos.md`) already closed the *inbound* path —
+nothing on the LAN can reach this service directly anymore, only Prowlarr
+via the docker-bridge hairpin. That's a real reduction in exposure, but
+it doesn't eliminate the rendering-engine risk above, so this isn't fully
+closed, just narrowed.
+
+**Next planned step: migrate to [Byparr](https://github.com/ThePhaseless/Byparr)**
+(`ghcr.io/thephaseless/byparr`) — a drop-in, API-compatible replacement
+(same Prowlarr indexer-proxy interface, migration is repointing the URL,
+not reconfiguring indexers), actively maintained with real CI/CD-published
+releases, and built on Playwright rather than raw Selenium +
+undetected-chromedriver — Playwright manages its own browser binary,
+which is a structurally better position against exactly this class of
+problem than FlareSolverr's approach. Not done yet: this repo's pattern
+for swapping a pipeline dependency is proving the replacement in
+isolation first (same as Decypharr's original standalone test before
+Prowlarr/Radarr/Sonarr got wired to it) — needs deploying alongside
+FlareSolverr and confirming it actually clears Cloudflare challenges for
+the indexers currently tagged for it (1337x, extratorrent-st) before
+cutting over.
+
 ## Image: Official, Pinned
 
 `ghcr.io/flaresolverr/flaresolverr:v3.5.0` — FlareSolverr's own official
