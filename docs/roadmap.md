@@ -197,17 +197,23 @@ FlareSolverr's unauthenticated LAN exposure (host-level firewall, see
 based on measured peak usage, not guessed; `pids_limit` +
 `no-new-privileges` across all 19; Docker daemon `live-restore`; a root
 account with no password set (`sudo passwd -S root` showed `NP`); and
-root-user justification docs for every service that needed one. Open:
-FlareSolverr's bundled Chromium has no upstream fix available (project
-appears stalled) — accepted as documented risk for now, with a planned
-migration to [Byparr](https://github.com/ThePhaseless/Byparr) as the next
-concrete step (see `services/flaresolverr/README.md`). Also deliberately
-parked, not urgent on a homelab: user namespace remapping, disabling
-Docker's userland-proxy, read-only root filesystems, a Docker daemon
-audit-rule setup, and a handful of SSH hardening suggestions from Lynis.
+root-user justification docs for every service that needed one.
+**FlareSolverr → Byparr migration closed (2026-08-22)**: FlareSolverr's
+bundled Chromium had no upstream fix available (project stalled);
+replaced with [Byparr](https://github.com/ThePhaseless/Byparr)
+(`services/byparr/README.md`), confirmed API-compatible from source and
+proven against extratorrent-st from the server's own IP before cutover
+(1337x excluded — a pre-existing Cloudflare IP ban unrelated to either
+tool, and not an indexer in active use). FlareSolverr's container,
+compose project, and firewall-restricted port were retired; Byparr
+inherited the same LAN-exposure restriction on its own port (8192).
+Also deliberately parked, not urgent on a homelab: user namespace
+remapping, disabling Docker's userland-proxy, read-only root
+filesystems, a Docker daemon audit-rule setup, and a handful of SSH
+hardening suggestions from Lynis.
 
-Remaining, in priority order: migrate FlareSolverr to Byparr, UPS
-integration, deeper storage monitoring, documentation review.
+Remaining, in priority order: UPS integration, deeper storage
+monitoring, documentation review.
 
 **Deliverable:** A self-maintaining platform with tested recovery procedures.
 

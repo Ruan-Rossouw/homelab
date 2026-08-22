@@ -83,7 +83,7 @@ service from now on, not as a later cleanup pass.
 | Radarr | HTTP(S) | `http://192.168.68.110:7878` |
 | Sonarr | HTTP(S) | `http://192.168.68.110:8989` |
 | Decypharr | HTTP(S) | `http://192.168.68.110:8282` |
-| FlareSolverr | HTTP(S) | `http://192.168.68.110:8191` |
+| Byparr | HTTP(S) | `http://192.168.68.110:8192/health` |
 | Seerr | HTTP(S) | `http://192.168.68.110:5055` |
 | Backrest | HTTP(S) | `http://192.168.68.110:9898` |
 | Home Assistant | HTTP(S) | `http://192.168.68.110:8123` |

@@ -267,11 +267,13 @@ Auditing every `.env.example` directly (2026-08-18) found:
 - **Grafana** (`NTFY_TOPIC`) and **Tailscale** (`TS_AUTHKEY`) are the
   *only* services with a genuine secret in `.env`.
 - The other 13 services with `.env.example` (adguard, backrest,
-  cadvisor, flaresolverr, jellyfin, node-exporter, portainer,
-  prometheus, prowlarr, radarr, seerr, sonarr, uptime-kuma) have nothing
-  but ports/timezone in `.env` — migrating them would produce a
+  byparr, cadvisor, jellyfin, node-exporter, portainer, prometheus,
+  prowlarr, radarr, seerr, sonarr, uptime-kuma) have nothing but
+  ports/timezone in `.env` — migrating them would produce a
   `secrets.enc.env` with zero `ENC[...]` fields, no security benefit,
-  just process overhead. Not migrating these.
+  just process overhead. Not migrating these. (`flaresolverr` was in
+  this list at the original 2026-08-18 audit; retired 2026-08-22,
+  replaced by `byparr`, same no-secret shape.)
 - **Decypharr** (Real-Debrid API key) and **Home Assistant** (Tuya cloud
   credentials) have real secrets, but entered through each app's own UI
   and stored in its internal config/database under `/DATA/AppData/`, not

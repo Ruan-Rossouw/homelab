@@ -176,10 +176,30 @@ sudo systemctl enable --now backlight-off.service
 `/etc/systemd/system/restrict-internal-ports.service`, added 2026-08-21 as
 the first fix out of Phase 5's security-hardening audit (see
 `docs/roadmap.md`). A Trivy/manual compose review found Prometheus (9090),
-cAdvisor (8080), node-exporter (9100), and FlareSolverr (8191) all
+cAdvisor (8080), node-exporter (9100), and Byparr (8192) all
 published on every interface (`0.0.0.0`) with no built-in authentication
 and no Caddy TLS/auth in front — reachable by any device on the LAN, not
 just this household's own.
+
+**Updated 2026-08-22**: FlareSolverr was retired and replaced by Byparr
+(`services/byparr/README.md`) — same unauthenticated-LAN-exposure
+reasoning applies to its port (8192), so it inherited FlareSolverr's slot
+in this restriction rather than shipping unrestricted. The script and
+prose below reflect the current (Byparr) state; the live iptables rules
+on the box needed a manual swap since a `git pull` doesn't touch running
+firewall state:
+
+```bash
+sudo iptables -D DOCKER-USER -p tcp -m multiport --dports 8080,8191,9090,9100 -j DROP
+sudo iptables -D DOCKER-USER -i br-+ -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
+sudo iptables -D DOCKER-USER -i docker0 -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
+sudo iptables -D DOCKER-USER -i lo -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
+```
+then re-run the full "Recreate on a rebuild" block below (already
+updated to use port 8192) to rewrite the script file itself and restart
+the service — the delete above only clears the stale *live* rules, it
+doesn't touch the script on disk, so skipping the recreate step would
+leave the service re-adding the old 8191 rules on its next restart/boot.
 
 None of the four could simply be rebound to `127.0.0.1`: this repo's
 cross-container convention is that services reach each other via the
@@ -187,7 +207,7 @@ cross-container convention is that services reach each other via the
 comment on this), since each service is an independent Compose project
 with no shared Docker network. Binding to loopback would have silently
 broken Grafana's Prometheus queries, Prometheus's own scrapes of
-cAdvisor/node-exporter, and Prowlarr's FlareSolverr calls.
+cAdvisor/node-exporter, and Prowlarr's Byparr calls.
 
 The fix instead filters by **interface** in iptables, not IP range or
 rebinding: container-to-container traffic between two Compose projects
@@ -206,7 +226,7 @@ interface).
 **Two separate chains, because these four services don't all reach the
 host the same way:**
 
-- Prometheus, cAdvisor, and FlareSolverr are ordinary bridge-networked
+- Prometheus, cAdvisor, and Byparr are ordinary bridge-networked
   Compose services with published ports — that traffic is DNAT'd and
   evaluated by the `FORWARD` chain, specifically `DOCKER-USER` (the one
   hook point Docker itself respects for user-added filtering, guaranteed
@@ -235,14 +255,14 @@ Recreate on a rebuild:
 sudo tee /etc/systemd/system/restrict-internal-ports.sh > /dev/null <<'EOF'
 #!/bin/sh
 # Restrict Prometheus (9090), cAdvisor (8080), node-exporter (9100), and
-# FlareSolverr (8191) to loopback + Docker-bridge-originated traffic only.
+# Byparr (8192) to loopback + Docker-bridge-originated traffic only.
 # None of these four have their own auth and none are fronted by Caddy;
 # cross-container access (Grafana->Prometheus, Prometheus->cAdvisor/
-# node-exporter, Prowlarr->FlareSolverr) arrives via a br-* interface even
+# node-exporter, Prowlarr->Byparr) arrives via a br-* interface even
 # though it's addressed to the host's LAN IP, so this doesn't break that.
 # Real LAN NIC on this box is eth1 -- everything not lo/docker0/br-* is
 # treated as external and dropped. Idempotent: safe to re-run.
-PORTS="8080,8191,9090,9100"
+PORTS="8080,8192,9090,9100"
 
 add_rule_once() {
   iptables -C DOCKER-USER "$@" 2>/dev/null || iptables -I DOCKER-USER 1 "$@"
@@ -270,7 +290,7 @@ sudo chmod +x /etc/systemd/system/restrict-internal-ports.sh
 
 sudo tee /etc/systemd/system/restrict-internal-ports.service > /dev/null <<'EOF'
 [Unit]
-Description=Restrict Prometheus/cAdvisor/node-exporter/FlareSolverr to loopback + Docker-internal traffic (no built-in auth on these)
+Description=Restrict Prometheus/cAdvisor/node-exporter/Byparr to loopback + Docker-internal traffic (no built-in auth on these)
 After=docker.service
 Requires=docker.service
 
