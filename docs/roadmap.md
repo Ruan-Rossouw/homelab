@@ -188,7 +188,8 @@ migrate or stores it outside `.env` entirely (Decypharr, Home Assistant).
 Age key backed up to the password manager; rotation cadence deliberately
 deferred, not an open gap.
 
-**Security hardening — in progress (started 2026-08-22).** Wazuh rejected
+**Security hardening — closed 2026-08-22 (started and finished same
+day).** Wazuh rejected
 outright (its indexer alone needs this server's entire RAM budget); picked
 Docker Bench for Security + Trivy + Lynis instead, all one-shot/no
 persistent footprint. Closed so far: Prometheus/cAdvisor/node-exporter/

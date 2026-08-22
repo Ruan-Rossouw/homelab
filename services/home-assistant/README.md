@@ -65,30 +65,12 @@ exist but aren't something to take on for a stock deployment. Nothing to
 evaluate or revisit here the way Jellyfin's case might be — this one's
 closed by the vendor, not by this repo's own judgment call.
 
-## Port: 8123, Checked Against the Existing Map
+## Port: 8123
 
 Not published via a `ports:` entry — `network_mode: host` binds directly
-to the host's own network stack, same as Tailscale. Still checked against
-the existing map for collisions:
-
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 5055 | Seerr |
-| 7878 | Radarr |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8123 | **Home Assistant** |
-| 8191 | FlareSolverr |
-| 8282 | Decypharr |
-| 8989 | Sonarr |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9696 | Prowlarr |
-| 9898 | Backrest |
+to the host's own network stack, same as Tailscale. See
+[`docs/networking.md`](../../docs/networking.md#port-map) for the full
+port map.
 
 ## Volumes
 

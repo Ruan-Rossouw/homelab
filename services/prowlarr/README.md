@@ -19,21 +19,10 @@ does — `lscr.io/linuxserver/prowlarr` is the de facto standard, widely
 used and actively maintained. Pinned to `2.5.2`, the current stable
 release as of this deploy.
 
-## Port: 9696, Checked Against the Existing Map
+## Port: 9696
 
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8282 | Decypharr |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9696 | **Prowlarr** |
-| 9898 | Backrest |
+See [`docs/networking.md`](../../docs/networking.md#port-map) for the
+full port map.
 
 ## Volumes
 

@@ -1,9 +1,10 @@
 # Storage
 
 This document answers: **where does data live, and why there?** For how that
-data gets protected, see `backup.md` and `disaster-recovery.md` (in progress,
-gating Phase 4 — see `roadmap.md`). For the developer-environment permission
-workaround, see [`zimaos.md`](zimaos.md).
+data gets protected, see `backup.md` and `disaster-recovery.md` — both
+production and verified (were Phase 4's gate, closed 2026-07-26; see
+`roadmap.md`). For the developer-environment permission workaround, see
+[`zimaos.md`](zimaos.md).
 
 ## Physical Storage
 

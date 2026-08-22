@@ -114,29 +114,13 @@ images) — the UID is fixed at build time. No `config/` volume is mounted
 non-root default, not a gap needing a README justification per
 `docs/conventions.md`'s root-user rule.
 
-## Port: 8192, Checked Against the Existing Map
+## Port: 8192
 
-| Port | Service |
-|---|---|
-| 3000 | AdGuard Home (web UI) |
-| 3001 | Uptime Kuma |
-| 3002 | Grafana |
-| 7878 | Radarr |
-| 8080 | cAdvisor |
-| 8096 | Jellyfin |
-| 8192 | **Byparr** |
-| 8282 | Decypharr |
-| 8989 | Sonarr |
-| 9090 | Prometheus |
-| 9100 | node-exporter |
-| 9443 | Portainer |
-| 9696 | Prowlarr |
-| 9898 | Backrest |
-
-`8191` (FlareSolverr's old port) is free again post-retirement. Byparr
-deliberately stayed on `8192` rather than reclaiming `8191` after
-cutover — no reason to force a second Prowlarr reconfiguration for a
-purely cosmetic port change.
+See [`docs/networking.md`](../../docs/networking.md#port-map) for the
+full port map. `8191` (FlareSolverr's old port) is free again
+post-retirement. Byparr deliberately stayed on `8192` rather than
+reclaiming `8191` after cutover — no reason to force a second Prowlarr
+reconfiguration for a purely cosmetic port change.
 
 ## Volumes
 
