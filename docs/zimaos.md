@@ -195,6 +195,7 @@ sudo iptables -D DOCKER-USER -i br-+ -p tcp -m multiport --dports 8080,8191,9090
 sudo iptables -D DOCKER-USER -i docker0 -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
 sudo iptables -D DOCKER-USER -i lo -p tcp -m multiport --dports 8080,8191,9090,9100 -j RETURN
 ```
+
 then re-run the full "Recreate on a rebuild" block below (already
 updated to use port 8192) to rewrite the script file itself and restart
 the service — the delete above only clears the stale *live* rules, it
