@@ -166,7 +166,7 @@ simpler than tracking it per-service.
 
 ---
 
-## Phase 5 – Operations (Current)
+## Phase 5 – Operations (Complete)
 
 **Goal:** Make the homelab resilient and maintainable.
 
@@ -244,7 +244,7 @@ attributes, not NVMe.
 
 Remaining: documentation review.
 
-**Deliverable:** A self-maintaining platform with tested recovery procedures.
+**Deliverable:** A self-maintaining platform with tested recovery procedures. ✅
 
 ---
 
