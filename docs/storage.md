@@ -16,7 +16,7 @@ being made here, it's a constraint being worked around:
 - **Internal drive** — ext4, ~904 GB, mounted at `/DATA`. Hosts
   `AppData/` and `Infrastructure/` only (94 MB total as of Phase 3) —
   deliberately not used for media or backups.
-- **2 TB external USB drive** — NTFS, label `Mieke se hardeskyf`,
+- **2 TB external USB drive** — NTFS, label `ExtHD-2TB`,
   `UUID=904861014860E784`, mounted at `/DATA/Media`. The primary media
   library: the drive's own original content plus a photo/video collection
   migrated from a separate 1 TB drive that has since been repurposed below.

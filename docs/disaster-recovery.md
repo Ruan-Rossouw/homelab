@@ -42,7 +42,7 @@ ZimaOS's own storage service can auto-mount drives to locations independent
 of `fstab`, which is a real source of confusion (`zimaos.md`). Confirm with
 `lsblk -o NAME,LABEL,UUID,FSTYPE`:
 
-- `Mieke se hardeskyf`, `UUID=904861014860E784`, NTFS → `/DATA/Media`
+- `ExtHD-2TB`, `UUID=904861014860E784`, NTFS → `/DATA/Media`
 - `ExtHD-1TB`, `UUID=6A64-686E`, exFAT → `/DATA/Backup`
 
 Recreate the `/etc/fstab` entries (adjust device paths to match `lsblk`
