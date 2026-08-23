@@ -698,6 +698,32 @@ EOF
 sudo systemctl restart docker
 ```
 
+### Host Timezone
+
+Found 2026-08-23 while correlating Uptime Kuma alert timestamps against
+`docker logs --since` during a Byparr investigation (`services/byparr/
+README.md`'s "Indexer Pruning" section) — the host's system timezone
+was `Europe/London` (BST, UTC+1), a full hour off from every service's
+own `TZ=${TZ:-Africa/Johannesburg}` default (SAST, UTC+2, no DST). NTP
+kept the underlying clock correct (`date -u` matched real UTC), so this
+was purely a local-time *label* mismatch — but it's exactly the kind of
+thing that quietly breaks log correlation across the host and its
+containers, since `docker logs --since`/`--until` resolve naive
+timestamps in the host's local zone.
+
+```bash
+sudo timedatectl set-timezone Africa/Johannesburg
+```
+
+Not tracked in git — like everything else in this section, this is
+host-level system state (`/etc/localtime`) that won't survive an OS
+reinstall and needs re-applying on a rebuild.
+
+**Known gap, not chased down**: `timedatectl status` also showed
+`System clock synchronized: no` despite `NTP service: active`. Not
+investigated further since UTC was already correct at the time — worth
+rechecking if timestamps drift.
+
 ## Developer Bootstrap
 
 To provide a standard Linux developer experience, this project redirects developer tooling using:
