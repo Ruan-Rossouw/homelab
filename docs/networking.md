@@ -73,6 +73,78 @@ security decision, not an implementation detail — future services should
 assume they'll be reached over Tailscale, not by forwarding a port on the
 Deco.
 
+## Planned: Second Node Network Buildout (not yet built)
+
+Prep work for the Phase 6 Kubernetes/second-node exploration (see
+`roadmap.md`'s Immich section) — nothing below is deployed yet. Captured
+here as of 2026-08-23 so the reasoning survives even though the build
+hasn't started.
+
+### Target topology
+
+```text
+Main Deco (1st floor)
+   │  LAN — wired backhaul (replaces today's wireless backhaul)
+   ▼
+Managed Switch (2nd floor, at Second Deco's current spot)
+   ├── Second Deco       (backhaul now wired instead of wireless)
+   ├── Server
+   ├── Mac
+   └── Second node — 2013 MacBook Pro, repurposed as a headless Linux box
+```
+
+Today, Second Deco reaches Main Deco over wireless mesh backhaul, and
+Server + Mac hang off Second Deco directly. Feeding a managed switch from
+Main Deco and moving Second Deco/Server/Mac onto it converts that backhaul
+hop from wireless to wired — Deco auto-prefers a wired link the moment it
+detects one, so this is a reliability upgrade for the whole house's Wi-Fi,
+not just a way to add ports for the new node.
+
+**Switch:** managed, gigabit, sized for the 4 devices above plus headroom
+for whatever Phase 6 adds next. No PoE — nothing on the network needs it
+yet, and a single future PoE AP is cheaper solved with an injector or one
+dedicated PoE-safe cable run than by paying a PoE premium on the whole
+switch today. **Doesn't need to be Ubiquiti-branded** to support a later
+full UniFi buildout: 802.1Q VLAN tagging and RJ45/Cat6 are vendor-neutral
+standards, so a standards-compliant managed switch fully interoperates
+with a future UniFi gateway/AP setup regardless of brand — a genuine UniFi
+switch would only add unified single-pane management via the UniFi
+Controller, not interoperability.
+
+### Cabling
+
+Going with **CCA (copper-clad aluminium), not solid copper**, for the bulk
+cable run — solid copper's main advantage is lower resistance over long or
+PoE-carrying runs, and all three new runs (Main Deco→Switch, Switch→Second
+Deco, Switch→new node) are short and carry no PoE, so that advantage
+doesn't apply here. If a PoE AP is ever added later, that run gets its own
+short length of solid copper rather than paying the copper premium on the
+whole cable run up front.
+
+The Main Deco→Switch run crosses from the 1st to 2nd floor through
+existing (disused) telephone-cable wall penetrations, with a few meters
+exposed on the outside wall in between (low sun exposure, but still needs
+protection from rain/humidity/temperature cycling — indoor-rated cable
+jacket isn't rated for any of that). Decided **against** switching to
+outdoor-rated Cat6 for that section: outdoor-rated Cat6 is typically
+shielded (FTP), which needs different connectors than unshielded indoor
+cable plus proper shield grounding — real added complexity for a few
+meters. Instead: route the exposed section through PVC electrical conduit,
+silicone-sealed at the top and bottom where it meets the wall, but with
+the lowest point left able to weep/drain rather than fully sealed, so
+trapped moisture doesn't pool against the cable. Also reseal the actual
+wall penetration holes (the old phone-cable holes) on both floors while
+doing this — as much a water path as the visible run.
+
+Wiring standard: T568B both ends — no crossover cables needed, every NIC
+since the early 2000s auto-negotiates (Auto-MDI/MDIX).
+
+### Second node
+
+2013 MacBook Pro (Retina, 13"), dual-core i5 2.4GHz, 8GB RAM — repurposed
+as a headless Linux box. No built-in Ethernet port, so it connects via a
+USB-to-Gigabit-Ethernet adapter instead.
+
 ## Open Questions
 
 - **VLAN segmentation:** none currently — flat network. Deliberately
