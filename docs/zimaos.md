@@ -170,6 +170,100 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now backlight-off.service
 ```
 
+### Backlight Left-On Alert (Textfile Collector)
+
+`/etc/systemd/system/backlight-textfile.sh` + `.service` + `.timer`, added
+2026-08-23. Prompted by leaving the screen on for over a week without
+noticing (turned on manually per the section above, for physical access,
+then never turned back off) — the backlight-off service above only
+enforces the off state at boot, so an interactive override has no
+built-in expiry and nothing was watching for it. Same textfile-collector
+mechanism as the "SMART Disk Health Capture" section below, minus the
+Docker step — this reads a sysfs file directly, no exporter container
+needed.
+
+Writes `zimaos_backlight_on` (`1` = on, `0` = off) into node-exporter's
+existing textfile directory every 5 minutes. The alert side is a Grafana
+rule (`backlight_on_sustained` in
+`services/grafana/config/provisioning/alerting/rules.yaml`) with `for:
+3h` — Grafana's own "for" duration does the "has this been true
+continuously" tracking, so the script itself stays a stateless snapshot
+on every run rather than needing to track an on-since timestamp.
+
+Recreate on a rebuild:
+
+```bash
+sudo tee /etc/systemd/system/backlight-textfile.sh > /dev/null <<'EOF'
+#!/bin/sh
+# Captures the laptop display backlight's power state into a Prometheus
+# textfile-collector .prom file -- see docs/zimaos.md's "Backlight
+# Left-On Alert" section for the full reasoning.
+set -eu
+
+TEXTFILE_DIR=/DATA/Infrastructure/node-exporter/textfile_collector
+mkdir -p "$TEXTFILE_DIR"
+
+# bl_power on this hardware: 0 = on, 1 = off (confirmed live, see the
+# "Backlight Off at Boot" section above -- not the kernel's usual
+# FB_BLANK convention).
+BL_POWER=$(cat /sys/class/backlight/intel_backlight/bl_power)
+if [ "$BL_POWER" = "0" ]; then
+  STATE=1
+else
+  STATE=0
+fi
+
+cat > "$TEXTFILE_DIR/backlight.prom.tmp" <<EOM
+# HELP zimaos_backlight_on Laptop display backlight power state (1 = on, 0 = off)
+# TYPE zimaos_backlight_on gauge
+zimaos_backlight_on $STATE
+EOM
+mv "$TEXTFILE_DIR/backlight.prom.tmp" "$TEXTFILE_DIR/backlight.prom"
+EOF
+sudo chmod +x /etc/systemd/system/backlight-textfile.sh
+
+sudo tee /etc/systemd/system/backlight-textfile.service > /dev/null <<'EOF'
+[Unit]
+Description=Capture backlight power state into node-exporter's textfile collector
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /etc/systemd/system/backlight-textfile.sh
+EOF
+
+sudo tee /etc/systemd/system/backlight-textfile.timer > /dev/null <<'EOF'
+[Unit]
+Description=Run backlight-textfile.service every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=backlight-textfile.service
+
+[Install]
+WantedBy=timers.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now backlight-textfile.timer
+```
+
+**Verify** — both that the timer ran and that node-exporter is actually
+reading the result:
+
+```bash
+sudo systemctl list-timers backlight-textfile.timer
+cat /DATA/Infrastructure/node-exporter/textfile_collector/backlight.prom
+curl -s http://127.0.0.1:9100/metrics | grep zimaos_backlight_on
+```
+
+Then redeploy Grafana so it picks up the new alert rule (bind-mounted
+provisioning, re-read on container start):
+
+```bash
+cd /DATA/Infrastructure/homelab/services/grafana
+docker compose restart grafana
+```
+
 ### Restrict Internal-Only Services to Loopback + Docker Traffic
 
 `/etc/systemd/system/restrict-internal-ports.sh` +

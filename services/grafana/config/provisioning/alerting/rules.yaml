@@ -550,6 +550,74 @@ groups:
                     params: []
                   type: query
 
+      - uid: backlight_on_sustained
+        title: Backlight On Too Long
+        condition: C
+        for: 3h
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "The server's laptop display backlight has been on continuously for 3+ hours. This is a headless box (see docs/zimaos.md's Backlight sections) -- it's normally off, and stays off automatically at every boot. Left on this long usually means it was turned on manually for physical access and forgotten (happened for over a week on 2026-08-23). Turn it back off: echo 1 | sudo tee /sys/class/backlight/intel_backlight/bl_power"
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: 'zimaos_backlight_on'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: []
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: B
+              refId: C
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.5]
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+
       - uid: smart_health_failed
         title: Disk SMART Health Failed
         condition: C
