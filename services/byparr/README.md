@@ -84,6 +84,28 @@ just being dropped, since Byparr has the same unauthenticated-LAN-exposure
 shape FlareSolverr did. If 1337x is later removed from Prowlarr entirely,
 drop its indexer-proxy tag at the same time.
 
+## Indexer Pruning: kickasstorrents.ws Removed (2026-08-23)
+
+Found while investigating periodic `Down` blips on Uptime Kuma's Byparr
+`/health` monitor (502s and occasional `timeout of 48000ms exceeded`,
+each self-healing within one 60s check cycle). `docker logs byparr
+--since 24h` showed 65 `ERROR` lines, and cross-referencing the
+`Target page, context or browser has been closed` crashes against the
+URL logged just before each one showed 7 of 8 tied to
+`kickass.ws` (`kickasstorrents.ws` in Prowlarr) — the browser context
+crashing mid-solve against that site, then briefly failing every
+request (including `/health`) while it respawned.
+
+Confirmed via Prowlarr's own Indexer Stats page
+(`/indexers/stats`) rather than taken on faith: `kickasstorrents.ws`
+was tied for the **most-queried** indexer (~3,290 queries, same as The
+Pirate Bay) but had **~0 successful grabs** and the **highest failure
+rate of all 5 active indexers** — worse than The Pirate Bay, which took
+the same query volume and converted it into 297 grabs. All cost, no
+yield, same shape as the 1337x gap noted above. Removed from Prowlarr
+entirely on 2026-08-23 (not just detagged from Byparr's proxy), which
+should eliminate this class of health-check blip at the source.
+
 ## Resource Trade-Off
 
 Same shape as FlareSolverr's own trade-off write-up: a headless browser
