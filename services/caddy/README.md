@@ -33,13 +33,13 @@ mint a real, publicly-trusted wildcard certificate.
 Stepped back from this for two reasons, surfaced while actually pricing
 it out:
 
-1. **The domain available to reuse is a live business email domain**
-   (`ufcons.com`, registered at Domains.co.za, active cPanel mail/DKIM/SPF/
-   CalDAV records). Domains.co.za has no ACME DNS-01 plugin support in
-   either Caddy's or `lego`'s provider lists (checked directly against
-   both), so getting DNS-01 working would have meant migrating that
-   domain's DNS hosting elsewhere entirely -- a real risk to live email
-   for a problem that doesn't need it solved that way.
+1. **The domain available to reuse is a live business email domain**,
+   with active mail/DKIM/SPF/CalDAV records at its current registrar.
+   That registrar has no ACME DNS-01 plugin support in either Caddy's or
+   `lego`'s provider lists (checked directly against both), so getting
+   DNS-01 working would have meant migrating that domain's DNS hosting
+   elsewhere entirely -- a real risk to live email for a problem that
+   doesn't need it solved that way.
 2. **The actual ask was narrower than "publicly trusted everywhere."**
    Nothing here needs to be verifiable by a device outside this
    household. A private CA is the correct-sized tool for "stop warning
