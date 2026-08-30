@@ -4,7 +4,14 @@ services:
     container_name: byparr
     restart: unless-stopped
     mem_limit: 2g
-    pids_limit: 512
+    # Headroom against a known upstream leak (github.com/ThePhaseless/Byparr#294):
+    # get_browser() spawns a fresh browser per request and its cleanup doesn't
+    # force-kill the process tree if the browser crashed mid-request, so a dead
+    # generation's Xvfb+driver+Firefox processes linger. 512 was exhausted by
+    # accumulated orphans within ~4h; doubled for margin alongside cutting
+    # Uptime Kuma's poll interval (60s -> 900s) to reduce the request volume
+    # that triggers the leak.
+    pids_limit: 1024
     logging:
       driver: json-file
       options:
