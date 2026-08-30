@@ -106,6 +106,71 @@ yield, same shape as the 1337x gap noted above. Removed from Prowlarr
 entirely on 2026-08-23 (not just detagged from Byparr's proxy), which
 should eliminate this class of health-check blip at the source.
 
+## Orphaned Browser Processes: Diagnosed and Mitigated (2026-08-30)
+
+The residual `/health` flakiness noted above (tuned around via Uptime Kuma's
+`Retries` setting) escalated on 2026-08-30 into repeated full outages —
+sustained `Down` for 3.75 hours (13:10-16:52), then a second wedge a few
+hours later. `docker ps -a` during both incidents showed the container
+itself never restarted or got OOM-killed (`RestartCount=0`, `ExitCode=0`) —
+it was marked `unhealthy` while barely using any CPU/memory, the signature
+of a wedged process rather than a struggling one.
+
+Checked directly against Byparr's source (`src/utils.py`'s `get_browser()`):
+it's a FastAPI dependency that launches a **brand-new browser (Xvfb +
+Playwright driver + Firefox) on every single request**, including every
+`/health` probe — no pool, no reuse. That's also why `/health` averages
+~10.5s: a cold browser launch each time, not a lightweight ping. Teardown
+happens via `InvisiblePlaywright`'s `__aexit__` (a third-party dependency,
+not in this repo) when the request finishes. Confirmed via `docker exec
+byparr ps aux` mid-incident: when the browser crashes *during* a request —
+the underlying [ThePhaseless/Byparr#294](https://github.com/ThePhaseless/Byparr/issues/294)
+bug — teardown doesn't force-kill the orphaned process tree, leaving a full
+dead generation of Xvfb+driver+Firefox processes running alongside the next
+one. PID count climbed from 258 to 342 (of `pids_limit: 512`) across a
+single ~2h generation cycle; once accumulated PIDs across generations hit
+the limit, `fork()` for a replacement browser fails with `EAGAIN`
+(`BlockingIOError: Resource temporarily unavailable` in the logs) — a hard
+wedge, not a transient one, since it can no longer spawn a working browser
+to recover.
+
+This is a different bug from Byparr's own already-fixed zombie-process
+issues ([#192](https://github.com/ThePhaseless/Byparr/issues/192),
+[#241](https://github.com/ThePhaseless/Byparr/issues/241)) — those were
+fixed by running an init process (`tini`) to reap defunct children, and
+this image already runs `tini` as PID 1 (confirmed via `ps aux`, zombie
+count stayed at 2, not thousands). The leak here is live, non-zombie
+orphaned processes that reaping doesn't touch, because nothing ever signals
+them to exit.
+
+Not fixable from this repo — the bug lives in a third-party dependency
+(`invisible_playwright`)'s cleanup path, not Byparr's own code or anything
+configurable here. Forking and patching it would mean maintaining a custom
+image indefinitely, the same maintenance cost that got FlareSolverr
+replaced rather than patched. **Mitigated instead by cutting the request
+volume that triggers it**: Docker's own built-in `HEALTHCHECK` (see the
+`Dockerfile`) already polls `/health` conservatively (`--interval=15m`,
+96/day) — Uptime Kuma's monitor was polling every 60s (1440/day), 15x more
+often, almost certainly the dominant source of browser launches on this
+service versus real Prowlarr-triggered solves. Uptime Kuma's interval was
+changed to match Docker's own 900s/15min cadence (via its UI, not
+git-tracked, same as other monitor config in this repo), cutting that
+artificial load ~15x. `pids_limit` was also doubled to 1024 in this
+service's `compose.yml` as cheap headroom alongside the interval change,
+in case the timer or a real-traffic-driven leak still creeps up over a
+longer window. Trade-off: real outage detection latency stretches from
+~2 min to ~10-20 min (given the existing `Retries: 1` requiring 2
+consecutive failures) — acceptable for a backend proxy that isn't directly
+user-facing.
+
+If this still wedges again despite the reduced request volume, the next
+step is a scheduled preventive restart (systemd timer, not cron per
+`docs/zimaos.md`) sized to whatever growth rate remains — not yet built
+since it's unclear if it's needed after this change. Also worth doing
+regardless: the diagnosis above (specifically, `get_browser()`'s teardown
+not force-killing on crash) is more precise than upstream issue #294's
+current fork/memory-pressure theory and hasn't been reported there yet.
+
 ## Resource Trade-Off
 
 Same shape as FlareSolverr's own trade-off write-up: a headless browser
