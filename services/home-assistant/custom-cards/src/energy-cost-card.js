@@ -26,6 +26,7 @@ import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sour
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
 import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
+import { selectLabelIndexes } from "./lib/tick-labels.js";
 
 class EnergyCostCard extends HTMLElement {
   setConfig(config) {
@@ -326,12 +327,16 @@ class EnergyCostCard extends HTMLElement {
       formatValue: (v) => this._formatCurrency(v, true),
     });
 
-    // First/middle ticks from the actual series; the last tick sits at
-    // the domain's right edge — the period end when there's a
-    // projection, otherwise the last actual point — anchored start/
-    // middle/end respectively so the outer labels don't clip past the
-    // viewBox edges.
-    const middleIndexes = [...new Set([0, Math.floor((series.length - 1) / 2)])];
+    // Evenly spaced interior ticks from the actual series, plus a final
+    // tick pinned to the domain's right edge — the period end when
+    // there's a projection, otherwise the last actual point — which can
+    // sit past the last real series index, so it's always computed
+    // separately below rather than picked from `series`. The last
+    // evenly-spaced index is dropped here specifically to avoid a
+    // near-duplicate label right next to that separately-drawn edge tick.
+    // Anchored start/middle/end respectively so the outer labels don't
+    // clip past the viewBox edges.
+    const middleIndexes = selectLabelIndexes(series.length, 5).slice(0, -1);
     const middleTicks = middleIndexes.map((i) => {
       const p = series[i];
       const x = scaleX(p.x).toFixed(1);

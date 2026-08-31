@@ -169,6 +169,18 @@
     }).join("");
   }
 
+  // src/lib/tick-labels.js
+  function selectLabelIndexes(itemCount, targetCount) {
+    if (itemCount <= 0) return [];
+    const count = Math.max(1, Math.min(targetCount, itemCount));
+    if (count === 1) return [0];
+    const indexes = [];
+    for (let i = 0; i < count; i++) {
+      indexes.push(Math.round(i * (itemCount - 1) / (count - 1)));
+    }
+    return [...new Set(indexes)];
+  }
+
   // src/energy-cost-breakdown-card.js
   var EnergyCostBreakdownCard = class extends HTMLElement {
     setConfig(config) {
@@ -254,9 +266,13 @@
       }
       const costByBucketStart = sumCostByBucket(stats, costStatIds);
       const buckets = [...costByBucketStart.keys()].sort((a, b) => a - b).map((start) => ({ x: start, y: costByBucketStart.get(start) }));
-      const total = buckets.reduce((sum, b) => sum + b.y, 0);
-      this._totalEl.textContent = this._formatCurrency(total);
       this._renderChart(buckets);
+      if (buckets.length) {
+        const highest = buckets.reduce((max, b) => b.y > max.y ? b : max, buckets[0]);
+        this._totalEl.textContent = `Highest: ${this._formatCurrency(highest.y)} (${this._formatTime(highest.x)})`;
+      } else {
+        this._totalEl.textContent = "";
+      }
     }
     _formatCurrency(value, compact = false) {
       return formatCurrency(value, {
@@ -331,18 +347,7 @@
         padRight,
         formatValue: (v) => this._formatCurrency(v, true)
       });
-      const targetLabelCount = Math.min(6, buckets.length);
-      const labelStep = Math.max(
-        1,
-        Math.round((buckets.length - 1) / Math.max(targetLabelCount - 1, 1))
-      );
-      const labelIndexes = [];
-      for (let i = 0; i < buckets.length; i += labelStep) {
-        labelIndexes.push(i);
-      }
-      if (labelIndexes[labelIndexes.length - 1] !== buckets.length - 1) {
-        labelIndexes.push(buckets.length - 1);
-      }
+      const labelIndexes = selectLabelIndexes(buckets.length, 6);
       const xTicks = labelIndexes.map((i) => {
         const anchor = i === 0 ? "start" : i === buckets.length - 1 ? "end" : "middle";
         return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(buckets[i].x)}</text>`;

@@ -22,6 +22,7 @@ import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sour
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
 import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
+import { selectLabelIndexes } from "./lib/tick-labels.js";
 
 class EnergyCostBreakdownCard extends HTMLElement {
   setConfig(config) {
@@ -131,10 +132,21 @@ class EnergyCostBreakdownCard extends HTMLElement {
       .sort((a, b) => a - b)
       .map((start) => ({ x: start, y: costByBucketStart.get(start) }));
 
-    const total = buckets.reduce((sum, b) => sum + b.y, 0);
-    this._totalEl.textContent = this._formatCurrency(total);
-
+    // The running total already lives on energy-cost-card.js right next
+    // to this card — repeating it here would just be the same number
+    // twice. The highest single bucket is genuinely new information: the
+    // bars make it easy to spot *that* one is tallest, but not its exact
+    // value or which day/hour it was. Compute this after _renderChart (not
+    // before) so _formatTime's sub-day/day/month tiering has this card's
+    // real data span to work from.
     this._renderChart(buckets);
+
+    if (buckets.length) {
+      const highest = buckets.reduce((max, b) => (b.y > max.y ? b : max), buckets[0]);
+      this._totalEl.textContent = `Highest: ${this._formatCurrency(highest.y)} (${this._formatTime(highest.x)})`;
+    } else {
+      this._totalEl.textContent = "";
+    }
   }
 
   _formatCurrency(value, compact = false) {
@@ -232,19 +244,8 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     // Evenly spaced x labels rather than just first/middle/last — a bar
     // chart with 30 daily bars needs more reference points than a line
-    // chart's 2-3 ticks to actually identify which bar is which day.
-    const targetLabelCount = Math.min(6, buckets.length);
-    const labelStep = Math.max(
-      1,
-      Math.round((buckets.length - 1) / Math.max(targetLabelCount - 1, 1))
-    );
-    const labelIndexes = [];
-    for (let i = 0; i < buckets.length; i += labelStep) {
-      labelIndexes.push(i);
-    }
-    if (labelIndexes[labelIndexes.length - 1] !== buckets.length - 1) {
-      labelIndexes.push(buckets.length - 1);
-    }
+    // chart's few ticks to actually identify which bar is which day.
+    const labelIndexes = selectLabelIndexes(buckets.length, 6);
     const xTicks = labelIndexes
       .map((i) => {
         const anchor = i === 0 ? "start" : i === buckets.length - 1 ? "end" : "middle";
