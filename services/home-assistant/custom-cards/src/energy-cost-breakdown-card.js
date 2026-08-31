@@ -132,6 +132,31 @@ class EnergyCostBreakdownCard extends HTMLElement {
       .sort((a, b) => a - b)
       .map((start) => ({ x: start, y: costByBucketStart.get(start) }));
 
+    // Pad the tail with zero-cost placeholder buckets out to the period's
+    // true end. Without this, a period still in progress (e.g. "Today")
+    // stops drawing at whatever hour it currently is, while
+    // energy-cost-card.js's line chart already extends to the full period
+    // via its projection — the two charts otherwise end up spanning
+    // visibly different widths side by side. A future bucket's cost really
+    // is 0 (nothing has happened there yet), unlike a historical gap
+    // before tracking existed, so only the tail gets this treatment, not
+    // the start. Bucket step is inferred from the real data (HA doesn't
+    // expose granularity directly) and only trusted up to day-length — a
+    // month-bucketed year view has variable-length buckets (28-31 days)
+    // that this fixed-step arithmetic would drift on, so that case is left
+    // alone rather than risk mislabeled future buckets.
+    if (buckets.length >= 2 && data.end) {
+      const step = buckets[1].x - buckets[0].x;
+      if (step > 0 && step <= 24 * 60 * 60 * 1000) {
+        const periodEndMs = data.end.getTime();
+        let nextStart = buckets[buckets.length - 1].x + step;
+        while (nextStart < periodEndMs) {
+          buckets.push({ x: nextStart, y: 0 });
+          nextStart += step;
+        }
+      }
+    }
+
     // The running total already lives on energy-cost-card.js right next
     // to this card — repeating it here would just be the same number
     // twice. The highest single bucket is genuinely new information: the
