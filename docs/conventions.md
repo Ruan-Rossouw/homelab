@@ -126,10 +126,17 @@ CI (GitHub Actions, runs on every PR into `main`):
 | YAML lint | `yamllint` | `**/*.yml`, `**/*.yaml` |
 | Shell lint | `shellcheck` | `scripts/**/*.sh` |
 | Secret scan | `gitleaks` | entire repo |
+| Custom cards build freshness | `esbuild` (`npm run build`) + `git diff --exit-code` | `services/home-assistant/custom-cards/**` |
 
-Kept deliberately cheap — linters only, no build/deploy step. Nothing here
-touches the server; CI validates the repo, deployment is still a manual
-`git pull` on the box per the repo philosophy.
+Kept deliberately cheap — mostly linters, nothing here touches the server;
+deployment is still a manual `git pull` on the box per the repo philosophy.
+The one exception is the custom-cards build check: those Lovelace cards
+compile from `src/` via esbuild (see that service's `CLAUDE.md`), and the
+server has no Node toolchain to build them itself — the committed
+top-level `.js` files *are* what gets deployed. This job rebuilds from
+`src/` in CI and fails if the result doesn't match what's committed, so a
+forgotten `npm run build` before a commit is caught before merge instead
+of silently shipping stale behavior to the server.
 
 ## Compose Conventions
 

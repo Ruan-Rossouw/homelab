@@ -47,3 +47,22 @@ jobs:
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  custom-cards-build:
+    name: Custom Cards Build Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install and build
+        working-directory: services/home-assistant/custom-cards
+        run: |
+          npm ci
+          npm run build
+      - name: Fail if committed output doesn't match a fresh build
+        run: |
+          git diff --exit-code -- \
+            services/home-assistant/custom-cards/energy-cost-card.js \
+            services/home-assistant/custom-cards/energy-cost-breakdown-card.js
