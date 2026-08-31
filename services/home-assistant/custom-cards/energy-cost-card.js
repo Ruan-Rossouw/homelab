@@ -469,14 +469,18 @@ class EnergyCostCard extends HTMLElement {
       dataMaxX
     ).toFixed(1)},${height - padBottom}`;
 
-    // Dashed forecast segment continuing on from the last actual point —
-    // only the projection is dashed/unfilled, the actual series stays a
-    // solid filled area, same convention the old apexcharts version used.
-    const lastActual = series[series.length - 1];
+    // A straight reference line spanning the *whole* period at the
+    // constant rate implied by the projection (period start, R0, to
+    // period end, projected total) — not just a tail continuing from the
+    // last actual point. Since the projection itself is that same
+    // constant rate extended forward, this line passes exactly through
+    // "now" on the actual series too, so days where the actual (blue)
+    // line runs above it spent faster than the projected average pace,
+    // and below it spent slower — the point of drawing it full-span.
     const projectionLine = projection
-      ? `<polyline points="${scaleX(lastActual.x).toFixed(1)},${scaleY(lastActual.y).toFixed(1)} ${scaleX(
+      ? `<polyline points="${scaleX(periodStartMs ?? dataMinX).toFixed(1)},${scaleY(0).toFixed(1)} ${scaleX(
           projection.endMs
-        ).toFixed(1)},${scaleY(projection.total).toFixed(1)}" fill="none" stroke="var(--warning-color)" stroke-width="2" stroke-dasharray="5,4"></polyline>`
+        ).toFixed(1)},${scaleY(projection.total).toFixed(1)}" fill="none" stroke="var(--warning-color)" stroke-width="1.5" stroke-dasharray="6,8"></polyline>`
       : "";
 
     // Solid gridlines at each clean tick-spacing multiple up to the nice
