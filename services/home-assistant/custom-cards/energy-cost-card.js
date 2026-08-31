@@ -42,6 +42,7 @@ class EnergyCostCard extends HTMLElement {
           .chart { position: relative; }
           .chart svg { width: 100%; height: 220px; display: block; }
           .axis-label {
+            font-family: var(--ha-font-family-body, var(--primary-font-family, Roboto, Noto, sans-serif));
             font-size: 10px;
             fill: var(--secondary-text-color);
           }
@@ -52,6 +53,7 @@ class EnergyCostCard extends HTMLElement {
             border: 1px solid var(--divider-color);
             border-radius: 4px;
             padding: 4px 8px;
+            font-family: var(--ha-font-family-body, var(--primary-font-family, Roboto, Noto, sans-serif));
             font-size: 0.8rem;
             color: var(--primary-text-color);
             white-space: nowrap;
@@ -102,6 +104,15 @@ class EnergyCostCard extends HTMLElement {
 
   getCardSize() {
     return 3;
+  }
+
+  // Sections-view sizing default — a time-series chart reads better wide.
+  // Explicit grid_options in the card's own YAML config still overrides this.
+  getLayoutOptions() {
+    return {
+      grid_columns: "full",
+      grid_rows: 3,
+    };
   }
 
   // Same key derivation as home-assistant-frontend's
@@ -186,19 +197,25 @@ class EnergyCostCard extends HTMLElement {
     this._renderChart(series);
   }
 
+  // Intl's currency style prints the ISO code ("ZAR") unless the active
+  // locale has its own localized formatting for that currency baked in —
+  // not reliable across HA installs/languages, so the symbol is plain
+  // config instead: format just the number (still locale-aware for
+  // decimal/grouping separators) and prefix our own symbol.
   _formatCurrency(value, compact = false) {
-    const currency = this._config.currency || "ZAR";
+    const symbol = this._config.currency_symbol || "R";
     const locale = this._hass?.locale?.language;
+    let number;
     try {
-      return new Intl.NumberFormat(locale, {
-        style: "currency",
-        currency,
+      number = new Intl.NumberFormat(locale, {
         notation: compact ? "compact" : "standard",
         maximumFractionDigits: compact ? 0 : 2,
+        minimumFractionDigits: compact ? 0 : 2,
       }).format(value);
     } catch {
-      return value.toFixed(2);
+      number = value.toFixed(compact ? 0 : 2);
     }
+    return `${symbol} ${number}`;
   }
 
   // Sub-day ranges (the "Today" picker) get hour:minute labels; anything
