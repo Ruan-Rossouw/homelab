@@ -266,6 +266,17 @@
       }
       const costByBucketStart = sumCostByBucket(stats, costStatIds);
       const buckets = [...costByBucketStart.keys()].sort((a, b) => a - b).map((start) => ({ x: start, y: costByBucketStart.get(start) }));
+      if (buckets.length >= 2 && data.end) {
+        const step = buckets[1].x - buckets[0].x;
+        if (step > 0 && step <= 24 * 60 * 60 * 1e3) {
+          const periodEndMs = data.end.getTime();
+          let nextStart = buckets[buckets.length - 1].x + step;
+          while (nextStart < periodEndMs) {
+            buckets.push({ x: nextStart, y: 0 });
+            nextStart += step;
+          }
+        }
+      }
       this._renderChart(buckets);
       if (buckets.length) {
         const highest = buckets.reduce((max, b) => b.y > max.y ? b : max, buckets[0]);
