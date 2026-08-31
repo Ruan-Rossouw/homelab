@@ -79,10 +79,17 @@ class EnergyCostCard extends HTMLElement {
             font-size: 0.9rem;
             padding: 8px 0;
           }
+          .projected {
+            font-size: var(--ha-font-size-s, 12px);
+            color: var(--secondary-text-color);
+            margin-bottom: 8px;
+            flex: none;
+          }
         </style>
         <ha-card>
           <div class="header"></div>
           <div class="total"></div>
+          <div class="projected" hidden></div>
           <div class="chart"></div>
         </ha-card>
       `;
@@ -92,6 +99,7 @@ class EnergyCostCard extends HTMLElement {
 
     this._headerEl = this.shadowRoot.querySelector(".header");
     this._totalEl = this.shadowRoot.querySelector(".total");
+    this._projectedEl = this.shadowRoot.querySelector(".projected");
     this._chartEl = this.shadowRoot.querySelector(".chart");
     this._headerEl.textContent = this._config.title || "Grid Cost";
 
@@ -112,7 +120,7 @@ class EnergyCostCard extends HTMLElement {
         this._resizeFrame = requestAnimationFrame(() => {
           this._resizeFrame = undefined;
           if (this._series) {
-            this._renderChart(this._series);
+            this._renderChart(this._series, this._projection);
           }
         });
       });
@@ -216,6 +224,7 @@ class EnergyCostCard extends HTMLElement {
     if (!costStatIds.length) {
       this._chartEl.innerHTML = `<div class="message">No grid source has cost tracking configured yet (Settings → Dashboards → Energy).</div>`;
       this._totalEl.textContent = "";
+      this._projectedEl.hidden = true;
       return;
     }
 
@@ -240,7 +249,49 @@ class EnergyCostCard extends HTMLElement {
     });
 
     this._totalEl.textContent = this._formatCurrency(runningTotal);
-    this._renderChart(series);
+
+    const projection = this._computeProjection(data, series, runningTotal);
+    if (projection) {
+      this._projectedEl.hidden = false;
+      this._projectedEl.textContent = `Projected: ${this._formatCurrency(projection.total)}`;
+    } else {
+      this._projectedEl.hidden = true;
+    }
+
+    this._renderChart(series, projection);
+  }
+
+  // Linear extrapolation: continues the average rate observed since the
+  // period start (data.start — whatever energy-date-selection has picked,
+  // Today/This Month/This Year/a custom range) through to the period end.
+  // Deliberately simple and self-contained — no reaching outside the data
+  // this card already has, at the cost of not anticipating a tariff tier
+  // crossover late in the period (see the "linear vs tariff-aware"
+  // discussion this was chosen over).
+  _computeProjection(data, series, runningTotal) {
+    if (series.length < 2 || !data.start || !data.end) {
+      return null;
+    }
+
+    const periodStartMs = data.start.getTime();
+    const periodEndMs = data.end.getTime();
+    const nowMs = Date.now();
+
+    // Already fully elapsed (e.g. viewing a past month) — nothing left to
+    // project, the actual total already is the final total.
+    if (nowMs >= periodEndMs) {
+      return null;
+    }
+
+    const elapsedMs = nowMs - periodStartMs;
+    const remainingMs = periodEndMs - nowMs;
+    if (elapsedMs <= 0) {
+      return null;
+    }
+
+    const rate = runningTotal / elapsedMs;
+    const total = runningTotal + rate * remainingMs;
+    return { endMs: periodEndMs, total };
   }
 
   // Intl's currency style prints the ISO code ("ZAR") unless the active
@@ -325,12 +376,14 @@ class EnergyCostCard extends HTMLElement {
     return { axisMax, tickSpacing };
   }
 
-  _renderChart(series) {
+  _renderChart(series, projection) {
     this._series = series;
+    this._projection = projection;
 
     if (series.length < 2) {
       this._chartEl.innerHTML = `<div class="message">Not enough data yet for this period.</div>`;
       this._series = undefined;
+      this._projection = undefined;
       return;
     }
 
@@ -360,11 +413,17 @@ class EnergyCostCard extends HTMLElement {
     const dataMaxX = Math.max(...xs);
     const dataMaxY = Math.max(...series.map((p) => p.y), 0.0001);
 
-    // Small right-hand pad so the line doesn't run flush to the edge; Y
-    // headroom instead comes from rounding up to a nice axis max (below).
+    // With a projection, the period end (not just the last real data
+    // point) is the natural right edge, and the axis needs to fit
+    // whichever is bigger — actual so far, or the projected total.
     const domainMinX = dataMinX;
-    const domainMaxX = dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
-    const { axisMax: domainMaxY, tickSpacing } = this._niceAxisScale(dataMaxY, 5);
+    const domainMaxX = projection
+      ? projection.endMs
+      : dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
+    const yMaxWithProjection = projection
+      ? Math.max(dataMaxY, projection.total)
+      : dataMaxY;
+    const { axisMax: domainMaxY, tickSpacing } = this._niceAxisScale(yMaxWithProjection, 5);
 
     const scaleX = (x) =>
       padLeft +
@@ -396,6 +455,16 @@ class EnergyCostCard extends HTMLElement {
       dataMaxX
     ).toFixed(1)},${height - padBottom}`;
 
+    // Dashed forecast segment continuing on from the last actual point —
+    // only the projection is dashed/unfilled, the actual series stays a
+    // solid filled area, same convention the old apexcharts version used.
+    const lastActual = series[series.length - 1];
+    const projectionLine = projection
+      ? `<polyline points="${scaleX(lastActual.x).toFixed(1)},${scaleY(lastActual.y).toFixed(1)} ${scaleX(
+          projection.endMs
+        ).toFixed(1)},${scaleY(projection.total).toFixed(1)}" fill="none" stroke="var(--warning-color)" stroke-width="2" stroke-dasharray="5,4"></polyline>`
+      : "";
+
     // Solid gridlines at each clean tick-spacing multiple up to the nice
     // axis max — matches ha-chart-base's ~5-gridline splitNumber and its
     // solid (non-dashed) splitLine style, without hardcoding "divide by
@@ -411,23 +480,30 @@ class EnergyCostCard extends HTMLElement {
       })
       .join("");
 
-    // First/middle/last tick, anchored start/middle/end respectively so the
-    // outer two labels don't clip past the viewBox edges.
-    const xTickIndexes = [...new Set([0, Math.floor((series.length - 1) / 2), series.length - 1])];
-    const anchorFor = (i) => (i === 0 ? "start" : i === series.length - 1 ? "end" : "middle");
-    const xTicks = xTickIndexes
-      .map((i) => {
-        const p = series[i];
-        const x = scaleX(p.x).toFixed(1);
-        return `<text x="${x}" y="${height - 6}" text-anchor="${anchorFor(i)}" class="axis-label">${this._formatTime(p.x)}</text>`;
-      })
-      .join("");
+    // First/middle ticks from the actual series; the last tick sits at
+    // the domain's right edge — the period end when there's a
+    // projection, otherwise the last actual point — anchored start/
+    // middle/end respectively so the outer labels don't clip past the
+    // viewBox edges.
+    const middleIndexes = [...new Set([0, Math.floor((series.length - 1) / 2)])];
+    const middleTicks = middleIndexes.map((i) => {
+      const p = series[i];
+      const x = scaleX(p.x).toFixed(1);
+      return `<text x="${x}" y="${height - 6}" text-anchor="${i === 0 ? "start" : "middle"}" class="axis-label">${this._formatTime(p.x)}</text>`;
+    });
+    const lastTickMs = projection ? projection.endMs : dataMaxX;
+    const lastTickX = scaleX(lastTickMs).toFixed(1);
+    const xTicks = [
+      ...middleTicks,
+      `<text x="${lastTickX}" y="${height - 6}" text-anchor="end" class="axis-label">${this._formatTime(lastTickMs)}</text>`,
+    ].join("");
 
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
         <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.25"></polygon>
         <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
+        ${projectionLine}
         ${xTicks}
         <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
         <circle class="hover-dot" r="4" fill="var(--info-color)" visibility="hidden"></circle>
