@@ -132,6 +132,15 @@ class EnergyCostBreakdownCard extends HTMLElement {
       .sort((a, b) => a - b)
       .map((start) => ({ x: start, y: costByBucketStart.get(start) }));
 
+    // Captured before the tail-padding below adds zero-cost placeholder
+    // buckets for a period still in progress — those aren't real data and
+    // would drag the average down (e.g. "Today" at noon would average in
+    // 12 hours of not-yet-happened zeros).
+    const realBucketCount = buckets.length;
+    const average = realBucketCount
+      ? buckets.reduce((sum, b) => sum + b.y, 0) / realBucketCount
+      : 0;
+
     // Pad the tail with zero-cost placeholder buckets out to the period's
     // true end. Without this, a period still in progress (e.g. "Today")
     // stops drawing at whatever hour it currently is, while
@@ -155,21 +164,14 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     // The running total already lives on energy-cost-card.js right next
     // to this card — repeating it here would just be the same number
-    // twice. The highest single bucket is genuinely new information: the
-    // bars make it easy to spot *that* one is tallest, but not its exact
-    // value or which day/hour it was. Compute this after _renderChart (not
-    // before) so _formatTime's sub-day/day/month tiering has this card's
-    // real data span to work from.
+    // twice. The per-bucket average is genuinely new information: the
+    // bars make relative highs/lows easy to eyeball, but not a typical
+    // value to compare a given bar against.
     const periodStartMs = data.start ? data.start.getTime() : undefined;
     const periodEndMs = data.end ? data.end.getTime() : undefined;
     this._renderChart(buckets, periodStartMs, periodEndMs);
 
-    if (buckets.length) {
-      const highest = buckets.reduce((max, b) => (b.y > max.y ? b : max), buckets[0]);
-      this._totalEl.textContent = `Highest: ${this._formatCurrency(highest.y)} (${this._formatTime(highest.x)})`;
-    } else {
-      this._totalEl.textContent = "";
-    }
+    this._totalEl.textContent = realBucketCount ? `Average: ${this._formatCurrency(average)}` : "";
   }
 
   _formatCurrency(value, compact = false) {

@@ -281,6 +281,8 @@
       }
       const costByBucketStart = sumCostByBucket(stats, costStatIds);
       const buckets = [...costByBucketStart.keys()].sort((a, b) => a - b).map((start) => ({ x: start, y: costByBucketStart.get(start) }));
+      const realBucketCount = buckets.length;
+      const average = realBucketCount ? buckets.reduce((sum, b) => sum + b.y, 0) / realBucketCount : 0;
       const step = inferFixedStepMs(buckets.map((b) => b.x));
       if (step && data.end) {
         const periodEndMs2 = data.end.getTime();
@@ -293,12 +295,7 @@
       const periodStartMs = data.start ? data.start.getTime() : void 0;
       const periodEndMs = data.end ? data.end.getTime() : void 0;
       this._renderChart(buckets, periodStartMs, periodEndMs);
-      if (buckets.length) {
-        const highest = buckets.reduce((max, b) => b.y > max.y ? b : max, buckets[0]);
-        this._totalEl.textContent = `Highest: ${this._formatCurrency(highest.y)} (${this._formatTime(highest.x)})`;
-      } else {
-        this._totalEl.textContent = "";
-      }
+      this._totalEl.textContent = realBucketCount ? `Average: ${this._formatCurrency(average)}` : "";
     }
     _formatCurrency(value, compact = false) {
       return formatCurrency(value, {
