@@ -119,13 +119,21 @@ class EnergyCostCard extends HTMLElement {
     this._unsub = collection.subscribe((data) => this._update(data));
   }
 
-  _update(data) {
+  async _update(data) {
     const prefs = data.prefs;
     const stats = data.stats;
 
+    // source.stat_cost (energy/get_prefs) is only populated when a source
+    // points directly at a pre-existing cost-tracking entity. When cost is
+    // derived from a price entity/static price (our case), the generated
+    // cost stat only shows up in energy/info's cost_sensors map, keyed by
+    // the consumption stat_id — same lookup the native cards use.
+    const info = await this._hass.callWS({ type: "energy/info" });
+    const costSensors = info.cost_sensors || {};
+
     const costStatIds = (prefs.energy_sources || [])
       .filter((source) => source.type === "grid")
-      .map((source) => source.stat_cost)
+      .map((source) => source.stat_cost || costSensors[source.stat_energy_from])
       .filter(Boolean);
 
     if (!costStatIds.length) {
