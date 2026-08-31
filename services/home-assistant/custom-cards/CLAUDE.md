@@ -133,9 +133,12 @@ width-based formula only when no real height is available yet.
 
 ## Deploy model — deliberately manual, not bind-mounted
 
-Source lives in this repo (`custom-cards/*.js`), tracked and PR-reviewed
-like everything else here. Deploying a change is **one manual copy**, not
-a bind mount into the container:
+Source lives in this repo (`custom-cards/src/`), tracked and PR-reviewed
+like everything else here, and compiles to the top-level `custom-cards/
+<file>.js` (see "Minimizing duplication" for the build step — run it and
+commit the regenerated file before deploying). Deploying a change is
+**one manual copy** of that generated file, not a bind mount into the
+container:
 
 ```bash
 cp services/home-assistant/custom-cards/<file>.js \
@@ -161,15 +164,82 @@ merge to `main` until it's actually confirmed working against the live
 instance. `main` is meant to always be deployable; an untested card
 doesn't belong there yet. Flip the server back to `main` once merged.
 
-## Minimizing duplication across multiple cards (planned, not yet done)
+## Minimizing duplication across multiple cards (done)
 
-As of this writing there's only one card, so there's nothing to share
-yet. The next card is expected to duplicate real, generic logic from this
-one: the SVG rendering engine (scaling, gridlines, resize handling,
-hover/tooltip), the nice-numbers axis algorithm, time formatting, and the
-collection-attachment logic. Card-specific logic (which stat IDs to
-discover, how to combine them, and value formatting) should stay
-per-card.
+Done when `energy-cost-breakdown-card.js` was added as the second card —
+per the plan below, written when it was still just a plan. The prediction
+about *which* logic was generic held up almost exactly; one real surprise
+turned up once the actual diff was in front of us: both cards' per-bucket
+delta-summing loop (`deltaByBucketStart`/`costByBucketStart` — walk every
+cost stat's points, skip `change == null`, accumulate by `point.start`)
+was byte-identical too, not just the `energy/get_prefs`/`energy/info`
+discovery call before it. That moved into `lib/energy-cost-sources.js`
+alongside discovery; only the cumulative-running-total-vs-standalone-bars
+step after it stayed per-card.
+
+**Layout**: source lives in `src/`, and each card is a real ES module
+entry point importing from `src/lib/`:
+
+```text
+custom-cards/
+  src/
+    energy-cost-card.js            (entry)
+    energy-cost-breakdown-card.js  (entry)
+    lib/
+      card-shell.js         — shared shadow-DOM CSS (Sections-view
+                               flex-fill layout, axis-label/tooltip/
+                               message rules); each card splices in its
+                               own extra rules (e.g. `.projected`) after it
+      energy-collection.js  — _collectionKey + attach/subscribe
+      energy-cost-sources.js — energy/get_prefs+energy/info discovery,
+                               per-bucket delta summing
+      nice-axis.js           — _niceNumber/_niceAxisScale, verbatim
+      format.js               — _formatCurrency, and a tiered
+                               _formatTime (cards pass their own tier
+                               list — 2 tiers for the cost card, 3 for
+                               the breakdown card's month-sized buckets)
+      svg-chart.js            — chart padding constants, clientWidth/
+                               clientHeight sizing, the ResizeObserver+
+                               rAF debounce, and Y-axis gridline markup
+  energy-cost-card.js             (generated — do not hand-edit)
+  energy-cost-breakdown-card.js   (generated — do not hand-edit)
+  package.json / package-lock.json / node_modules/ (gitignored)
+```
+
+**What stayed card-specific, deliberately**: how to actually draw the
+data. `energy-cost-card.js` renders a line+area+dashed-projection chart
+with nearest-point hover; `energy-cost-breakdown-card.js` renders
+discrete bars with slot-index hover. These were *not* forced into one
+shared chart renderer — the hover math, tick-label placement strategy
+(first/middle/last vs. evenly-spaced), and SVG markup for the data itself
+differ enough that unifying them would have meant a config-driven
+renderer bending to fit two shapes, which is worse than two short,
+readable `_renderChart`/`_onPointerMove` methods calling into the same
+shared axis/scale/resize/gridline infrastructure.
+
+**Build**: `npm install` once, then `npm run build` (plain `esbuild
+--bundle --format=iife`, no config file) regenerates both top-level
+`.js` files from `src/`. IIFE format was chosen specifically so the
+generated files stay drop-in compatible with whatever Lovelace resource
+type (`module` or plain `js`) is already registered — no dashboard config
+change needed. **The generated top-level files are committed to git**,
+not gitignored — there's no CI/build step in this repo to run `npm run
+build` before deploy, so the checked-in output *is* what gets copied to
+the HA instance. Run the build and include the regenerated files in the
+same commit as any `src/` change; a stale committed bundle is a silent
+bug (old behavior deployed, new source reviewed) with nothing to catch
+it. The one-manual-copy deploy step itself (see above) is unchanged —
+it still copies these same top-level filenames.
+
+### Original plan (kept for context on why esbuild/this layout)
+
+Written before the second card existed. As of that writing there was only one card, so there was nothing
+to share yet. The next card was expected to duplicate real, generic logic
+from this one: the SVG rendering engine (scaling, gridlines, resize
+handling, hover/tooltip), the nice-numbers axis algorithm, time
+formatting, and the collection-attachment logic. Card-specific logic
+(which stat IDs to discover, how to combine them, and value formatting)
+was expected to stay per-card — mostly right; see the correction above.
 
 **The trigger for splitting this out is the start of the second card, not
 before.** Multi-file source without a bundler was evaluated and rejected
@@ -194,5 +264,7 @@ the generic code.
 
 ## Reference implementation
 
-`energy-cost-card.js` is the canonical example of every pattern above —
-when in doubt, read it before re-deriving something from scratch.
+`src/energy-cost-card.js` (plus `src/lib/`) is the canonical example of
+every pattern above — when in doubt, read it before re-deriving something
+from scratch. Edit source under `src/`, never the generated top-level
+`.js` files directly — see "Minimizing duplication" for the build step.
