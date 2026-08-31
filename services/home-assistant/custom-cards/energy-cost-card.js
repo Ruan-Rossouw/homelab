@@ -169,6 +169,18 @@
     }).join("");
   }
 
+  // src/lib/tick-labels.js
+  function selectLabelIndexes(itemCount, targetCount) {
+    if (itemCount <= 0) return [];
+    const count = Math.max(1, Math.min(targetCount, itemCount));
+    if (count === 1) return [0];
+    const indexes = [];
+    for (let i = 0; i < count; i++) {
+      indexes.push(Math.round(i * (itemCount - 1) / (count - 1)));
+    }
+    return [...new Set(indexes)];
+  }
+
   // src/energy-cost-card.js
   var EnergyCostCard = class extends HTMLElement {
     setConfig(config) {
@@ -389,7 +401,7 @@
         padRight,
         formatValue: (v) => this._formatCurrency(v, true)
       });
-      const middleIndexes = [.../* @__PURE__ */ new Set([0, Math.floor((series.length - 1) / 2)])];
+      const middleIndexes = selectLabelIndexes(series.length, 5).slice(0, -1);
       const middleTicks = middleIndexes.map((i) => {
         const p = series[i];
         const x = scaleX(p.x).toFixed(1);
