@@ -267,11 +267,21 @@ Resources → Add Resource → URL `/local/custom-cards/energy-cost-card.js`
 live immediately (static file serving, no container restart) — just a
 hard browser refresh to bust the cache.
 
-**Deliberately dropped** during design: a "Projected Full-Month Bill"
-extrapolation line, and the fixed monthly Basic Charge — neither has a
-native HA equivalent (no forecasting, no fixed-fee concept in cost
-tracking), and simplifying to just the combined grid cost was preferred
-over carrying that extra custom logic.
+**Deliberately dropped**: the fixed monthly Basic Charge — no native HA
+equivalent (no fixed-fee concept in cost tracking), and simplifying to
+just the combined variable grid cost was preferred over carrying that
+extra custom logic. A projection *was* added back in, but as a linear
+reference line derived entirely from data the card already has (the
+average rate since `data.start`, extended to `data.end`) rather than the
+original tariff-reapplication approach — it doubles as an average-pace
+benchmark (above/below the line = above/below the period's average),
+which is also why it still draws for an already-elapsed period like
+"Yesterday", using the real final total instead of an estimate.
+
+See [`custom-cards/CLAUDE.md`](custom-cards/CLAUDE.md) before building
+another card for this instance — it captures the native-styling
+conventions, the shared-date-picker mechanism, and a few wrong guesses
+already corrected once, so they don't need re-discovering.
 
 ## Not Yet Built
 
