@@ -154,7 +154,30 @@ made for the LuxPower integration elsewhere in this service.
 **Caching**: a plain hard refresh is often not enough — HA's frontend
 Service Worker can serve a stale cached copy regardless. Bump the
 registered Lovelace resource URL's `?v=N` query param on every deploy
-(Settings → Dashboards → Resources), not just on the first install.
+(Settings → Dashboards → Resources), not just on the first install —
+**to a number that resource URL has never been requested with before**,
+not just one different from whatever's currently registered. A typo that
+reuses an already-fetched number is indistinguishable from a fresh bump
+to the browser and silently serves the old cached file with no error
+anywhere — this cost a full round of "is it a browser bug?" debugging
+(wrong axis math, missing projection line, distorted sizing — all
+symptoms of a stale bundle, none of them real) before the actual cause
+(a mistyped version number) turned up. When a deploy looks broken in a
+way the code can't explain, check this before anything else: open the
+resource's URL directly in a new tab and search the raw source for a
+distinctive function name from the change you just made — if it's not
+there, you're not looking at the file you think you are, and no
+in-dashboard debugging will explain the symptoms. Unregistering the
+Service Worker (browser devtools → Application/Storage → Service
+Workers) and even fully restarting the browser does **not** clear this —
+a Service Worker's Cache Storage persists independently of the browser
+process, so only a real cache-clear (Firefox: `about:serviceworkers` to
+unregister *and* Settings → Privacy → "Manage Data" → remove the site's
+data; Chrome: DevTools → Application → Clear storage) or a genuinely new
+`?v=N` fixes it. Different browsers/devices can disagree (one showing
+current, another stale) purely because only some of them ever cached the
+bad URL — that split is itself a signal it's caching, not a real
+cross-browser rendering bug.
 
 ## Git workflow while a card is unverified
 
