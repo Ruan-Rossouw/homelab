@@ -194,6 +194,85 @@ investigation (including the Dockerfile/scheduler patches) lived in PR #73,
 closed without merging once superseded — this repo doesn't carry
 non-functional code forward, per `docs/architecture.md`.
 
+## Stage 4: Energy Cost — Custom "Energy Cost Card" (2026-08-31)
+
+Tracking the real City of Tshwane inclining-block tariff (not a flat
+rate) against the household's combined grid import (inverter + geyser,
+two separate circuits at one point of municipal supply) started as a
+fully custom pipeline: Utility Meter/Group helpers plus template sensors
+re-implementing the tariff math by hand. Rejected that approach after
+building most of it, for three concrete reasons:
+
+1. Helper entities have no history — a Utility Meter's cumulative state
+   only exists from the moment it's created forward, so it can't answer
+   anything about a past month.
+2. Not reactive — a fixed source → cycle → sum pipeline baked in at
+   creation time. A different grouping means a new helper, not a config
+   change.
+3. Don't participate in the Energy dashboard's own date-picker — they're
+   just regular entities with their own state history, disconnected from
+   whatever range `energy-date-selection` has selected.
+
+**What's actually in place instead**:
+
+- One template sensor, `sensor.tshwane_marginal_rate` — the one piece of
+  tariff logic HA has no native equivalent for (inclining-block pricing).
+  Returns the current marginal R/kWh rate based on
+  `sensor.total_grid_import_monthly` (the pre-existing combined-total
+  Group helper). Wired into **both** grid sources in Settings →
+  Dashboards → Energy as "an entity with the current price."
+- Because cost for each source is `price(t) × Δconsumption(t)`, applying
+  the *same* rate entity to both sources sums to the same result as
+  applying the tariff to the combined total — no per-source tariff split
+  needed, which is what made this deferred the first time it came up.
+  Once wired, HA auto-generates a `_cost` statistic per source (e.g.
+  `sensor.geyser_total_energy_cost`,
+  `sensor.luxpower_inverter_grid_energy_from_grid_today_cost`) — real
+  entities with proper long-term statistics, no template math involved.
+- **`custom-cards/energy-cost-card.js`** — a small dependency-free
+  custom Lovelace card (`type: custom:energy-cost-card`) replacing what
+  would otherwise be a Group helper + Utility Meter + apexcharts-card
+  chart. It:
+  - Discovers which stat_ids to sum by reading `energy/get_prefs`
+    (`energy_sources` where `type === "grid"`, each entry's `stat_cost`
+    field) — the same lookup the native energy cards use internally.
+    Zero hardcoded entity IDs; add or remove a grid source in Energy
+    settings and the card's inputs change with it.
+  - Attaches to the exact same shared data collection
+    `energy-date-selection` drives (cached on `hass.connection`, not a
+    separate query) — so it always reflects whichever date range is
+    selected there, rather than shipping its own picker.
+  - Renders a hand-rolled inline SVG (no ApexCharts/Lit/build step) —
+    deliberately dependency-free so it isn't coupled to another HACS
+    card's internal bundling.
+  - **Requires** an `energy-date-selection` card on the same dashboard
+    view — it has no fallback of its own and will show a "waiting for…"
+    message until one exists.
+
+**Maintenance model** — deliberately *not* bind-mounted into the
+container. `custom-cards/energy-cost-card.js` is tracked here like any
+other file in this repo (diffable, PR-reviewed, rollback-able via git),
+but deploying a change is one manual copy, same call already made for
+the LuxPower integration above (HACS/build tooling not worth it for
+something that changes rarely):
+
+```bash
+cp services/home-assistant/custom-cards/energy-cost-card.js \
+   /DATA/AppData/home-assistant/config/www/custom-cards/energy-cost-card.js
+```
+
+Registered once as a Lovelace resource: Settings → Dashboards → ⋮ →
+Resources → Add Resource → URL `/local/custom-cards/energy-cost-card.js`
+→ Resource type "JavaScript Module". After the `cp` above, changes are
+live immediately (static file serving, no container restart) — just a
+hard browser refresh to bust the cache.
+
+**Deliberately dropped** during design: a "Projected Full-Month Bill"
+extrapolation line, and the fixed monthly Basic Charge — neither has a
+native HA equivalent (no forecasting, no fixed-fee concept in cost
+tracking), and simplifying to just the combined grid cost was preferred
+over carrying that extra custom logic.
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
