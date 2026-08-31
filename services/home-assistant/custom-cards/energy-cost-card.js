@@ -44,7 +44,7 @@ class EnergyCostCard extends HTMLElement {
           .axis-label {
             font-family: var(--ha-font-family-body, var(--primary-font-family, Roboto, Noto, sans-serif));
             font-size: 10px;
-            fill: var(--secondary-text-color);
+            fill: var(--primary-text-color);
           }
           .tooltip {
             position: absolute;
@@ -220,11 +220,12 @@ class EnergyCostCard extends HTMLElement {
 
   // Sub-day ranges (the "Today" picker) get hour:minute labels; anything
   // longer gets a short date, since a time-of-day label on a month-long
-  // range would be meaningless.
+  // range would be meaningless. Based on the real data span, not the
+  // padded plotting domain.
   _formatTime(timestamp) {
     const locale = this._hass?.locale?.language;
     const spanMs = this._chartBounds
-      ? this._chartBounds.maxX - this._chartBounds.minX
+      ? this._chartBounds.dataMaxX - this._chartBounds.dataMinX
       : 0;
     const isSubDay = spanMs < 2 * 24 * 60 * 60 * 1000;
     return new Intl.DateTimeFormat(
@@ -247,49 +248,73 @@ class EnergyCostCard extends HTMLElement {
     const width = 600;
     const height = 220;
     const padLeft = 56;
-    const padRight = 8;
+    const padRight = 12;
     const padTop = 10;
     const padBottom = 24;
 
     const xs = series.map((p) => p.x);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const maxY = Math.max(...series.map((p) => p.y), 0.0001);
+    const dataMinX = Math.min(...xs);
+    const dataMaxX = Math.max(...xs);
+    const dataMaxY = Math.max(...series.map((p) => p.y), 0.0001);
+
+    // Headroom so the line doesn't run flush against the plot edges —
+    // matching the native energy cards, which never let data touch the
+    // top gridline or the right edge.
+    const domainMinX = dataMinX;
+    const domainMaxX = dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
+    const domainMaxY = dataMaxY * 1.15;
 
     const scaleX = (x) =>
-      padLeft + ((x - minX) / (maxX - minX || 1)) * (width - padLeft - padRight);
+      padLeft +
+      ((x - domainMinX) / (domainMaxX - domainMinX || 1)) *
+        (width - padLeft - padRight);
     const scaleY = (y) =>
-      height - padBottom - (y / maxY) * (height - padTop - padBottom);
+      height - padBottom - (y / domainMaxY) * (height - padTop - padBottom);
 
     this._scaleX = scaleX;
     this._scaleY = scaleY;
-    this._chartBounds = { width, height, padLeft, padRight, padTop, padBottom, minX, maxX, maxY };
+    this._chartBounds = {
+      width,
+      height,
+      padLeft,
+      padRight,
+      padTop,
+      padBottom,
+      dataMinX,
+      dataMaxX,
+      domainMinX,
+      domainMaxX,
+      domainMaxY,
+    };
 
     const linePoints = series
       .map((p) => `${scaleX(p.x).toFixed(1)},${scaleY(p.y).toFixed(1)}`)
       .join(" ");
-    const areaPoints = `${scaleX(minX).toFixed(1)},${height - padBottom} ${linePoints} ${scaleX(
-      maxX
+    const areaPoints = `${scaleX(dataMinX).toFixed(1)},${height - padBottom} ${linePoints} ${scaleX(
+      dataMaxX
     ).toFixed(1)},${height - padBottom}`;
 
-    // 3 gridlines (0 / half / max) — a "nice round numbers" axis algorithm
-    // would be overkill for a small embedded-card chart.
-    const yGridlines = [0, maxY / 2, maxY]
+    // 3 gridlines (0 / half / headroom-inclusive max), dashed to match the
+    // native energy cards' gridline style.
+    const yGridlines = [0, domainMaxY / 2, domainMaxY]
       .map((v) => {
         const y = scaleY(v).toFixed(1);
         return `
-          <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--divider-color)" stroke-width="1"></line>
+          <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--divider-color)" stroke-width="1" stroke-dasharray="3,3"></line>
           <text x="${padLeft - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="axis-label">${this._formatCurrency(v, true)}</text>
         `;
       })
       .join("");
 
+    // First/middle/last tick, anchored start/middle/end respectively so the
+    // outer two labels don't clip past the viewBox edges.
     const xTickIndexes = [...new Set([0, Math.floor((series.length - 1) / 2), series.length - 1])];
+    const anchorFor = (i) => (i === 0 ? "start" : i === series.length - 1 ? "end" : "middle");
     const xTicks = xTickIndexes
       .map((i) => {
         const p = series[i];
         const x = scaleX(p.x).toFixed(1);
-        return `<text x="${x}" y="${height - 6}" text-anchor="middle" class="axis-label">${this._formatTime(p.x)}</text>`;
+        return `<text x="${x}" y="${height - 6}" text-anchor="${anchorFor(i)}" class="axis-label">${this._formatTime(p.x)}</text>`;
       })
       .join("");
 
@@ -317,12 +342,14 @@ class EnergyCostCard extends HTMLElement {
     }
 
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, height, padLeft, padRight, minX, maxX } = this._chartBounds;
+    const { width, padLeft, padRight, domainMinX, domainMaxX } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
     const targetX =
-      minX + ((viewBoxX - padLeft) / (width - padLeft - padRight)) * (maxX - minX);
+      domainMinX +
+      ((viewBoxX - padLeft) / (width - padLeft - padRight)) *
+        (domainMaxX - domainMinX);
 
     let nearest = this._series[0];
     let nearestDist = Infinity;
