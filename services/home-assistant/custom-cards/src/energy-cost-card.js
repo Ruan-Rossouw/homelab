@@ -26,7 +26,7 @@ import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sour
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
 import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
-import { selectLabelIndexes } from "./lib/tick-labels.js";
+import { selectEvenTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs, snapToStep } from "./lib/tick-labels.js";
 
 class EnergyCostCard extends HTMLElement {
   setConfig(config) {
@@ -327,27 +327,49 @@ class EnergyCostCard extends HTMLElement {
       formatValue: (v) => this._formatCurrency(v, true),
     });
 
-    // Evenly spaced interior ticks from the actual series, plus a final
-    // tick pinned to the domain's right edge — the period end when
-    // there's a projection, otherwise the last actual point — which can
-    // sit past the last real series index, so it's always computed
-    // separately below rather than picked from `series`. The last
-    // evenly-spaced index is dropped here specifically to avoid a
-    // near-duplicate label right next to that separately-drawn edge tick.
-    // Anchored start/middle/end respectively so the outer labels don't
-    // clip past the viewBox edges.
-    const middleIndexes = selectLabelIndexes(series.length, 5).slice(0, -1);
-    const middleTicks = middleIndexes.map((i) => {
-      const p = series[i];
-      const x = scaleX(p.x).toFixed(1);
-      return `<text x="${x}" y="${height - 6}" text-anchor="${i === 0 ? "start" : "middle"}" class="axis-label">${this._formatTime(p.x)}</text>`;
-    });
+    // Ticks at evenly-spaced *timestamps* across the plotted domain, not
+    // evenly-spaced indices into `series` — those aren't the same thing
+    // once a projection extends the domain well past the real data (e.g.
+    // "Today" at noon, plotted out to midnight): picking indices out of
+    // only the real (so far, first-half-of-the-day) series bunches every
+    // interior tick into the already-elapsed portion, then jumps straight
+    // to the far edge for the last one. The right edge is the period end
+    // when there's a projection, otherwise the last actual point.
+    //
+    // Uses the same DEFAULT_TICK_COUNT and the same evenly-spaced-in-time
+    // algorithm as energy-cost-breakdown-card.js's bar chart, so the two
+    // cards' x-axes land on the same dates/times for the same period
+    // instead of each picking its own count independently. Snapped onto
+    // the real bucket grid (inferred the same way the breakdown card
+    // infers its padding step) so labels land on round times like
+    // "5:00 AM" — splitting the domain into equal fractions alone would
+    // land on whatever arbitrary time each fraction happens to be (e.g.
+    // "4:48 AM" for a 24-hour domain split 5 ways).
     const lastTickMs = projection ? projection.endMs : dataMaxX;
-    const lastTickX = scaleX(lastTickMs).toFixed(1);
-    const xTicks = [
-      ...middleTicks,
-      `<text x="${lastTickX}" y="${height - 6}" text-anchor="end" class="axis-label">${this._formatTime(lastTickMs)}</text>`,
-    ].join("");
+    const step = inferFixedStepMs(series.map((p) => p.x));
+    const idealTicks = selectEvenTimestamps(domainMinX, lastTickMs, DEFAULT_TICK_COUNT);
+    // Only the interior ticks get snapped — the first and last are pinned
+    // exactly at domainMinX/lastTickMs (e.g. the real period end, often
+    // 23:59:59.999) on purpose, and rounding that to the nearest step
+    // could overshoot past it (23:59:59.999 rounds *up* to next midnight
+    // at an hourly step), turning a correct "11:59 PM" edge label into a
+    // wrong "12:00 AM".
+    const tickTimestamps = step
+      ? [
+          ...new Set(
+            idealTicks.map((t, i) =>
+              i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
+            )
+          ),
+        ]
+      : idealTicks;
+    const xTicks = tickTimestamps
+      .map((t, i, all) => {
+        const x = scaleX(t).toFixed(1);
+        const anchor = i === 0 ? "start" : i === all.length - 1 ? "end" : "middle";
+        return `<text x="${x}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(t)}</text>`;
+      })
+      .join("");
 
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
