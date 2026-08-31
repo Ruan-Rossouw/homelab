@@ -120,7 +120,7 @@ class EnergyCostCard extends HTMLElement {
         this._resizeFrame = requestAnimationFrame(() => {
           this._resizeFrame = undefined;
           if (this._series) {
-            this._renderChart(this._series, this._projection);
+            this._renderChart(this._series, this._projection, this._periodStartMs);
           }
         });
       });
@@ -258,7 +258,7 @@ class EnergyCostCard extends HTMLElement {
       this._projectedEl.hidden = true;
     }
 
-    this._renderChart(series, projection);
+    this._renderChart(series, projection, data.start ? data.start.getTime() : undefined);
   }
 
   // Linear extrapolation: continues the average rate observed since the
@@ -376,9 +376,23 @@ class EnergyCostCard extends HTMLElement {
     return { axisMax, tickSpacing };
   }
 
-  _renderChart(series, projection) {
+  _renderChart(series, projection, periodStartMs) {
+    // Anchor the left edge at the period's true start (R0), not just
+    // wherever the first real bucket happens to fall — symmetric with
+    // using the period end for the right edge (via projection). Without
+    // this, a period whose cost tracking began partway through (like
+    // this month, since native tracking was only just wired up) shows a
+    // truncated chart instead of the full period, which is exactly what
+    // makes day-to-day usage comparison useful. Before real tracking
+    // began, cost genuinely was 0 (not unknown), so R0 is accurate here,
+    // not a guess filling a data gap.
+    if (periodStartMs != null && series.length && periodStartMs < series[0].x) {
+      series = [{ x: periodStartMs, y: 0 }, ...series];
+    }
+
     this._series = series;
     this._projection = projection;
+    this._periodStartMs = periodStartMs;
 
     if (series.length < 2) {
       this._chartEl.innerHTML = `<div class="message">Not enough data yet for this period.</div>`;
