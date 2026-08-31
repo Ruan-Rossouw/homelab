@@ -251,15 +251,19 @@ class EnergyCostCard extends HTMLElement {
   _formatCurrency(value, compact = false) {
     const symbol = this._config.currency_symbol || "R";
     const locale = this._hass?.locale?.language;
+    // Below 1000, compact notation doesn't apply a K/M suffix at all, so
+    // forcing a decimal there would just add a pointless ".0" (R500.0).
+    // At/above 1000 it does apply a suffix, and without a forced minimum,
+    // Intl only shows a decimal when the value needs one — so 1000 and
+    // 1500 render as "1K" and "1.5K", inconsistent siblings on the same
+    // axis. Force it only in that magnitude range for consistency.
+    const forceDecimal = compact && Math.abs(value) >= 1000;
     let number;
     try {
       number = new Intl.NumberFormat(locale, {
         notation: compact ? "compact" : "standard",
-        // 0 fraction digits on compact axis labels collapses distinct
-        // gridline values (1500 and 2000 both print as "2K") — 1 digit
-        // keeps them distinguishable (1.5K vs 2K).
         maximumFractionDigits: compact ? 1 : 2,
-        minimumFractionDigits: compact ? 0 : 2,
+        minimumFractionDigits: forceDecimal ? 1 : compact ? 0 : 2,
       }).format(value);
     } catch {
       number = value.toFixed(compact ? 0 : 2);
@@ -285,21 +289,40 @@ class EnergyCostCard extends HTMLElement {
     ).format(new Date(timestamp));
   }
 
-  // Rounds a raw axis max up to a "clean" step (1/2/5/10 × a power of ten)
-  // times segmentCount, the same class of algorithm ECharts uses — this is
-  // what gives native charts their headroom (a round number above the
-  // actual peak) rather than a flat percentage padding.
-  _niceAxisMax(rawMax, segmentCount) {
-    if (rawMax <= 0) return segmentCount;
-    const roughStep = rawMax / segmentCount;
-    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
-    const residual = roughStep / magnitude;
-    let niceStep;
-    if (residual > 5) niceStep = 10 * magnitude;
-    else if (residual > 2) niceStep = 5 * magnitude;
-    else if (residual > 1) niceStep = 2 * magnitude;
-    else niceStep = magnitude;
-    return niceStep * segmentCount;
+  // Classic "nice numbers" axis algorithm (Heckbert): round a raw range up
+  // to the nearest clean 1/2/5/10 × 10^n. Rounding the max itself first
+  // (rather than rounding a step and multiplying by a fixed segment count)
+  // keeps the axis top snug against the actual data — an earlier version
+  // of this rounded a step size *then* multiplied by the segment count,
+  // which could land far above the real max (e.g. a max of 952 landing on
+  // a 2000 top instead of 1000, more empty headroom than data).
+  _niceNumber(range, round) {
+    if (range <= 0) return 1;
+    const exponent = Math.floor(Math.log10(range));
+    const fraction = range / Math.pow(10, exponent);
+    let niceFraction;
+    if (round) {
+      if (fraction < 1.5) niceFraction = 1;
+      else if (fraction < 3) niceFraction = 2;
+      else if (fraction < 7) niceFraction = 5;
+      else niceFraction = 10;
+    } else if (fraction <= 1) niceFraction = 1;
+    else if (fraction <= 2) niceFraction = 2;
+    else if (fraction <= 5) niceFraction = 5;
+    else niceFraction = 10;
+    return niceFraction * Math.pow(10, exponent);
+  }
+
+  // Derives a clean axis max and a clean tick spacing that divides it,
+  // targeting roughly targetTickCount gridlines.
+  _niceAxisScale(dataMax, targetTickCount) {
+    const niceRange = this._niceNumber(dataMax, false);
+    const tickSpacing = this._niceNumber(
+      niceRange / Math.max(targetTickCount - 1, 1),
+      true
+    );
+    const axisMax = Math.ceil(dataMax / tickSpacing) * tickSpacing;
+    return { axisMax, tickSpacing };
   }
 
   _renderChart(series) {
@@ -341,7 +364,7 @@ class EnergyCostCard extends HTMLElement {
     // headroom instead comes from rounding up to a nice axis max (below).
     const domainMinX = dataMinX;
     const domainMaxX = dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
-    const domainMaxY = this._niceAxisMax(dataMaxY, 4);
+    const { axisMax: domainMaxY, tickSpacing } = this._niceAxisScale(dataMaxY, 5);
 
     const scaleX = (x) =>
       padLeft +
@@ -373,10 +396,12 @@ class EnergyCostCard extends HTMLElement {
       dataMaxX
     ).toFixed(1)},${height - padBottom}`;
 
-    // 5 gridlines, solid — matches ha-chart-base's splitNumber: 5 and its
-    // solid (non-dashed) splitLine style.
-    const yGridlines = [0, 1, 2, 3, 4]
-      .map((i) => (domainMaxY * i) / 4)
+    // Solid gridlines at each clean tick-spacing multiple up to the nice
+    // axis max — matches ha-chart-base's ~5-gridline splitNumber and its
+    // solid (non-dashed) splitLine style, without hardcoding "divide by
+    // 4" (which doesn't line up with a tickSpacing that isn't axisMax/4).
+    const tickCount = Math.round(domainMaxY / tickSpacing);
+    const yGridlines = Array.from({ length: tickCount + 1 }, (_, i) => i * tickSpacing)
       .map((v) => {
         const y = scaleY(v).toFixed(1);
         return `
