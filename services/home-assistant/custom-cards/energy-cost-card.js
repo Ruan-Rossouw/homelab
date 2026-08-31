@@ -39,7 +39,24 @@ class EnergyCostCard extends HTMLElement {
             color: var(--primary-text-color);
             margin-bottom: 8px;
           }
-          .chart svg { width: 100%; height: auto; display: block; }
+          .chart { position: relative; }
+          .chart svg { width: 100%; height: 220px; display: block; }
+          .axis-label {
+            font-size: 10px;
+            fill: var(--secondary-text-color);
+          }
+          .tooltip {
+            position: absolute;
+            transform: translate(-50%, -100%) translateY(-6px);
+            background: var(--card-background-color, #1c1c1c);
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            color: var(--primary-text-color);
+            white-space: nowrap;
+            pointer-events: none;
+          }
           .message {
             color: var(--secondary-text-color);
             font-size: 0.9rem;
@@ -58,6 +75,9 @@ class EnergyCostCard extends HTMLElement {
     this._totalEl = this.shadowRoot.querySelector(".total");
     this._chartEl = this.shadowRoot.querySelector(".chart");
     this._headerEl.textContent = this._config.title || "Grid Cost";
+
+    this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
+    this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
 
     this._attachToCollection();
   }
@@ -166,28 +186,53 @@ class EnergyCostCard extends HTMLElement {
     this._renderChart(series);
   }
 
-  _formatCurrency(value) {
+  _formatCurrency(value, compact = false) {
     const currency = this._config.currency || "ZAR";
     const locale = this._hass?.locale?.language;
     try {
       return new Intl.NumberFormat(locale, {
         style: "currency",
         currency,
+        notation: compact ? "compact" : "standard",
+        maximumFractionDigits: compact ? 0 : 2,
       }).format(value);
     } catch {
       return value.toFixed(2);
     }
   }
 
+  // Sub-day ranges (the "Today" picker) get hour:minute labels; anything
+  // longer gets a short date, since a time-of-day label on a month-long
+  // range would be meaningless.
+  _formatTime(timestamp) {
+    const locale = this._hass?.locale?.language;
+    const spanMs = this._chartBounds
+      ? this._chartBounds.maxX - this._chartBounds.minX
+      : 0;
+    const isSubDay = spanMs < 2 * 24 * 60 * 60 * 1000;
+    return new Intl.DateTimeFormat(
+      locale,
+      isSubDay
+        ? { hour: "2-digit", minute: "2-digit" }
+        : { month: "short", day: "numeric" }
+    ).format(new Date(timestamp));
+  }
+
   _renderChart(series) {
+    this._series = series;
+
     if (series.length < 2) {
       this._chartEl.innerHTML = `<div class="message">Not enough data yet for this period.</div>`;
+      this._series = undefined;
       return;
     }
 
     const width = 600;
-    const height = 200;
-    const pad = 8;
+    const height = 220;
+    const padLeft = 56;
+    const padRight = 8;
+    const padTop = 10;
+    const padBottom = 24;
 
     const xs = series.map((p) => p.x);
     const minX = Math.min(...xs);
@@ -195,22 +240,103 @@ class EnergyCostCard extends HTMLElement {
     const maxY = Math.max(...series.map((p) => p.y), 0.0001);
 
     const scaleX = (x) =>
-      pad + ((x - minX) / (maxX - minX || 1)) * (width - 2 * pad);
-    const scaleY = (y) => height - pad - (y / maxY) * (height - 2 * pad);
+      padLeft + ((x - minX) / (maxX - minX || 1)) * (width - padLeft - padRight);
+    const scaleY = (y) =>
+      height - padBottom - (y / maxY) * (height - padTop - padBottom);
+
+    this._scaleX = scaleX;
+    this._scaleY = scaleY;
+    this._chartBounds = { width, height, padLeft, padRight, padTop, padBottom, minX, maxX, maxY };
 
     const linePoints = series
       .map((p) => `${scaleX(p.x).toFixed(1)},${scaleY(p.y).toFixed(1)}`)
       .join(" ");
-    const areaPoints = `${scaleX(minX).toFixed(1)},${height - pad} ${linePoints} ${scaleX(
+    const areaPoints = `${scaleX(minX).toFixed(1)},${height - padBottom} ${linePoints} ${scaleX(
       maxX
-    ).toFixed(1)},${height - pad}`;
+    ).toFixed(1)},${height - padBottom}`;
+
+    // 3 gridlines (0 / half / max) — a "nice round numbers" axis algorithm
+    // would be overkill for a small embedded-card chart.
+    const yGridlines = [0, maxY / 2, maxY]
+      .map((v) => {
+        const y = scaleY(v).toFixed(1);
+        return `
+          <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--divider-color)" stroke-width="1"></line>
+          <text x="${padLeft - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="axis-label">${this._formatCurrency(v, true)}</text>
+        `;
+      })
+      .join("");
+
+    const xTickIndexes = [...new Set([0, Math.floor((series.length - 1) / 2), series.length - 1])];
+    const xTicks = xTickIndexes
+      .map((i) => {
+        const p = series[i];
+        const x = scaleX(p.x).toFixed(1);
+        return `<text x="${x}" y="${height - 6}" text-anchor="middle" class="axis-label">${this._formatTime(p.x)}</text>`;
+      })
+      .join("");
 
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+        ${yGridlines}
         <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.25"></polygon>
         <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
+        ${xTicks}
+        <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--secondary-text-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
+        <circle class="hover-dot" r="4" fill="var(--primary-color)" visibility="hidden"></circle>
       </svg>
+      <div class="tooltip" hidden></div>
     `;
+
+    this._svgEl = this._chartEl.querySelector("svg");
+    this._hoverLine = this._chartEl.querySelector(".hover-line");
+    this._hoverDot = this._chartEl.querySelector(".hover-dot");
+    this._tooltipEl = this._chartEl.querySelector(".tooltip");
+  }
+
+  _onPointerMove(e) {
+    if (!this._series || !this._svgEl || !this._chartBounds) {
+      return;
+    }
+
+    const rect = this._svgEl.getBoundingClientRect();
+    const { width, height, padLeft, padRight, minX, maxX } = this._chartBounds;
+
+    const relX = (e.clientX - rect.left) / rect.width;
+    const viewBoxX = relX * width;
+    const targetX =
+      minX + ((viewBoxX - padLeft) / (width - padLeft - padRight)) * (maxX - minX);
+
+    let nearest = this._series[0];
+    let nearestDist = Infinity;
+    for (const point of this._series) {
+      const dist = Math.abs(point.x - targetX);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = point;
+      }
+    }
+
+    const px = this._scaleX(nearest.x);
+    const py = this._scaleY(nearest.y);
+
+    this._hoverLine.setAttribute("x1", px);
+    this._hoverLine.setAttribute("x2", px);
+    this._hoverLine.setAttribute("visibility", "visible");
+    this._hoverDot.setAttribute("cx", px);
+    this._hoverDot.setAttribute("cy", py);
+    this._hoverDot.setAttribute("visibility", "visible");
+
+    this._tooltipEl.hidden = false;
+    this._tooltipEl.textContent = `${this._formatTime(nearest.x)} — ${this._formatCurrency(nearest.y)}`;
+    this._tooltipEl.style.left = `${(px / width) * rect.width}px`;
+    this._tooltipEl.style.top = `${(py / height) * rect.height}px`;
+  }
+
+  _onPointerLeave() {
+    if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
+    if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
+    if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 }
 
