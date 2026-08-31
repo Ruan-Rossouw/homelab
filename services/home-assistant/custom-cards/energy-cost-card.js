@@ -25,21 +25,34 @@ class EnergyCostCard extends HTMLElement {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `
         <style>
-          :host { display: block; }
-          ha-card { padding: 16px; }
+          /* Sections-view gives this card a fixed-height box via
+             grid_rows and clips anything taller — unlike masonry view,
+             it never grows to fit content. So the card fills whatever
+             height it's given (flex column) rather than dictating its
+             own from a width formula. */
+          :host { display: flex; height: 100%; }
+          ha-card {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            min-height: 0;
+          }
           .header {
             font-size: 1rem;
             font-weight: 500;
             color: var(--primary-text-color);
             margin-bottom: 8px;
+            flex: none;
           }
           .total {
             font-size: 1.6rem;
             font-weight: 500;
             color: var(--primary-text-color);
             margin-bottom: 8px;
+            flex: none;
           }
-          .chart { position: relative; }
+          .chart { position: relative; flex: 1; min-height: 0; }
           .chart svg { width: 100%; display: block; }
           .axis-label {
             /* Literal font stack, matching ha-chart-base.ts exactly — HA
@@ -134,12 +147,17 @@ class EnergyCostCard extends HTMLElement {
     return 3;
   }
 
-  // Sections-view sizing default — a time-series chart reads better wide.
-  // Explicit grid_options in the card's own YAML config still overrides this.
+  // Sections-view sizing default — a time-series chart reads better wide
+  // and needs more vertical room than a plain stat tile. Since the chart
+  // now fills whatever box Sections view gives it (see _renderChart),
+  // this is just a starting point — drag-resize the card's row span in
+  // the dashboard editor to taste, or override via grid_options in the
+  // card's own config.
   getLayoutOptions() {
     return {
       grid_columns: "full",
-      grid_rows: 3,
+      grid_rows: 4,
+      grid_min_rows: 3,
     };
   }
 
@@ -237,7 +255,10 @@ class EnergyCostCard extends HTMLElement {
     try {
       number = new Intl.NumberFormat(locale, {
         notation: compact ? "compact" : "standard",
-        maximumFractionDigits: compact ? 0 : 2,
+        // 0 fraction digits on compact axis labels collapses distinct
+        // gridline values (1500 and 2000 both print as "2K") — 1 digit
+        // keeps them distinguishable (1.5K vs 2K).
+        maximumFractionDigits: compact ? 1 : 2,
         minimumFractionDigits: compact ? 0 : 2,
       }).format(value);
     } catch {
@@ -290,14 +311,22 @@ class EnergyCostCard extends HTMLElement {
       return;
     }
 
-    // Match the viewBox to the container's real pixel width so the
+    // Match the viewBox to the container's real pixel box so the
     // coordinate system is 1:1 with CSS pixels on both axes — otherwise
     // preserveAspectRatio="none" stretches X and Y independently, and
     // that distorts text glyphs (they end up looking squashed) along
-    // with the plotted lines. Height follows width, matching
-    // ha-chart-base's own default-height convention.
+    // with the plotted lines.
+    //
+    // Height prefers the container's actual measured height (the .chart
+    // div fills whatever box Sections-view's grid_rows gives it, via
+    // flex) over a width-derived formula — Sections view clips content
+    // taller than its declared row box rather than growing to fit it,
+    // unlike masonry view where a width-based height works fine because
+    // the card's real height *is* the layout. Falls back to that
+    // formula only if the container hasn't been given a real height
+    // (e.g. masonry view, or before first layout).
     const width = this._chartEl.clientWidth || 600;
-    const height = Math.max(width / 2, 200);
+    const height = this._chartEl.clientHeight || Math.max(width / 2, 200);
     const padLeft = 56;
     const padRight = 12;
     const padTop = 10;
