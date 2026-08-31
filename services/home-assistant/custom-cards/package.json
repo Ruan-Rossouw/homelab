@@ -1,0 +1,11 @@
+{
+  "name": "ha-custom-cards",
+  "private": true,
+  "description": "Build for this directory's Home Assistant Lovelace cards — see CLAUDE.md.",
+  "scripts": {
+    "build": "esbuild src/energy-cost-card.js --bundle --format=iife --outfile=energy-cost-card.js && esbuild src/energy-cost-breakdown-card.js --bundle --format=iife --outfile=energy-cost-breakdown-card.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
