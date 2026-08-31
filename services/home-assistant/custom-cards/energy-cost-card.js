@@ -40,10 +40,12 @@ class EnergyCostCard extends HTMLElement {
             margin-bottom: 8px;
           }
           .chart { position: relative; }
-          .chart svg { width: 100%; height: 220px; display: block; }
+          .chart svg { width: 100%; display: block; }
           .axis-label {
-            font-family: var(--ha-font-family-body, var(--primary-font-family, Roboto, Noto, sans-serif));
-            font-size: 10px;
+            /* Literal font stack, matching ha-chart-base.ts exactly — HA
+               doesn't use a CSS variable for this, so neither do we. */
+            font-family: Roboto, Noto, sans-serif;
+            font-size: var(--ha-font-size-s, 12px);
             fill: var(--primary-text-color);
           }
           .tooltip {
@@ -53,8 +55,8 @@ class EnergyCostCard extends HTMLElement {
             border: 1px solid var(--divider-color);
             border-radius: 4px;
             padding: 4px 8px;
-            font-family: var(--ha-font-family-body, var(--primary-font-family, Roboto, Noto, sans-serif));
-            font-size: 0.8rem;
+            font-family: Roboto, Noto, sans-serif;
+            font-size: var(--ha-font-size-s, 12px);
             color: var(--primary-text-color);
             white-space: nowrap;
             pointer-events: none;
@@ -73,13 +75,36 @@ class EnergyCostCard extends HTMLElement {
       `;
     }
 
+    const firstRender = !this._headerEl;
+
     this._headerEl = this.shadowRoot.querySelector(".header");
     this._totalEl = this.shadowRoot.querySelector(".total");
     this._chartEl = this.shadowRoot.querySelector(".chart");
     this._headerEl.textContent = this._config.title || "Grid Cost";
 
-    this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
-    this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
+    if (firstRender) {
+      this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
+      this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
+
+      // The chart's viewBox width is measured from this element (see
+      // _renderChart) so text isn't stretched non-uniformly under
+      // preserveAspectRatio="none" — re-render on width changes (sidebar
+      // toggle, column count change) so that stays accurate. Coalesced
+      // through rAF so a continuous drag-resize doesn't re-render dozens
+      // of times a second.
+      this._resizeObserver = new ResizeObserver(() => {
+        if (this._resizeFrame) {
+          cancelAnimationFrame(this._resizeFrame);
+        }
+        this._resizeFrame = requestAnimationFrame(() => {
+          this._resizeFrame = undefined;
+          if (this._series) {
+            this._renderChart(this._series);
+          }
+        });
+      });
+      this._resizeObserver.observe(this._chartEl);
+    }
 
     this._attachToCollection();
   }
@@ -99,6 +124,9 @@ class EnergyCostCard extends HTMLElement {
     if (this._unsub) {
       this._unsub();
       this._unsub = undefined;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
     }
   }
 
@@ -236,6 +264,23 @@ class EnergyCostCard extends HTMLElement {
     ).format(new Date(timestamp));
   }
 
+  // Rounds a raw axis max up to a "clean" step (1/2/5/10 × a power of ten)
+  // times segmentCount, the same class of algorithm ECharts uses — this is
+  // what gives native charts their headroom (a round number above the
+  // actual peak) rather than a flat percentage padding.
+  _niceAxisMax(rawMax, segmentCount) {
+    if (rawMax <= 0) return segmentCount;
+    const roughStep = rawMax / segmentCount;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const residual = roughStep / magnitude;
+    let niceStep;
+    if (residual > 5) niceStep = 10 * magnitude;
+    else if (residual > 2) niceStep = 5 * magnitude;
+    else if (residual > 1) niceStep = 2 * magnitude;
+    else niceStep = magnitude;
+    return niceStep * segmentCount;
+  }
+
   _renderChart(series) {
     this._series = series;
 
@@ -245,8 +290,14 @@ class EnergyCostCard extends HTMLElement {
       return;
     }
 
-    const width = 600;
-    const height = 220;
+    // Match the viewBox to the container's real pixel width so the
+    // coordinate system is 1:1 with CSS pixels on both axes — otherwise
+    // preserveAspectRatio="none" stretches X and Y independently, and
+    // that distorts text glyphs (they end up looking squashed) along
+    // with the plotted lines. Height follows width, matching
+    // ha-chart-base's own default-height convention.
+    const width = this._chartEl.clientWidth || 600;
+    const height = Math.max(width / 2, 200);
     const padLeft = 56;
     const padRight = 12;
     const padTop = 10;
@@ -257,12 +308,11 @@ class EnergyCostCard extends HTMLElement {
     const dataMaxX = Math.max(...xs);
     const dataMaxY = Math.max(...series.map((p) => p.y), 0.0001);
 
-    // Headroom so the line doesn't run flush against the plot edges —
-    // matching the native energy cards, which never let data touch the
-    // top gridline or the right edge.
+    // Small right-hand pad so the line doesn't run flush to the edge; Y
+    // headroom instead comes from rounding up to a nice axis max (below).
     const domainMinX = dataMinX;
     const domainMaxX = dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
-    const domainMaxY = dataMaxY * 1.15;
+    const domainMaxY = this._niceAxisMax(dataMaxY, 4);
 
     const scaleX = (x) =>
       padLeft +
@@ -294,13 +344,14 @@ class EnergyCostCard extends HTMLElement {
       dataMaxX
     ).toFixed(1)},${height - padBottom}`;
 
-    // 3 gridlines (0 / half / headroom-inclusive max), dashed to match the
-    // native energy cards' gridline style.
-    const yGridlines = [0, domainMaxY / 2, domainMaxY]
+    // 5 gridlines, solid — matches ha-chart-base's splitNumber: 5 and its
+    // solid (non-dashed) splitLine style.
+    const yGridlines = [0, 1, 2, 3, 4]
+      .map((i) => (domainMaxY * i) / 4)
       .map((v) => {
         const y = scaleY(v).toFixed(1);
         return `
-          <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--divider-color)" stroke-width="1" stroke-dasharray="3,3"></line>
+          <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--divider-color)" stroke-width="1"></line>
           <text x="${padLeft - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="axis-label">${this._formatCurrency(v, true)}</text>
         `;
       })
@@ -319,13 +370,13 @@ class EnergyCostCard extends HTMLElement {
       .join("");
 
     this._chartEl.innerHTML = `
-      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
         <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.25"></polygon>
         <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
         ${xTicks}
-        <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--secondary-text-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
-        <circle class="hover-dot" r="4" fill="var(--primary-color)" visibility="hidden"></circle>
+        <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
+        <circle class="hover-dot" r="4" fill="var(--info-color)" visibility="hidden"></circle>
       </svg>
       <div class="tooltip" hidden></div>
     `;
@@ -342,7 +393,7 @@ class EnergyCostCard extends HTMLElement {
     }
 
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, padLeft, padRight, domainMinX, domainMaxX } = this._chartBounds;
+    const { width, height, padLeft, padRight, domainMinX, domainMaxX } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
