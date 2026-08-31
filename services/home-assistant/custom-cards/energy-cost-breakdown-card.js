@@ -170,15 +170,30 @@
   }
 
   // src/lib/tick-labels.js
-  function selectLabelIndexes(itemCount, targetCount) {
-    if (itemCount <= 0) return [];
-    const count = Math.max(1, Math.min(targetCount, itemCount));
-    if (count === 1) return [0];
-    const indexes = [];
-    for (let i = 0; i < count; i++) {
-      indexes.push(Math.round(i * (itemCount - 1) / (count - 1)));
-    }
+  var DEFAULT_TICK_COUNT = 6;
+  function selectEvenTimestamps(startMs, endMs, count) {
+    if (count <= 1) return [startMs];
+    return Array.from({ length: count }, (_, i) => startMs + (endMs - startMs) * i / (count - 1));
+  }
+  function selectLabelIndexesForTimestamps(itemTimestamps, startMs, endMs, count) {
+    const indexes = selectEvenTimestamps(startMs, endMs, count).map((target) => {
+      let nearest = 0;
+      let nearestDist = Infinity;
+      for (let i = 0; i < itemTimestamps.length; i++) {
+        const dist = Math.abs(itemTimestamps[i] - target);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = i;
+        }
+      }
+      return nearest;
+    });
     return [...new Set(indexes)];
+  }
+  function inferFixedStepMs(sortedTimestamps) {
+    if (sortedTimestamps.length < 2) return void 0;
+    const step = sortedTimestamps[1] - sortedTimestamps[0];
+    return step > 0 && step <= 24 * 60 * 60 * 1e3 ? step : void 0;
   }
 
   // src/energy-cost-breakdown-card.js
@@ -208,7 +223,7 @@
         this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
         this._resizeObserver = observeChartResize(this._chartEl, () => {
           if (this._buckets) {
-            this._renderChart(this._buckets);
+            this._renderChart(this._buckets, this._periodStartMs, this._periodEndMs);
           }
         });
       }
@@ -266,18 +281,18 @@
       }
       const costByBucketStart = sumCostByBucket(stats, costStatIds);
       const buckets = [...costByBucketStart.keys()].sort((a, b) => a - b).map((start) => ({ x: start, y: costByBucketStart.get(start) }));
-      if (buckets.length >= 2 && data.end) {
-        const step = buckets[1].x - buckets[0].x;
-        if (step > 0 && step <= 24 * 60 * 60 * 1e3) {
-          const periodEndMs = data.end.getTime();
-          let nextStart = buckets[buckets.length - 1].x + step;
-          while (nextStart < periodEndMs) {
-            buckets.push({ x: nextStart, y: 0 });
-            nextStart += step;
-          }
+      const step = inferFixedStepMs(buckets.map((b) => b.x));
+      if (step && data.end) {
+        const periodEndMs2 = data.end.getTime();
+        let nextStart = buckets[buckets.length - 1].x + step;
+        while (nextStart < periodEndMs2) {
+          buckets.push({ x: nextStart, y: 0 });
+          nextStart += step;
         }
       }
-      this._renderChart(buckets);
+      const periodStartMs = data.start ? data.start.getTime() : void 0;
+      const periodEndMs = data.end ? data.end.getTime() : void 0;
+      this._renderChart(buckets, periodStartMs, periodEndMs);
       if (buckets.length) {
         const highest = buckets.reduce((max, b) => b.y > max.y ? b : max, buckets[0]);
         this._totalEl.textContent = `Highest: ${this._formatCurrency(highest.y)} (${this._formatTime(highest.x)})`;
@@ -307,8 +322,10 @@
         { options: { month: "short", year: "2-digit" } }
       ]);
     }
-    _renderChart(buckets) {
+    _renderChart(buckets, periodStartMs, periodEndMs) {
       this._buckets = buckets;
+      this._periodStartMs = periodStartMs;
+      this._periodEndMs = periodEndMs;
       if (!buckets.length) {
         this._chartEl.innerHTML = `<div class="message">Not enough data yet for this period.</div>`;
         this._buckets = void 0;
@@ -358,7 +375,9 @@
         padRight,
         formatValue: (v) => this._formatCurrency(v, true)
       });
-      const labelIndexes = selectLabelIndexes(buckets.length, 6);
+      const tickStartMs = periodStartMs ?? dataMinX;
+      const tickEndMs = periodEndMs ?? dataMaxX;
+      const labelIndexes = selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
       const xTicks = labelIndexes.map((i) => {
         const anchor = i === 0 ? "start" : i === buckets.length - 1 ? "end" : "middle";
         return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(buckets[i].x)}</text>`;

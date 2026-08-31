@@ -22,7 +22,7 @@ import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sour
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
 import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
-import { selectLabelIndexes } from "./lib/tick-labels.js";
+import { selectLabelIndexesForTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs } from "./lib/tick-labels.js";
 
 class EnergyCostBreakdownCard extends HTMLElement {
   setConfig(config) {
@@ -55,7 +55,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
       this._resizeObserver = observeChartResize(this._chartEl, () => {
         if (this._buckets) {
-          this._renderChart(this._buckets);
+          this._renderChart(this._buckets, this._periodStartMs, this._periodEndMs);
         }
       });
     }
@@ -140,20 +140,16 @@ class EnergyCostBreakdownCard extends HTMLElement {
     // visibly different widths side by side. A future bucket's cost really
     // is 0 (nothing has happened there yet), unlike a historical gap
     // before tracking existed, so only the tail gets this treatment, not
-    // the start. Bucket step is inferred from the real data (HA doesn't
-    // expose granularity directly) and only trusted up to day-length — a
-    // month-bucketed year view has variable-length buckets (28-31 days)
-    // that this fixed-step arithmetic would drift on, so that case is left
-    // alone rather than risk mislabeled future buckets.
-    if (buckets.length >= 2 && data.end) {
-      const step = buckets[1].x - buckets[0].x;
-      if (step > 0 && step <= 24 * 60 * 60 * 1000) {
-        const periodEndMs = data.end.getTime();
-        let nextStart = buckets[buckets.length - 1].x + step;
-        while (nextStart < periodEndMs) {
-          buckets.push({ x: nextStart, y: 0 });
-          nextStart += step;
-        }
+    // the start. inferFixedStepMs bails (returns undefined) for a
+    // month-bucketed year view, whose variable-length buckets (28-31
+    // days) this fixed-step arithmetic would drift on.
+    const step = inferFixedStepMs(buckets.map((b) => b.x));
+    if (step && data.end) {
+      const periodEndMs = data.end.getTime();
+      let nextStart = buckets[buckets.length - 1].x + step;
+      while (nextStart < periodEndMs) {
+        buckets.push({ x: nextStart, y: 0 });
+        nextStart += step;
       }
     }
 
@@ -164,7 +160,9 @@ class EnergyCostBreakdownCard extends HTMLElement {
     // value or which day/hour it was. Compute this after _renderChart (not
     // before) so _formatTime's sub-day/day/month tiering has this card's
     // real data span to work from.
-    this._renderChart(buckets);
+    const periodStartMs = data.start ? data.start.getTime() : undefined;
+    const periodEndMs = data.end ? data.end.getTime() : undefined;
+    this._renderChart(buckets, periodStartMs, periodEndMs);
 
     if (buckets.length) {
       const highest = buckets.reduce((max, b) => (b.y > max.y ? b : max), buckets[0]);
@@ -200,8 +198,10 @@ class EnergyCostBreakdownCard extends HTMLElement {
     ]);
   }
 
-  _renderChart(buckets) {
+  _renderChart(buckets, periodStartMs, periodEndMs) {
     this._buckets = buckets;
+    this._periodStartMs = periodStartMs;
+    this._periodEndMs = periodEndMs;
 
     // Unlike a line (which needs 2 points for a segment), a single bar
     // is a perfectly meaningful chart on its own — only bail if there's
@@ -267,10 +267,15 @@ class EnergyCostBreakdownCard extends HTMLElement {
       formatValue: (v) => this._formatCurrency(v, true),
     });
 
-    // Evenly spaced x labels rather than just first/middle/last — a bar
-    // chart with 30 daily bars needs more reference points than a line
-    // chart's few ticks to actually identify which bar is which day.
-    const labelIndexes = selectLabelIndexes(buckets.length, 6);
+    // Evenly spaced x labels rather than just first/middle/last, snapped
+    // to the nearest real bucket for each ideal evenly-spaced timestamp —
+    // uses the same DEFAULT_TICK_COUNT and the same period bounds
+    // (data.start/data.end, not just this chart's own first/last bucket)
+    // as energy-cost-card.js's line chart, so the two cards' x-axes land
+    // on the same dates/times for the same period.
+    const tickStartMs = periodStartMs ?? dataMinX;
+    const tickEndMs = periodEndMs ?? dataMaxX;
+    const labelIndexes = selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
     const xTicks = labelIndexes
       .map((i) => {
         const anchor = i === 0 ? "start" : i === buckets.length - 1 ? "end" : "middle";

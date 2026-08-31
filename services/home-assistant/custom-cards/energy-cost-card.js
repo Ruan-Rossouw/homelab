@@ -170,15 +170,18 @@
   }
 
   // src/lib/tick-labels.js
-  function selectLabelIndexes(itemCount, targetCount) {
-    if (itemCount <= 0) return [];
-    const count = Math.max(1, Math.min(targetCount, itemCount));
-    if (count === 1) return [0];
-    const indexes = [];
-    for (let i = 0; i < count; i++) {
-      indexes.push(Math.round(i * (itemCount - 1) / (count - 1)));
-    }
-    return [...new Set(indexes)];
+  var DEFAULT_TICK_COUNT = 6;
+  function selectEvenTimestamps(startMs, endMs, count) {
+    if (count <= 1) return [startMs];
+    return Array.from({ length: count }, (_, i) => startMs + (endMs - startMs) * i / (count - 1));
+  }
+  function inferFixedStepMs(sortedTimestamps) {
+    if (sortedTimestamps.length < 2) return void 0;
+    const step = sortedTimestamps[1] - sortedTimestamps[0];
+    return step > 0 && step <= 24 * 60 * 60 * 1e3 ? step : void 0;
+  }
+  function snapToStep(t, originMs, stepMs) {
+    return originMs + Math.round((t - originMs) / stepMs) * stepMs;
   }
 
   // src/energy-cost-card.js
@@ -401,18 +404,21 @@
         padRight,
         formatValue: (v) => this._formatCurrency(v, true)
       });
-      const middleIndexes = selectLabelIndexes(series.length, 5).slice(0, -1);
-      const middleTicks = middleIndexes.map((i) => {
-        const p = series[i];
-        const x = scaleX(p.x).toFixed(1);
-        return `<text x="${x}" y="${height - 6}" text-anchor="${i === 0 ? "start" : "middle"}" class="axis-label">${this._formatTime(p.x)}</text>`;
-      });
       const lastTickMs = projection ? projection.endMs : dataMaxX;
-      const lastTickX = scaleX(lastTickMs).toFixed(1);
-      const xTicks = [
-        ...middleTicks,
-        `<text x="${lastTickX}" y="${height - 6}" text-anchor="end" class="axis-label">${this._formatTime(lastTickMs)}</text>`
-      ].join("");
+      const step = inferFixedStepMs(series.map((p) => p.x));
+      const idealTicks = selectEvenTimestamps(domainMinX, lastTickMs, DEFAULT_TICK_COUNT);
+      const tickTimestamps = step ? [
+        ...new Set(
+          idealTicks.map(
+            (t, i) => i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
+          )
+        )
+      ] : idealTicks;
+      const xTicks = tickTimestamps.map((t, i, all) => {
+        const x = scaleX(t).toFixed(1);
+        const anchor = i === 0 ? "start" : i === all.length - 1 ? "end" : "middle";
+        return `<text x="${x}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(t)}</text>`;
+      }).join("");
       this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
