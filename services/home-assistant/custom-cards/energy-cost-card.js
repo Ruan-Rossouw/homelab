@@ -251,7 +251,11 @@ class EnergyCostCard extends HTMLElement {
     this._totalEl.textContent = this._formatCurrency(runningTotal);
 
     const projection = this._computeProjection(data, series, runningTotal);
-    if (projection) {
+    // The header text is only meaningful as a forward-looking estimate —
+    // for an already-elapsed period (e.g. "Yesterday"), projection.total
+    // *is* runningTotal, so showing "Projected: R X" under the identical
+    // "R X" total would just be a redundant duplicate.
+    if (projection && projection.isEstimate) {
       this._projectedEl.hidden = false;
       this._projectedEl.textContent = `Projected: ${this._formatCurrency(projection.total)}`;
     } else {
@@ -261,13 +265,17 @@ class EnergyCostCard extends HTMLElement {
     this._renderChart(series, projection, data.start ? data.start.getTime() : undefined);
   }
 
-  // Linear extrapolation: continues the average rate observed since the
-  // period start (data.start — whatever energy-date-selection has picked,
-  // Today/This Month/This Year/a custom range) through to the period end.
-  // Deliberately simple and self-contained — no reaching outside the data
-  // this card already has, at the cost of not anticipating a tariff tier
-  // crossover late in the period (see the "linear vs tariff-aware"
-  // discussion this was chosen over).
+  // The reference line spans the period at a constant rate — while the
+  // period is still ongoing, that rate is a linear extrapolation from
+  // data so far (an estimate of where the total will land); once the
+  // period is over, the real final total is already known, so the same
+  // line becomes the period's actual average pace instead of a forecast
+  // — still useful (which hours/days ran above or below that average),
+  // just no longer something to also announce as a "projected" total.
+  // Deliberately simple and self-contained either way — no reaching
+  // outside the data this card already has, at the cost of not
+  // anticipating a tariff tier crossover late in an ongoing period (see
+  // the "linear vs tariff-aware" discussion this was chosen over).
   _computeProjection(data, series, runningTotal) {
     if (series.length < 2 || !data.start || !data.end) {
       return null;
@@ -277,10 +285,8 @@ class EnergyCostCard extends HTMLElement {
     const periodEndMs = data.end.getTime();
     const nowMs = Date.now();
 
-    // Already fully elapsed (e.g. viewing a past month) — nothing left to
-    // project, the actual total already is the final total.
     if (nowMs >= periodEndMs) {
-      return null;
+      return { endMs: periodEndMs, total: runningTotal, isEstimate: false };
     }
 
     const elapsedMs = nowMs - periodStartMs;
@@ -291,7 +297,7 @@ class EnergyCostCard extends HTMLElement {
 
     const rate = runningTotal / elapsedMs;
     const total = runningTotal + rate * remainingMs;
-    return { endMs: periodEndMs, total };
+    return { endMs: periodEndMs, total, isEstimate: true };
   }
 
   // Intl's currency style prints the ISO code ("ZAR") unless the active
