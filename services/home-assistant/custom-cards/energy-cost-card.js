@@ -421,8 +421,14 @@
       }).join("");
       this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--primary-color)" stop-opacity="0.75"></stop>
+            <stop offset="100%" stop-color="var(--primary-color)" stop-opacity="0.25"></stop>
+          </linearGradient>
+        </defs>
         ${yGridlines}
-        <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.25"></polygon>
+        <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
         <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
         ${projectionLine}
         ${xTicks}

@@ -231,12 +231,33 @@ class EnergyCostBreakdownCard extends HTMLElement {
       plotLeft,
     };
 
+    // Rounded top corners only (square bottom), matching HA's own Energy
+    // bar charts (hui-energy-usage-graph-card.ts: borderRadius [4,4,0,0]) —
+    // <rect> only supports a uniform rx/ry on all four corners, so this
+    // needs an explicit <path>. Translucent fill + opaque same-color
+    // border mimics HA's getEnergyColor() trick (base color + hex alpha
+    // 0x7F ≈ 0.5 for the fill, base color at full opacity for the border,
+    // 1.5px width matching HA's theme-wide barBorderWidth).
     const bars = buckets
       .map((b, i) => {
         const cx = scaleX(i);
-        const y = scaleY(b.y);
-        const barHeight = height - padBottom - y;
-        return `<rect x="${(cx - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(barHeight, 0).toFixed(1)}" fill="var(--energy-grid-consumption-color, #dc7500)" rx="2"></rect>`;
+        const barTop = scaleY(b.y);
+        const barBottom = height - padBottom;
+        const barHeight = Math.max(barBottom - barTop, 0);
+        if (barHeight <= 0) {
+          return "";
+        }
+        const barLeft = cx - barWidth / 2;
+        const barRight = cx + barWidth / 2;
+        const r = Math.min(4, barHeight / 2, barWidth / 2);
+        const path =
+          `M ${barLeft.toFixed(1)},${(barTop + r).toFixed(1)} ` +
+          `Q ${barLeft.toFixed(1)},${barTop.toFixed(1)} ${(barLeft + r).toFixed(1)},${barTop.toFixed(1)} ` +
+          `L ${(barRight - r).toFixed(1)},${barTop.toFixed(1)} ` +
+          `Q ${barRight.toFixed(1)},${barTop.toFixed(1)} ${barRight.toFixed(1)},${(barTop + r).toFixed(1)} ` +
+          `L ${barRight.toFixed(1)},${barBottom.toFixed(1)} ` +
+          `L ${barLeft.toFixed(1)},${barBottom.toFixed(1)} Z`;
+        return `<path d="${path}" fill="var(--energy-grid-consumption-color, #dc7500)" fill-opacity="0.5" stroke="var(--energy-grid-consumption-color, #dc7500)" stroke-width="1.5"></path>`;
       })
       .join("");
 

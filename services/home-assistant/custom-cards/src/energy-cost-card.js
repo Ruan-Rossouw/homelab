@@ -371,10 +371,26 @@ class EnergyCostCard extends HTMLElement {
       })
       .join("");
 
+    // Vertical gradient area fill (denser near the line, fading toward the
+    // baseline) rather than a flat opacity — matches HA's Energy panel
+    // "Power sources" line+area chart (power-sources-graph-data.ts: 0.75
+    // opacity at the line down to 0.25 at the baseline). Lower confidence
+    // than the bar-chart styling above: no native Energy-dashboard chart
+    // is this exact shape (cumulative currency-over-time), so this is an
+    // extrapolation from a differently-shaped chart, not a direct match —
+    // worth a close look once deployed. Gradient id is safely scoped to
+    // this card instance's own shadow root, so no cross-instance collision
+    // even with multiple cards of this type on one dashboard.
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--primary-color)" stop-opacity="0.75"></stop>
+            <stop offset="100%" stop-color="var(--primary-color)" stop-opacity="0.25"></stop>
+          </linearGradient>
+        </defs>
         ${yGridlines}
-        <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.25"></polygon>
+        <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
         <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
         ${projectionLine}
         ${xTicks}
