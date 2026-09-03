@@ -36,7 +36,6 @@ class EnergyCostBreakdownCard extends HTMLElement {
         </style>
         <ha-card>
           <div class="header"></div>
-          <div class="total"></div>
           <div class="chart"></div>
         </ha-card>
       `;
@@ -45,7 +44,6 @@ class EnergyCostBreakdownCard extends HTMLElement {
     const firstRender = !this._headerEl;
 
     this._headerEl = this.shadowRoot.querySelector(".header");
-    this._totalEl = this.shadowRoot.querySelector(".total");
     this._chartEl = this.shadowRoot.querySelector(".chart");
     this._headerEl.textContent = this._config.title || "Grid Cost by Period";
 
@@ -119,7 +117,6 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     if (!costStatIds.length) {
       this._chartEl.innerHTML = `<div class="message">No grid source has cost tracking configured yet (Settings → Dashboards → Energy).</div>`;
-      this._totalEl.textContent = "";
       return;
     }
 
@@ -131,15 +128,6 @@ class EnergyCostBreakdownCard extends HTMLElement {
     const buckets = [...costByBucketStart.keys()]
       .sort((a, b) => a - b)
       .map((start) => ({ x: start, y: costByBucketStart.get(start) }));
-
-    // Captured before the tail-padding below adds zero-cost placeholder
-    // buckets for a period still in progress — those aren't real data and
-    // would drag the average down (e.g. "Today" at noon would average in
-    // 12 hours of not-yet-happened zeros).
-    const realBucketCount = buckets.length;
-    const average = realBucketCount
-      ? buckets.reduce((sum, b) => sum + b.y, 0) / realBucketCount
-      : 0;
 
     // Pad the tail with zero-cost placeholder buckets out to the period's
     // true end. Without this, a period still in progress (e.g. "Today")
@@ -162,16 +150,9 @@ class EnergyCostBreakdownCard extends HTMLElement {
       }
     }
 
-    // The running total already lives on energy-cost-card.js right next
-    // to this card — repeating it here would just be the same number
-    // twice. The per-bucket average is genuinely new information: the
-    // bars make relative highs/lows easy to eyeball, but not a typical
-    // value to compare a given bar against.
     const periodStartMs = data.start ? data.start.getTime() : undefined;
     const periodEndMs = data.end ? data.end.getTime() : undefined;
     this._renderChart(buckets, periodStartMs, periodEndMs);
-
-    this._totalEl.textContent = realBucketCount ? `Average: ${this._formatCurrency(average)}` : "";
   }
 
   _formatCurrency(value, compact = false) {

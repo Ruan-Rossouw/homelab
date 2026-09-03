@@ -208,14 +208,12 @@
         </style>
         <ha-card>
           <div class="header"></div>
-          <div class="total"></div>
           <div class="chart"></div>
         </ha-card>
       `;
       }
       const firstRender = !this._headerEl;
       this._headerEl = this.shadowRoot.querySelector(".header");
-      this._totalEl = this.shadowRoot.querySelector(".total");
       this._chartEl = this.shadowRoot.querySelector(".chart");
       this._headerEl.textContent = this._config.title || "Grid Cost by Period";
       if (firstRender) {
@@ -276,13 +274,10 @@
       const costStatIds = await discoverGridCostStatIds(this._hass, prefs);
       if (!costStatIds.length) {
         this._chartEl.innerHTML = `<div class="message">No grid source has cost tracking configured yet (Settings \u2192 Dashboards \u2192 Energy).</div>`;
-        this._totalEl.textContent = "";
         return;
       }
       const costByBucketStart = sumCostByBucket(stats, costStatIds);
       const buckets = [...costByBucketStart.keys()].sort((a, b) => a - b).map((start) => ({ x: start, y: costByBucketStart.get(start) }));
-      const realBucketCount = buckets.length;
-      const average = realBucketCount ? buckets.reduce((sum, b) => sum + b.y, 0) / realBucketCount : 0;
       const step = inferFixedStepMs(buckets.map((b) => b.x));
       if (step && data.end) {
         const periodEndMs2 = data.end.getTime();
@@ -295,7 +290,6 @@
       const periodStartMs = data.start ? data.start.getTime() : void 0;
       const periodEndMs = data.end ? data.end.getTime() : void 0;
       this._renderChart(buckets, periodStartMs, periodEndMs);
-      this._totalEl.textContent = realBucketCount ? `Average: ${this._formatCurrency(average)}` : "";
     }
     _formatCurrency(value, compact = false) {
       return formatCurrency(value, {
