@@ -43,6 +43,22 @@
     white-space: nowrap;
     pointer-events: none;
   }
+  .tooltip-header {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 2px;
+  }
+  .tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .tooltip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
   .message {
     color: var(--secondary-text-color);
     font-size: 0.9rem;
@@ -181,6 +197,12 @@
         <text x="${padLeft - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="axis-label">${formatValue(v)}</text>
       `;
     }).join("");
+  }
+  function renderXGridlines({ tickXs, padTop, padBottom, height }) {
+    const y2 = (height - padBottom).toFixed(1);
+    return tickXs.map(
+      (x) => `<line x1="${x.toFixed(1)}" y1="${padTop}" x2="${x.toFixed(1)}" y2="${y2}" stroke="var(--divider-color)" stroke-width="1"></line>`
+    ).join("");
   }
 
   // src/lib/tick-labels.js
@@ -445,11 +467,19 @@
         const anchor = i === 0 ? "start" : i === renderBuckets.length - 1 ? "end" : "middle";
         return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(renderBuckets[i].x)}</text>`;
       }).join("");
+      const xGridlines = renderXGridlines({
+        tickXs: labelIndexes.map((i) => scaleX(i)),
+        padTop,
+        padBottom,
+        height
+      });
       this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
+        ${xGridlines}
         ${bars}
         ${xTicks}
+        <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
         <rect class="hover-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
         <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
@@ -457,6 +487,7 @@
       <button type="button" class="zoom-reset" ${this._zoomRange ? "" : "hidden"}>Reset zoom</button>
     `;
       this._svgEl = this._chartEl.querySelector("svg");
+      this._hoverLine = this._chartEl.querySelector(".hover-line");
       this._hoverRect = this._chartEl.querySelector(".hover-rect");
       this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
       this._tooltipEl = this._chartEl.querySelector(".tooltip");
@@ -482,6 +513,7 @@
       this._dragStartMs = this._viewBoxXToMs(viewBoxX);
       this._dragging = true;
       this._chartEl.setPointerCapture(e.pointerId);
+      if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
       if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
       if (this._tooltipEl) this._tooltipEl.hidden = true;
     }
@@ -501,13 +533,21 @@
       const bucket = this._visibleBuckets[index];
       const cx = this._scaleX(index);
       const barY = this._scaleY(bucket.y);
+      if (this._hoverLine) {
+        this._hoverLine.setAttribute("x1", cx.toFixed(1));
+        this._hoverLine.setAttribute("x2", cx.toFixed(1));
+        this._hoverLine.setAttribute("visibility", "visible");
+      }
       this._hoverRect.setAttribute("x", (cx - barWidth / 2).toFixed(1));
       this._hoverRect.setAttribute("y", padTop);
       this._hoverRect.setAttribute("width", barWidth.toFixed(1));
       this._hoverRect.setAttribute("height", (height - padBottom - padTop).toFixed(1));
       this._hoverRect.setAttribute("visibility", "visible");
       this._tooltipEl.hidden = false;
-      this._tooltipEl.textContent = `${this._formatTime(bucket.x)} \u2014 ${this._formatCurrency(bucket.y)}`;
+      this._tooltipEl.innerHTML = `
+      <div class="tooltip-header">${this._formatTime(bucket.x)}</div>
+      <div class="tooltip-row"><span class="tooltip-dot" style="background:var(--energy-grid-consumption-color, #dc7500)"></span>${this._formatCurrency(bucket.y)}</div>
+    `;
       this._tooltipEl.style.left = `${cx / width * rect.width}px`;
       this._tooltipEl.style.top = `${barY / height * rect.height}px`;
     }
@@ -573,6 +613,7 @@
         return;
       }
       this._pointerPin.clear();
+      if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
       if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
       if (this._tooltipEl) this._tooltipEl.hidden = true;
     }

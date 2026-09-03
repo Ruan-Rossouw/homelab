@@ -59,3 +59,24 @@ export function renderYGridlines({ domainMaxY, tickSpacing, scaleY, padLeft, wid
     })
     .join("");
 }
+
+// Solid vertical gridlines at each x-axis tick position — matches
+// ha-chart-base.ts's own defaulting for any time-type xAxis
+// (`_createOptions`: `splitLine: { show: true }` merged in ahead of the
+// caller's axis config, never overridden off by the Energy dashboard's own
+// xAxis options) plus its `timeAxis` theme block
+// (`splitLine: { show: true, lineStyle: { color: --divider-color } }`) —
+// same solid --divider-color treatment as the Y gridlines above, just on
+// the other axis. Takes the already-computed pixel x for each tick
+// (callers already have these from building their own tick labels) rather
+// than timestamps, so it works identically for the breakdown card's
+// index-based ticks and the cost card's timestamp-based ones.
+export function renderXGridlines({ tickXs, padTop, padBottom, height }) {
+  const y2 = (height - padBottom).toFixed(1);
+  return tickXs
+    .map(
+      (x) =>
+        `<line x1="${x.toFixed(1)}" y1="${padTop}" x2="${x.toFixed(1)}" y2="${y2}" stroke="var(--divider-color)" stroke-width="1"></line>`
+    )
+    .join("");
+}

@@ -43,6 +43,22 @@
     white-space: nowrap;
     pointer-events: none;
   }
+  .tooltip-header {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 2px;
+  }
+  .tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .tooltip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
   .message {
     color: var(--secondary-text-color);
     font-size: 0.9rem;
@@ -181,6 +197,12 @@
         <text x="${padLeft - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="axis-label">${formatValue(v)}</text>
       `;
     }).join("");
+  }
+  function renderXGridlines({ tickXs, padTop, padBottom, height }) {
+    const y2 = (height - padBottom).toFixed(1);
+    return tickXs.map(
+      (x) => `<line x1="${x.toFixed(1)}" y1="${padTop}" x2="${x.toFixed(1)}" y2="${y2}" stroke="var(--divider-color)" stroke-width="1"></line>`
+    ).join("");
   }
 
   // src/lib/tick-labels.js
@@ -488,6 +510,12 @@
         const anchor = i === 0 ? "start" : i === all.length - 1 ? "end" : "middle";
         return `<text x="${x}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(t)}</text>`;
       }).join("");
+      const xGridlines = renderXGridlines({
+        tickXs: tickTimestamps.map((t) => scaleX(t)),
+        padTop,
+        padBottom,
+        height
+      });
       this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         <defs>
@@ -500,6 +528,7 @@
           </clipPath>
         </defs>
         ${yGridlines}
+        ${xGridlines}
         <g clip-path="url(#plot-clip)">
           <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
           <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
@@ -575,7 +604,10 @@
       this._hoverDot.setAttribute("cy", py);
       this._hoverDot.setAttribute("visibility", "visible");
       this._tooltipEl.hidden = false;
-      this._tooltipEl.textContent = `${this._formatTime(nearest.x)} \u2014 ${this._formatCurrency(nearest.y)}`;
+      this._tooltipEl.innerHTML = `
+      <div class="tooltip-header">${this._formatTime(nearest.x)}</div>
+      <div class="tooltip-row"><span class="tooltip-dot" style="background:var(--primary-color)"></span>${this._formatCurrency(nearest.y)}</div>
+    `;
       this._tooltipEl.style.left = `${px / width * rect.width}px`;
       this._tooltipEl.style.top = `${py / height * rect.height}px`;
     }

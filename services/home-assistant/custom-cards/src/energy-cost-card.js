@@ -30,6 +30,7 @@ import {
   measureChartBox,
   observeChartResize,
   renderYGridlines,
+  renderXGridlines,
   DRAG_ZOOM_THRESHOLD_PX,
 } from "./lib/svg-chart.js";
 import { selectEvenTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs, snapToStep } from "./lib/tick-labels.js";
@@ -412,6 +413,19 @@ class EnergyCostCard extends HTMLElement {
       })
       .join("");
 
+    // Vertical gridlines at the same ticks as the x-axis labels above —
+    // matches ha-chart-base.ts's own default for any time-type xAxis
+    // (verified: _createOptions force-defaults splitLine.show:true, never
+    // overridden off by the Energy dashboard's own xAxis options; the
+    // timeAxis theme block confirms solid --divider-color, same as the Y
+    // gridlines).
+    const xGridlines = renderXGridlines({
+      tickXs: tickTimestamps.map((t) => scaleX(t)),
+      padTop,
+      padBottom,
+      height,
+    });
+
     // Vertical gradient area fill (denser near the line, fading toward the
     // baseline) rather than a flat opacity — matches HA's Energy panel
     // "Power sources" line+area chart (power-sources-graph-data.ts: 0.75
@@ -440,6 +454,7 @@ class EnergyCostCard extends HTMLElement {
           </clipPath>
         </defs>
         ${yGridlines}
+        ${xGridlines}
         <g clip-path="url(#plot-clip)">
           <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
           <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
@@ -524,8 +539,17 @@ class EnergyCostCard extends HTMLElement {
     this._hoverDot.setAttribute("cy", py);
     this._hoverDot.setAttribute("visibility", "visible");
 
+    // Bold date header + a colored-dot value row — matches the shape of
+    // HA's own tooltip (energy-chart-options.ts formatTooltip: bold <h4>
+    // period header, one <ha-chart-tooltip-marker>-prefixed row per
+    // series), adapted for this card's single series (no "Total" row,
+    // since HA's own total line only appears when there's more than one
+    // series to sum).
     this._tooltipEl.hidden = false;
-    this._tooltipEl.textContent = `${this._formatTime(nearest.x)} — ${this._formatCurrency(nearest.y)}`;
+    this._tooltipEl.innerHTML = `
+      <div class="tooltip-header">${this._formatTime(nearest.x)}</div>
+      <div class="tooltip-row"><span class="tooltip-dot" style="background:var(--primary-color)"></span>${this._formatCurrency(nearest.y)}</div>
+    `;
     this._tooltipEl.style.left = `${(px / width) * rect.width}px`;
     this._tooltipEl.style.top = `${(py / height) * rect.height}px`;
   }

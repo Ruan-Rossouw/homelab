@@ -46,6 +46,22 @@ export const CHART_CARD_STYLES = `
     white-space: nowrap;
     pointer-events: none;
   }
+  .tooltip-header {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 2px;
+  }
+  .tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .tooltip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
   .message {
     color: var(--secondary-text-color);
     font-size: 0.9rem;

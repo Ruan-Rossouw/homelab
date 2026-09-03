@@ -26,6 +26,7 @@ import {
   measureChartBox,
   observeChartResize,
   renderYGridlines,
+  renderXGridlines,
   DRAG_ZOOM_THRESHOLD_PX,
 } from "./lib/svg-chart.js";
 import { selectLabelIndexesForTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs } from "./lib/tick-labels.js";
@@ -329,16 +330,37 @@ class EnergyCostBreakdownCard extends HTMLElement {
       })
       .join("");
 
+    // Vertical gridlines at the same ticks as the x-axis labels above —
+    // matches ha-chart-base.ts's own default for any time-type xAxis
+    // (verified: _createOptions force-defaults splitLine.show:true, never
+    // overridden off by the Energy dashboard's own xAxis options; the
+    // timeAxis theme block confirms solid --divider-color, same as the Y
+    // gridlines).
+    const xGridlines = renderXGridlines({
+      tickXs: labelIndexes.map((i) => scaleX(i)),
+      padTop,
+      padBottom,
+      height,
+    });
+
     // Mouse-drag-to-zoom selection overlay (see _onPointerDown/_onPointerMove)
     // and a Reset chip shown only while zoomed — both mirror HA's own
     // dataZoom + restart-icon reset button (ha-chart-base.ts), hand-rolled
     // here since this codebase doesn't use ECharts. Touch keeps tap-to-pin
     // only (see lib/pointer-interaction.js) — no touch-zoom in this version.
+    //
+    // .hover-line is the crosshair through the hovered/pinned bar's x
+    // position — matches HA's own axisPointer (ha-chart-base.ts theme:
+    // `lineStyle: { color: --info-color }`, dashed by ECharts' own
+    // axisPointer default), and gives the tooltip a visible anchor to the
+    // selected bar instead of floating disconnected above it.
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
+        ${xGridlines}
         ${bars}
         ${xTicks}
+        <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
         <rect class="hover-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
         <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
@@ -347,6 +369,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
     `;
 
     this._svgEl = this._chartEl.querySelector("svg");
+    this._hoverLine = this._chartEl.querySelector(".hover-line");
     this._hoverRect = this._chartEl.querySelector(".hover-rect");
     this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
@@ -373,6 +396,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._dragStartMs = this._viewBoxXToMs(viewBoxX);
     this._dragging = true;
     this._chartEl.setPointerCapture(e.pointerId);
+    if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
     if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
@@ -399,14 +423,28 @@ class EnergyCostBreakdownCard extends HTMLElement {
     const cx = this._scaleX(index);
     const barY = this._scaleY(bucket.y);
 
+    if (this._hoverLine) {
+      this._hoverLine.setAttribute("x1", cx.toFixed(1));
+      this._hoverLine.setAttribute("x2", cx.toFixed(1));
+      this._hoverLine.setAttribute("visibility", "visible");
+    }
     this._hoverRect.setAttribute("x", (cx - barWidth / 2).toFixed(1));
     this._hoverRect.setAttribute("y", padTop);
     this._hoverRect.setAttribute("width", barWidth.toFixed(1));
     this._hoverRect.setAttribute("height", (height - padBottom - padTop).toFixed(1));
     this._hoverRect.setAttribute("visibility", "visible");
 
+    // Bold date header + a colored-dot value row — matches the shape of
+    // HA's own tooltip (energy-chart-options.ts formatTooltip: bold <h4>
+    // period header, one <ha-chart-tooltip-marker>-prefixed row per
+    // series), adapted for this card's single series (no "Total" row,
+    // since HA's own total line only appears when there's more than one
+    // series to sum).
     this._tooltipEl.hidden = false;
-    this._tooltipEl.textContent = `${this._formatTime(bucket.x)} — ${this._formatCurrency(bucket.y)}`;
+    this._tooltipEl.innerHTML = `
+      <div class="tooltip-header">${this._formatTime(bucket.x)}</div>
+      <div class="tooltip-row"><span class="tooltip-dot" style="background:var(--energy-grid-consumption-color, #dc7500)"></span>${this._formatCurrency(bucket.y)}</div>
+    `;
     this._tooltipEl.style.left = `${(cx / width) * rect.width}px`;
     this._tooltipEl.style.top = `${(barY / height) * rect.height}px`;
   }
@@ -483,6 +521,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
       return;
     }
     this._pointerPin.clear();
+    if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
     if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
