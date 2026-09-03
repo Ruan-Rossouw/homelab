@@ -26,7 +26,7 @@ export const CHART_CARD_STYLES = `
     margin-bottom: 8px;
     flex: none;
   }
-  .chart { position: relative; flex: 1; min-height: 0; }
+  .chart { position: relative; flex: 1; min-height: 0; touch-action: pan-y; }
   .chart svg { width: 100%; display: block; }
   .axis-label {
     font-family: Roboto, Noto, sans-serif;

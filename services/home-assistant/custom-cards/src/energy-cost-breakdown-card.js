@@ -23,6 +23,7 @@ import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
 import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
 import { selectLabelIndexesForTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs } from "./lib/tick-labels.js";
+import { createPointerPin } from "./lib/pointer-interaction.js";
 
 class EnergyCostBreakdownCard extends HTMLElement {
   setConfig(config) {
@@ -48,8 +49,12 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._headerEl.textContent = this._config.title || "Grid Cost by Period";
 
     if (firstRender) {
+      this._pointerPin = createPointerPin();
+      this._chartEl.addEventListener("pointerdown", (e) => this._onPointerDown(e));
       this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
-      this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
+      this._chartEl.addEventListener("pointerup", (e) => this._onPointerUp(e));
+      this._chartEl.addEventListener("pointercancel", (e) => this._onPointerUp(e));
+      this._chartEl.addEventListener("pointerleave", (e) => this._onPointerLeave(e));
 
       this._resizeObserver = observeChartResize(this._chartEl, () => {
         if (this._buckets) {
@@ -302,8 +307,20 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
   }
 
+  // Touch: pin the tap so the overlay/tooltip survives finger-lift (see
+  // lib/pointer-interaction.js). Mouse/pen: reserved for drag-to-zoom
+  // (a later change) — no-op for now, hover already starts from
+  // _onPointerMove alone.
+  _onPointerDown(e) {
+    if (e.pointerType === "touch") {
+      this._pointerPin.pin();
+      this._onPointerMove(e);
+      return;
+    }
+  }
+
   _onPointerMove(e) {
-    if (!this._buckets || !this._svgEl || !this._chartBounds) {
+    if (!this._buckets || !this._svgEl || !this._chartBounds || !this._pointerPin.shouldUpdateOnMove(e)) {
       return;
     }
 
@@ -332,7 +349,19 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._tooltipEl.style.top = `${(barY / height) * rect.height}px`;
   }
 
-  _onPointerLeave() {
+  // Touch: leave the tap pinned — do not clear on lift. Mouse/pen: reserved
+  // for drag-to-zoom finish (a later change) — no-op for now.
+  _onPointerUp(e) {
+    if (e.pointerType === "touch") {
+      return;
+    }
+  }
+
+  _onPointerLeave(e) {
+    if (!this._pointerPin.shouldClearOnLeave(e)) {
+      return;
+    }
+    this._pointerPin.clear();
     if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }

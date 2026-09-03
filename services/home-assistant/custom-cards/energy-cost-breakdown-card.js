@@ -23,7 +23,7 @@
     margin-bottom: 8px;
     flex: none;
   }
-  .chart { position: relative; flex: 1; min-height: 0; }
+  .chart { position: relative; flex: 1; min-height: 0; touch-action: pan-y; }
   .chart svg { width: 100%; display: block; }
   .axis-label {
     font-family: Roboto, Noto, sans-serif;
@@ -196,6 +196,36 @@
     return step > 0 && step <= 24 * 60 * 60 * 1e3 ? step : void 0;
   }
 
+  // src/lib/pointer-interaction.js
+  function createPointerPin() {
+    let pinned = false;
+    return {
+      // Call from a card's pointerdown handler once it's decided this is a
+      // touch tap that should pin.
+      pin() {
+        pinned = true;
+      },
+      clear() {
+        pinned = false;
+      },
+      isPinned() {
+        return pinned;
+      },
+      // Call at the top of _onPointerMove. Mouse/pen: always update (today's
+      // behavior). Touch: only update while the pointer is actually down —
+      // i.e. the initial tap or a drag-to-scrub — not on a stray move event.
+      shouldUpdateOnMove(e) {
+        return e.pointerType !== "touch" || e.buttons > 0;
+      },
+      // Call from _onPointerLeave. A pinned touch tap must survive
+      // pointerleave/finger-lift; mouse/pen (or an unpinned touch) clears as
+      // before.
+      shouldClearOnLeave(e) {
+        return !(e && e.pointerType === "touch" && pinned);
+      }
+    };
+  }
+
   // src/energy-cost-breakdown-card.js
   var EnergyCostBreakdownCard = class extends HTMLElement {
     setConfig(config) {
@@ -217,8 +247,12 @@
       this._chartEl = this.shadowRoot.querySelector(".chart");
       this._headerEl.textContent = this._config.title || "Grid Cost by Period";
       if (firstRender) {
+        this._pointerPin = createPointerPin();
+        this._chartEl.addEventListener("pointerdown", (e) => this._onPointerDown(e));
         this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
-        this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
+        this._chartEl.addEventListener("pointerup", (e) => this._onPointerUp(e));
+        this._chartEl.addEventListener("pointercancel", (e) => this._onPointerUp(e));
+        this._chartEl.addEventListener("pointerleave", (e) => this._onPointerLeave(e));
         this._resizeObserver = observeChartResize(this._chartEl, () => {
           if (this._buckets) {
             this._renderChart(this._buckets, this._periodStartMs, this._periodEndMs);
@@ -394,8 +428,19 @@
       this._hoverRect = this._chartEl.querySelector(".hover-rect");
       this._tooltipEl = this._chartEl.querySelector(".tooltip");
     }
+    // Touch: pin the tap so the overlay/tooltip survives finger-lift (see
+    // lib/pointer-interaction.js). Mouse/pen: reserved for drag-to-zoom
+    // (a later change) — no-op for now, hover already starts from
+    // _onPointerMove alone.
+    _onPointerDown(e) {
+      if (e.pointerType === "touch") {
+        this._pointerPin.pin();
+        this._onPointerMove(e);
+        return;
+      }
+    }
     _onPointerMove(e) {
-      if (!this._buckets || !this._svgEl || !this._chartBounds) {
+      if (!this._buckets || !this._svgEl || !this._chartBounds || !this._pointerPin.shouldUpdateOnMove(e)) {
         return;
       }
       const rect = this._svgEl.getBoundingClientRect();
@@ -417,7 +462,18 @@
       this._tooltipEl.style.left = `${cx / width * rect.width}px`;
       this._tooltipEl.style.top = `${barY / height * rect.height}px`;
     }
-    _onPointerLeave() {
+    // Touch: leave the tap pinned — do not clear on lift. Mouse/pen: reserved
+    // for drag-to-zoom finish (a later change) — no-op for now.
+    _onPointerUp(e) {
+      if (e.pointerType === "touch") {
+        return;
+      }
+    }
+    _onPointerLeave(e) {
+      if (!this._pointerPin.shouldClearOnLeave(e)) {
+        return;
+      }
+      this._pointerPin.clear();
       if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
       if (this._tooltipEl) this._tooltipEl.hidden = true;
     }
