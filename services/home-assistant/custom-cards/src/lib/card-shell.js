@@ -51,4 +51,17 @@ export const CHART_CARD_STYLES = `
     font-size: 0.9rem;
     padding: 8px 0;
   }
+  .zoom-reset {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    padding: 2px 8px;
+    font-family: Roboto, Noto, sans-serif;
+    font-size: var(--ha-font-size-s, 12px);
+    color: var(--primary-text-color);
+    background: var(--card-background-color, #1c1c1c);
+    border: 1px solid var(--divider-color);
+    border-radius: 4px;
+    cursor: pointer;
+  }
 `;

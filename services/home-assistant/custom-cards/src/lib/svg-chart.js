@@ -5,6 +5,11 @@
 
 export const CHART_PADDING = { left: 56, right: 12, top: 10, bottom: 24 };
 
+// Screen-space pixel threshold a mouse drag must clear before it commits to
+// a zoom range rather than being treated as a plain click — shared so both
+// cards agree on what counts as "an intentional drag."
+export const DRAG_ZOOM_THRESHOLD_PX = 8;
+
 // Sections view reserves a fixed-height box via grid_rows and clips
 // anything taller than it, rather than growing to fit content the way
 // masonry view does — so prefer the container's actual measured height,

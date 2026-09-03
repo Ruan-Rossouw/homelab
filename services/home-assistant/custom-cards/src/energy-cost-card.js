@@ -25,7 +25,13 @@ import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
-import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
+import {
+  CHART_PADDING,
+  measureChartBox,
+  observeChartResize,
+  renderYGridlines,
+  DRAG_ZOOM_THRESHOLD_PX,
+} from "./lib/svg-chart.js";
 import { selectEvenTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs, snapToStep } from "./lib/tick-labels.js";
 import { createPointerPin } from "./lib/pointer-interaction.js";
 
@@ -64,10 +70,12 @@ class EnergyCostCard extends HTMLElement {
 
     if (firstRender) {
       this._pointerPin = createPointerPin();
+      this._zoomRange = null;
+      this._dragging = false;
       this._chartEl.addEventListener("pointerdown", (e) => this._onPointerDown(e));
       this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
       this._chartEl.addEventListener("pointerup", (e) => this._onPointerUp(e));
-      this._chartEl.addEventListener("pointercancel", (e) => this._onPointerUp(e));
+      this._chartEl.addEventListener("pointercancel", (e) => this._onPointerCancel(e));
       this._chartEl.addEventListener("pointerleave", (e) => this._onPointerLeave(e));
 
       this._resizeObserver = observeChartResize(this._chartEl, () => {
@@ -172,7 +180,15 @@ class EnergyCostCard extends HTMLElement {
       this._projectedEl.hidden = true;
     }
 
-    this._renderChart(series, projection, data.start ? data.start.getTime() : undefined);
+    const periodStartMs = data.start ? data.start.getTime() : undefined;
+    // An active zoom's timestamps almost certainly don't make sense against
+    // a completely different selected period — a live stats refresh for
+    // the *same* period should leave the zoom alone, only a period change
+    // clears it.
+    if (this._zoomRange && periodStartMs !== this._periodStartMs) {
+      this._zoomRange = null;
+    }
+    this._renderChart(series, projection, periodStartMs);
   }
 
   // The reference line spans the period at a constant rate — while the
@@ -268,14 +284,35 @@ class EnergyCostCard extends HTMLElement {
 
     // With a projection, the period end (not just the last real data
     // point) is the natural right edge, and the axis needs to fit
-    // whichever is bigger — actual so far, or the projected total.
-    const domainMinX = dataMinX;
-    const domainMaxX = projection
-      ? projection.endMs
-      : dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
-    const yMaxWithProjection = projection
-      ? Math.max(dataMaxY, projection.total)
-      : dataMaxY;
+    // whichever is bigger — actual so far, or the projected total. When
+    // zoomed, the domain becomes the zoom window itself, and the Y-axis
+    // rescales to just what's visible in it — matching HA's confirmed
+    // dataZoom filterMode behavior (ha-chart-base.ts) rather than keeping
+    // the full-range max while zoomed in on a small slice of it.
+    let domainMinX, domainMaxX, yMaxWithProjection, tickRangeStartMs, tickRangeEndMs;
+    if (this._zoomRange) {
+      domainMinX = this._zoomRange.startMs;
+      domainMaxX = this._zoomRange.endMs;
+      const visiblePoints = series.filter((p) => p.x >= domainMinX && p.x <= domainMaxX);
+      const yCandidates = (visiblePoints.length ? visiblePoints : series).map((p) => p.y);
+      // Only let the projection influence the zoomed Y-max if its endpoint
+      // actually falls inside the zoomed window — otherwise an off-screen
+      // projected total (hidden by the clip-path below anyway) would
+      // needlessly stretch the axis of a zoomed-in view, working against
+      // the point of zooming in for a closer look.
+      if (projection && projection.endMs >= domainMinX && projection.endMs <= domainMaxX) {
+        yCandidates.push(projection.total);
+      }
+      yMaxWithProjection = Math.max(...yCandidates, 0.0001);
+      tickRangeStartMs = domainMinX;
+      tickRangeEndMs = domainMaxX;
+    } else {
+      domainMinX = dataMinX;
+      domainMaxX = projection ? projection.endMs : dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
+      yMaxWithProjection = projection ? Math.max(dataMaxY, projection.total) : dataMaxY;
+      tickRangeStartMs = domainMinX;
+      tickRangeEndMs = projection ? projection.endMs : dataMaxX;
+    }
     const { axisMax: domainMaxY, tickSpacing } = niceAxisScale(yMaxWithProjection, 5);
 
     const scaleX = (x) =>
@@ -350,11 +387,10 @@ class EnergyCostCard extends HTMLElement {
     // "5:00 AM" — splitting the domain into equal fractions alone would
     // land on whatever arbitrary time each fraction happens to be (e.g.
     // "4:48 AM" for a 24-hour domain split 5 ways).
-    const lastTickMs = projection ? projection.endMs : dataMaxX;
     const step = inferFixedStepMs(series.map((p) => p.x));
-    const idealTicks = selectEvenTimestamps(domainMinX, lastTickMs, DEFAULT_TICK_COUNT);
+    const idealTicks = selectEvenTimestamps(tickRangeStartMs, tickRangeEndMs, DEFAULT_TICK_COUNT);
     // Only the interior ticks get snapped — the first and last are pinned
-    // exactly at domainMinX/lastTickMs (e.g. the real period end, often
+    // exactly at tickRangeStartMs/tickRangeEndMs (e.g. the real period end, often
     // 23:59:59.999) on purpose, and rounding that to the nearest step
     // could overshoot past it (23:59:59.999 rounds *up* to next midnight
     // at an hourly step), turning a correct "11:59 PM" edge label into a
@@ -386,6 +422,12 @@ class EnergyCostCard extends HTMLElement {
     // worth a close look once deployed. Gradient id is safely scoped to
     // this card instance's own shadow root, so no cross-instance collision
     // even with multiple cards of this type on one dashboard.
+    // Zooming changes domainMinX/domainMaxX to the zoom window, so a point
+    // outside it now maps to a pixel outside the plot rect rather than
+    // being excluded from the series — the clip-path is what actually
+    // hides that overflow (nothing needs it while unzoomed, since the
+    // domain already spans the full series then, but applying it
+    // unconditionally is simpler than branching the markup).
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         <defs>
@@ -393,50 +435,74 @@ class EnergyCostCard extends HTMLElement {
             <stop offset="0%" stop-color="var(--primary-color)" stop-opacity="0.75"></stop>
             <stop offset="100%" stop-color="var(--primary-color)" stop-opacity="0.25"></stop>
           </linearGradient>
+          <clipPath id="plot-clip">
+            <rect x="${padLeft}" y="${padTop}" width="${(width - padLeft - padRight).toFixed(1)}" height="${(height - padTop - padBottom).toFixed(1)}"></rect>
+          </clipPath>
         </defs>
         ${yGridlines}
-        <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
-        <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
-        ${projectionLine}
+        <g clip-path="url(#plot-clip)">
+          <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
+          <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
+          ${projectionLine}
+        </g>
         ${xTicks}
         <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
         <circle class="hover-dot" r="4" fill="var(--info-color)" visibility="hidden"></circle>
+        <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
       <div class="tooltip" hidden></div>
+      <button type="button" class="zoom-reset" ${this._zoomRange ? "" : "hidden"}>Reset zoom</button>
     `;
 
     this._svgEl = this._chartEl.querySelector("svg");
     this._hoverLine = this._chartEl.querySelector(".hover-line");
     this._hoverDot = this._chartEl.querySelector(".hover-dot");
+    this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
+    this._resetEl = this._chartEl.querySelector(".zoom-reset");
+    this._resetEl.addEventListener("click", () => this._clearZoom());
   }
 
   // Touch: pin the tap so the overlay/tooltip survives finger-lift (see
-  // lib/pointer-interaction.js). Mouse/pen: reserved for drag-to-zoom
-  // (a later change) — no-op for now, hover already starts from
-  // _onPointerMove alone.
+  // lib/pointer-interaction.js). Mouse/pen: start a drag-to-zoom gesture —
+  // recorded in time-domain (ms), not pixel space, so an in-progress drag
+  // survives a window resize instead of going stale.
   _onPointerDown(e) {
     if (e.pointerType === "touch") {
       this._pointerPin.pin();
       this._onPointerMove(e);
       return;
     }
+    if (e.pointerType !== "mouse" || !this._svgEl || !this._chartBounds || !this._series) {
+      return;
+    }
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    this._dragStartMs = this._viewBoxXToMs(viewBoxX);
+    this._dragging = true;
+    this._chartEl.setPointerCapture(e.pointerId);
+    if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
+    if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
+    if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
   _onPointerMove(e) {
+    if (this._dragging && e.pointerType === "mouse") {
+      this._updateDragSelection(e);
+      return;
+    }
+
     if (!this._series || !this._svgEl || !this._chartBounds || !this._pointerPin.shouldUpdateOnMove(e)) {
       return;
     }
 
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, height, padLeft, padRight, domainMinX, domainMaxX } = this._chartBounds;
+    const { width, height } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
-    const targetX =
-      domainMinX +
-      ((viewBoxX - padLeft) / (width - padLeft - padRight)) *
-        (domainMaxX - domainMinX);
+    const targetX = this._viewBoxXToMs(viewBoxX);
 
     let nearest = this._series[0];
     let nearestDist = Infinity;
@@ -464,11 +530,72 @@ class EnergyCostCard extends HTMLElement {
     this._tooltipEl.style.top = `${(py / height) * rect.height}px`;
   }
 
-  // Touch: leave the tap pinned — do not clear on lift. Mouse/pen: reserved
-  // for drag-to-zoom finish (a later change) — no-op for now.
+  // Touch: leave the tap pinned — do not clear on lift. Mouse: finish the
+  // drag-to-zoom gesture — below the pixel threshold is treated as a plain
+  // click (no zoom), otherwise commits this._zoomRange and re-renders.
   _onPointerUp(e) {
     if (e.pointerType === "touch") {
       return;
+    }
+    if (e.pointerType !== "mouse" || !this._dragging) {
+      return;
+    }
+    this._dragging = false;
+    if (this._chartEl.hasPointerCapture && this._chartEl.hasPointerCapture(e.pointerId)) {
+      this._chartEl.releasePointerCapture(e.pointerId);
+    }
+    this._hideDragSelection();
+
+    const dragStartMs = this._dragStartMs;
+    this._dragStartMs = undefined;
+    if (dragStartMs == null || !this._svgEl || !this._chartBounds || !this._series) {
+      return;
+    }
+
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    const startPixelX = this._msToViewBoxX(dragStartMs);
+    const pixelDelta = Math.abs(viewBoxX - startPixelX);
+    if (pixelDelta < DRAG_ZOOM_THRESHOLD_PX) {
+      return;
+    }
+
+    const endMsRaw = this._viewBoxXToMs(viewBoxX);
+    let startMs = Math.min(dragStartMs, endMsRaw);
+    let endMs = Math.max(dragStartMs, endMsRaw);
+
+    const minSpan = this._minZoomSpanMs();
+    if (endMs - startMs < minSpan) {
+      const mid = (startMs + endMs) / 2;
+      startMs = mid - minSpan / 2;
+      endMs = mid + minSpan / 2;
+    }
+
+    // Don't commit a zoom into an empty range — no real point and no
+    // visible projection endpoint inside it.
+    const hasVisibleData =
+      this._series.some((p) => p.x >= startMs && p.x <= endMs) ||
+      (this._projection && this._projection.endMs >= startMs && this._projection.endMs <= endMs);
+    if (!hasVisibleData) {
+      return;
+    }
+
+    this._zoomRange = { startMs, endMs };
+    this._renderChart(this._series, this._projection, this._periodStartMs);
+  }
+
+  // A cancelled gesture (e.g. an OS-level interruption) never commits a
+  // zoom — just drop whatever drag was in progress. Touch's tap-pin state
+  // is untouched here, matching _onPointerUp's touch branch.
+  _onPointerCancel(e) {
+    if (e.pointerType === "touch") {
+      return;
+    }
+    if (this._dragging) {
+      this._dragging = false;
+      this._dragStartMs = undefined;
+      this._hideDragSelection();
     }
   }
 
@@ -480,6 +607,55 @@ class EnergyCostCard extends HTMLElement {
     if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
     if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
+  }
+
+  // ms → viewBox-x and back, using the chart's current (possibly
+  // zoomed) domain — shared by hover, drag-to-zoom start/end conversion,
+  // and redrawing the drag-selection rect.
+  _viewBoxXToMs(viewBoxX) {
+    const { padLeft, padRight, width, domainMinX, domainMaxX } = this._chartBounds;
+    return domainMinX + ((viewBoxX - padLeft) / (width - padLeft - padRight)) * (domainMaxX - domainMinX);
+  }
+
+  _msToViewBoxX(ms) {
+    return this._scaleX(ms);
+  }
+
+  // A zoom narrower than a couple of real bucket steps isn't a meaningful
+  // zoom on a per-bucket line chart — expand around the drag's midpoint
+  // instead. Falls back to a flat few-hour floor when inferFixedStepMs
+  // can't estimate a step (e.g. too few points yet).
+  _minZoomSpanMs() {
+    const step = inferFixedStepMs(this._series ? this._series.map((p) => p.x) : []);
+    return step ? step * 2 : 3 * 60 * 60 * 1000;
+  }
+
+  _updateDragSelection(e) {
+    if (!this._zoomSelectRect || !this._svgEl || !this._chartBounds || this._dragStartMs == null) {
+      return;
+    }
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    const startPixelX = this._msToViewBoxX(this._dragStartMs);
+    const x1 = Math.min(startPixelX, viewBoxX);
+    const x2 = Math.max(startPixelX, viewBoxX);
+    const { padTop, padBottom, height } = this._chartBounds;
+
+    this._zoomSelectRect.setAttribute("x", x1.toFixed(1));
+    this._zoomSelectRect.setAttribute("y", padTop);
+    this._zoomSelectRect.setAttribute("width", Math.max(x2 - x1, 0).toFixed(1));
+    this._zoomSelectRect.setAttribute("height", (height - padTop - padBottom).toFixed(1));
+    this._zoomSelectRect.setAttribute("visibility", "visible");
+  }
+
+  _hideDragSelection() {
+    if (this._zoomSelectRect) this._zoomSelectRect.setAttribute("visibility", "hidden");
+  }
+
+  _clearZoom() {
+    this._zoomRange = null;
+    this._renderChart(this._series, this._projection, this._periodStartMs);
   }
 }
 

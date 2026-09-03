@@ -21,7 +21,13 @@ import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
-import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
+import {
+  CHART_PADDING,
+  measureChartBox,
+  observeChartResize,
+  renderYGridlines,
+  DRAG_ZOOM_THRESHOLD_PX,
+} from "./lib/svg-chart.js";
 import { selectLabelIndexesForTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs } from "./lib/tick-labels.js";
 import { createPointerPin } from "./lib/pointer-interaction.js";
 
@@ -50,10 +56,12 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     if (firstRender) {
       this._pointerPin = createPointerPin();
+      this._zoomRange = null;
+      this._dragging = false;
       this._chartEl.addEventListener("pointerdown", (e) => this._onPointerDown(e));
       this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
       this._chartEl.addEventListener("pointerup", (e) => this._onPointerUp(e));
-      this._chartEl.addEventListener("pointercancel", (e) => this._onPointerUp(e));
+      this._chartEl.addEventListener("pointercancel", (e) => this._onPointerCancel(e));
       this._chartEl.addEventListener("pointerleave", (e) => this._onPointerLeave(e));
 
       this._resizeObserver = observeChartResize(this._chartEl, () => {
@@ -157,6 +165,14 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     const periodStartMs = data.start ? data.start.getTime() : undefined;
     const periodEndMs = data.end ? data.end.getTime() : undefined;
+    // An active zoom's timestamps almost certainly don't make sense against
+    // a completely different selected period (e.g. the dashboard's
+    // date-picker switching from "This month" to "Last year") — a live
+    // stats refresh for the *same* period should leave the zoom alone,
+    // only a period change clears it.
+    if (this._zoomRange && (periodStartMs !== this._periodStartMs || periodEndMs !== this._periodEndMs)) {
+      this._zoomRange = null;
+    }
     this._renderChart(buckets, periodStartMs, periodEndMs);
   }
 
@@ -197,22 +213,42 @@ class EnergyCostBreakdownCard extends HTMLElement {
     if (!buckets.length) {
       this._chartEl.innerHTML = `<div class="message">Not enough data yet for this period.</div>`;
       this._buckets = undefined;
+      this._visibleBuckets = undefined;
       return;
     }
+
+    // this._buckets stays the full, unfiltered backing array (needed by
+    // both the resize observer and Reset) — only the locally-scoped
+    // render/hover view narrows to the zoomed window. See _onPointerUp for
+    // how a drag sets this._zoomRange.
+    let renderBuckets = buckets;
+    if (this._zoomRange) {
+      const filtered = buckets.filter((b) => b.x >= this._zoomRange.startMs && b.x <= this._zoomRange.endMs);
+      if (filtered.length) {
+        renderBuckets = filtered;
+      } else {
+        // The zoomed window no longer overlaps the data (e.g. it was set
+        // against a since-changed period) — fall back to the full view
+        // rather than render an empty chart with a Reset button that
+        // wouldn't actually change anything.
+        this._zoomRange = null;
+      }
+    }
+    this._visibleBuckets = renderBuckets;
 
     const { width, height } = measureChartBox(this._chartEl);
     const { left: padLeft, right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
 
-    const xs = buckets.map((b) => b.x);
+    const xs = renderBuckets.map((b) => b.x);
     const dataMinX = Math.min(...xs);
     const dataMaxX = Math.max(...xs);
-    const dataMaxY = Math.max(...buckets.map((b) => b.y), 0.0001);
+    const dataMaxY = Math.max(...renderBuckets.map((b) => b.y), 0.0001);
 
     const { axisMax: domainMaxY, tickSpacing } = niceAxisScale(dataMaxY, 5);
 
     const plotLeft = padLeft;
     const plotWidth = width - padLeft - padRight;
-    const slotWidth = plotWidth / buckets.length;
+    const slotWidth = plotWidth / renderBuckets.length;
     const barWidth = Math.min(slotWidth * 0.6, 40);
 
     const scaleX = (i) => plotLeft + slotWidth * (i + 0.5);
@@ -243,7 +279,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
     // border mimics HA's getEnergyColor() trick (base color + hex alpha
     // 0x7F ≈ 0.5 for the fill, base color at full opacity for the border,
     // 1.5px width matching HA's theme-wide barBorderWidth).
-    const bars = buckets
+    const bars = renderBuckets
       .map((b, i) => {
         const cx = scaleX(i);
         const barTop = scaleY(b.y);
@@ -281,46 +317,73 @@ class EnergyCostBreakdownCard extends HTMLElement {
     // uses the same DEFAULT_TICK_COUNT and the same period bounds
     // (data.start/data.end, not just this chart's own first/last bucket)
     // as energy-cost-card.js's line chart, so the two cards' x-axes land
-    // on the same dates/times for the same period.
-    const tickStartMs = periodStartMs ?? dataMinX;
-    const tickEndMs = periodEndMs ?? dataMaxX;
+    // on the same dates/times for the same period. When zoomed, the tick
+    // bounds become the zoom window itself rather than the full period.
+    const tickStartMs = this._zoomRange ? this._zoomRange.startMs : periodStartMs ?? dataMinX;
+    const tickEndMs = this._zoomRange ? this._zoomRange.endMs : periodEndMs ?? dataMaxX;
     const labelIndexes = selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
     const xTicks = labelIndexes
       .map((i) => {
-        const anchor = i === 0 ? "start" : i === buckets.length - 1 ? "end" : "middle";
-        return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(buckets[i].x)}</text>`;
+        const anchor = i === 0 ? "start" : i === renderBuckets.length - 1 ? "end" : "middle";
+        return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(renderBuckets[i].x)}</text>`;
       })
       .join("");
 
+    // Mouse-drag-to-zoom selection overlay (see _onPointerDown/_onPointerMove)
+    // and a Reset chip shown only while zoomed — both mirror HA's own
+    // dataZoom + restart-icon reset button (ha-chart-base.ts), hand-rolled
+    // here since this codebase doesn't use ECharts. Touch keeps tap-to-pin
+    // only (see lib/pointer-interaction.js) — no touch-zoom in this version.
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
         ${bars}
         ${xTicks}
         <rect class="hover-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
+        <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
       <div class="tooltip" hidden></div>
+      <button type="button" class="zoom-reset" ${this._zoomRange ? "" : "hidden"}>Reset zoom</button>
     `;
 
     this._svgEl = this._chartEl.querySelector("svg");
     this._hoverRect = this._chartEl.querySelector(".hover-rect");
+    this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
+    this._resetEl = this._chartEl.querySelector(".zoom-reset");
+    this._resetEl.addEventListener("click", () => this._clearZoom());
   }
 
   // Touch: pin the tap so the overlay/tooltip survives finger-lift (see
-  // lib/pointer-interaction.js). Mouse/pen: reserved for drag-to-zoom
-  // (a later change) — no-op for now, hover already starts from
-  // _onPointerMove alone.
+  // lib/pointer-interaction.js). Mouse/pen: start a drag-to-zoom gesture —
+  // recorded in time-domain (ms), not pixel space, so an in-progress drag
+  // survives a window resize instead of going stale.
   _onPointerDown(e) {
     if (e.pointerType === "touch") {
       this._pointerPin.pin();
       this._onPointerMove(e);
       return;
     }
+    if (e.pointerType !== "mouse" || !this._svgEl || !this._chartBounds || !this._visibleBuckets) {
+      return;
+    }
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    this._dragStartMs = this._viewBoxXToMs(viewBoxX);
+    this._dragging = true;
+    this._chartEl.setPointerCapture(e.pointerId);
+    if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
+    if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
   _onPointerMove(e) {
-    if (!this._buckets || !this._svgEl || !this._chartBounds || !this._pointerPin.shouldUpdateOnMove(e)) {
+    if (this._dragging && e.pointerType === "mouse") {
+      this._updateDragSelection(e);
+      return;
+    }
+
+    if (!this._visibleBuckets || !this._svgEl || !this._chartBounds || !this._pointerPin.shouldUpdateOnMove(e)) {
       return;
     }
 
@@ -330,10 +393,9 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
-    let index = Math.floor((viewBoxX - plotLeft) / slotWidth);
-    index = Math.max(0, Math.min(this._buckets.length - 1, index));
+    const index = this._indexForViewBoxX(viewBoxX);
 
-    const bucket = this._buckets[index];
+    const bucket = this._visibleBuckets[index];
     const cx = this._scaleX(index);
     const barY = this._scaleY(bucket.y);
 
@@ -349,11 +411,70 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._tooltipEl.style.top = `${(barY / height) * rect.height}px`;
   }
 
-  // Touch: leave the tap pinned — do not clear on lift. Mouse/pen: reserved
-  // for drag-to-zoom finish (a later change) — no-op for now.
+  // Touch: leave the tap pinned — do not clear on lift. Mouse: finish the
+  // drag-to-zoom gesture — below the pixel threshold is treated as a plain
+  // click (no zoom), otherwise commits this._zoomRange and re-renders.
   _onPointerUp(e) {
     if (e.pointerType === "touch") {
       return;
+    }
+    if (e.pointerType !== "mouse" || !this._dragging) {
+      return;
+    }
+    this._dragging = false;
+    if (this._chartEl.hasPointerCapture && this._chartEl.hasPointerCapture(e.pointerId)) {
+      this._chartEl.releasePointerCapture(e.pointerId);
+    }
+    this._hideDragSelection();
+
+    const dragStartMs = this._dragStartMs;
+    this._dragStartMs = undefined;
+    if (dragStartMs == null || !this._svgEl || !this._chartBounds || !this._visibleBuckets) {
+      return;
+    }
+
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    const startPixelX = this._msToViewBoxX(dragStartMs);
+    const pixelDelta = Math.abs(viewBoxX - startPixelX);
+    if (pixelDelta < DRAG_ZOOM_THRESHOLD_PX) {
+      return;
+    }
+
+    const endMsRaw = this._viewBoxXToMs(viewBoxX);
+    let startMs = Math.min(dragStartMs, endMsRaw);
+    let endMs = Math.max(dragStartMs, endMsRaw);
+
+    const minSpan = this._minZoomSpanMs();
+    if (endMs - startMs < minSpan) {
+      const mid = (startMs + endMs) / 2;
+      startMs = mid - minSpan / 2;
+      endMs = mid + minSpan / 2;
+    }
+
+    // Don't commit a zoom into a range with nothing in it — e.g. a drag
+    // that lands entirely inside a gap wider than any real bucket.
+    const filtered = this._buckets.filter((b) => b.x >= startMs && b.x <= endMs);
+    if (!filtered.length) {
+      return;
+    }
+
+    this._zoomRange = { startMs, endMs };
+    this._renderChart(this._buckets, this._periodStartMs, this._periodEndMs);
+  }
+
+  // A cancelled gesture (e.g. an OS-level interruption) never commits a
+  // zoom — just drop whatever drag was in progress. Touch's tap-pin state
+  // is untouched here, matching _onPointerUp's touch branch.
+  _onPointerCancel(e) {
+    if (e.pointerType === "touch") {
+      return;
+    }
+    if (this._dragging) {
+      this._dragging = false;
+      this._dragStartMs = undefined;
+      this._hideDragSelection();
     }
   }
 
@@ -364,6 +485,72 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._pointerPin.clear();
     if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
+  }
+
+  // Slot index (nearest visible bucket) for a viewBox-space x coordinate —
+  // shared by hover and the drag-to-zoom start/end conversion below.
+  _indexForViewBoxX(viewBoxX) {
+    const { plotLeft, slotWidth } = this._chartBounds;
+    const index = Math.floor((viewBoxX - plotLeft) / slotWidth);
+    return Math.max(0, Math.min(this._visibleBuckets.length - 1, index));
+  }
+
+  _viewBoxXToMs(viewBoxX) {
+    return this._visibleBuckets[this._indexForViewBoxX(viewBoxX)].x;
+  }
+
+  // Inverse of the above: nearest visible bucket to a timestamp, mapped
+  // forward through the current (possibly just-resized) scale — used to
+  // redraw the drag-selection rect and to re-derive the drag start's pixel
+  // position at pointerup without having stored it directly.
+  _msToViewBoxX(ms) {
+    let nearest = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < this._visibleBuckets.length; i++) {
+      const dist = Math.abs(this._visibleBuckets[i].x - ms);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = i;
+      }
+    }
+    return this._scaleX(nearest);
+  }
+
+  // A zoom narrower than ~2 buckets isn't a meaningful zoom — expand
+  // around the drag's midpoint instead. Falls back to a flat 2-day floor
+  // for month-bucketed year views, whose variable-length buckets
+  // inferFixedStepMs deliberately won't estimate a step for.
+  _minZoomSpanMs() {
+    const step = inferFixedStepMs(this._buckets.map((b) => b.x));
+    return step ? step * 2 : 2 * 24 * 60 * 60 * 1000;
+  }
+
+  _updateDragSelection(e) {
+    if (!this._zoomSelectRect || !this._svgEl || !this._chartBounds || this._dragStartMs == null) {
+      return;
+    }
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    const startPixelX = this._msToViewBoxX(this._dragStartMs);
+    const x1 = Math.min(startPixelX, viewBoxX);
+    const x2 = Math.max(startPixelX, viewBoxX);
+    const { padTop, padBottom, height } = this._chartBounds;
+
+    this._zoomSelectRect.setAttribute("x", x1.toFixed(1));
+    this._zoomSelectRect.setAttribute("y", padTop);
+    this._zoomSelectRect.setAttribute("width", Math.max(x2 - x1, 0).toFixed(1));
+    this._zoomSelectRect.setAttribute("height", (height - padTop - padBottom).toFixed(1));
+    this._zoomSelectRect.setAttribute("visibility", "visible");
+  }
+
+  _hideDragSelection() {
+    if (this._zoomSelectRect) this._zoomSelectRect.setAttribute("visibility", "hidden");
+  }
+
+  _clearZoom() {
+    this._zoomRange = null;
+    this._renderChart(this._buckets, this._periodStartMs, this._periodEndMs);
   }
 }
 
