@@ -761,7 +761,26 @@ here would leave root-owned objects behind that break `ruan`'s next
 manual pull. This assumes `ruan` is already in the `docker` group
 (true today, since `ruan` already runs `docker compose` by hand) —
 worth reconfirming with `groups ruan` if this is ever recreated on a
-rebuilt box.
+rebuilt box. **`ruan` has no group of its own** — `id ruan` shows
+`uid=999(ruan) gid=1000(samba) groups=1000(samba),10(wheel),104(docker)`,
+the same non-standard UID that already caught out Prefetcharr
+(`services/prefetcharr/README.md`'s `chown` note) — its primary group is `samba`,
+not a dedicated `ruan` group, so any ownership fix for this user has to
+target `ruan:samba`, not `ruan:ruan`.
+
+**Caught live on first install, 2026-09-03**: every other script in
+this section writes into `/DATA/Infrastructure/node-exporter/
+textfile_collector/` as root (systemd's default), so nothing had ever
+exercised that directory's permissions for a non-root writer before.
+It's `root:root`, mode `755` — `write_status()` failed with `Permission
+denied` the first time this script (running as `ruan`) actually reached
+that code path. Worse, it failed silently in the sense that mattered
+most: `write_status` is exactly the call that would have reported the
+failure to Grafana/ntfy, so a real deploy failure here would have gone
+completely unalerted. Fixed by `chown`ing the directory to `ruan`, not
+by loosening its mode — root-run scripts keep writing into it exactly
+as before, since root ignores directory ownership. The `chown` line
+below is part of a from-scratch install now, not a separate step.
 
 **State**: the last-deployed commit SHA lives at
 `/DATA/Infrastructure/homelab-deploy/last-deployed.sha` — outside the
@@ -795,6 +814,11 @@ Recreate on a rebuild:
 
 ```bash
 mkdir -p /DATA/Infrastructure/homelab-deploy
+
+# textfile_collector is root:root by default (every other writer into it
+# runs as root) -- ruan needs write access for write_status() below, and
+# ruan's group is samba, not a ruan group (see the note above)
+sudo chown ruan:samba /DATA/Infrastructure/node-exporter/textfile_collector
 
 sudo tee /etc/systemd/system/homelab-deploy.sh > /dev/null <<'EOF'
 #!/bin/sh
