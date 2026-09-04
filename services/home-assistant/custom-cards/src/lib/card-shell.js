@@ -80,4 +80,59 @@ export const CHART_CARD_STYLES = `
     border-radius: 4px;
     cursor: pointer;
   }
+  /* Togglable series legend — matches ha-chart-base.ts's real chart-legend
+     markup (a plain <ul><li><button> HTML legend, not an ECharts canvas
+     one): mdiCheckCircle/mdiCircleOutline toggle icon, secondary-text-color
+     on a hidden item, opacity-0.5 hover, larger touch targets on coarse
+     pointers. Simplified from HA's version (no overflow/expand chip, no
+     more-info-clickable label) since this card only ever has 1-2 series. */
+  .legend {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: var(--ha-space-2, 8px);
+    font-family: Roboto, Noto, sans-serif;
+    font-size: var(--ha-font-size-s, 12px);
+    color: var(--primary-text-color);
+    flex: none;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+  }
+  .legend-item.hidden {
+    color: var(--secondary-text-color);
+  }
+  .legend-toggle {
+    background: none;
+    border: none;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 4px;
+    margin: -4px;
+  }
+  .legend-toggle:hover {
+    opacity: 0.5;
+  }
+  .legend-label {
+    cursor: default;
+  }
+  @media (pointer: coarse) {
+    .legend-item {
+      height: 40px;
+    }
+    .legend-toggle {
+      padding: 11px;
+      margin: 0;
+    }
+  }
 `;
