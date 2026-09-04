@@ -23,6 +23,7 @@
 import { CHART_CARD_STYLES } from "./lib/card-shell.js";
 import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
+import { buildRunningTotalSeries, computeProjection } from "./lib/energy-cost-projection.js";
 import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan, haStyleTimeTiers } from "./lib/format.js";
 import {
@@ -62,17 +63,9 @@ class EnergyCostCard extends HTMLElement {
       this.shadowRoot.innerHTML = `
         <style>
           ${CHART_CARD_STYLES}
-          .projected {
-            font-size: var(--ha-font-size-s, 12px);
-            color: var(--secondary-text-color);
-            margin-bottom: 8px;
-            flex: none;
-          }
         </style>
         <ha-card>
           <div class="header"></div>
-          <div class="total"></div>
-          <div class="projected" hidden></div>
           <div class="chart"></div>
           <ul class="legend"></ul>
         </ha-card>
@@ -82,8 +75,6 @@ class EnergyCostCard extends HTMLElement {
     const firstRender = !this._headerEl;
 
     this._headerEl = this.shadowRoot.querySelector(".header");
-    this._totalEl = this.shadowRoot.querySelector(".total");
-    this._projectedEl = this.shadowRoot.querySelector(".projected");
     this._chartEl = this.shadowRoot.querySelector(".chart");
     // HA's own energy-usage-graph card only renders a header when a title
     // is explicitly configured (hui-energy-usage-graph-card.ts renders
@@ -180,35 +171,19 @@ class EnergyCostCard extends HTMLElement {
 
     if (!costStatIds.length) {
       this._chartEl.innerHTML = `<div class="message">No grid source has cost tracking configured yet (Settings → Dashboards → Energy).</div>`;
-      this._totalEl.textContent = "";
-      this._projectedEl.hidden = true;
       return;
     }
 
     // Merge every source's per-bucket delta into one summed series, then
     // turn deltas into a running total — this is the "Bill So Far" shape.
+    // The running total and "Projected: R X" figure themselves are no
+    // longer displayed on this card — see energy-cost-stat-card.js
+    // (stat: "total") — but the chart itself still needs both: the
+    // dashed projection line, and the Y-domain has to fit whichever is
+    // bigger, actual-so-far or the projected total.
     const deltaByBucketStart = sumCostByBucket(stats, costStatIds);
-
-    const bucketStarts = [...deltaByBucketStart.keys()].sort((a, b) => a - b);
-    let runningTotal = 0;
-    const series = bucketStarts.map((start) => {
-      runningTotal += deltaByBucketStart.get(start);
-      return { x: start, y: runningTotal };
-    });
-
-    this._totalEl.textContent = this._formatCurrency(runningTotal);
-
-    const projection = this._computeProjection(data, series, runningTotal);
-    // The header text is only meaningful as a forward-looking estimate —
-    // for an already-elapsed period (e.g. "Yesterday"), projection.total
-    // *is* runningTotal, so showing "Projected: R X" under the identical
-    // "R X" total would just be a redundant duplicate.
-    if (projection && projection.isEstimate) {
-      this._projectedEl.hidden = false;
-      this._projectedEl.textContent = `Projected: ${this._formatCurrency(projection.total)}`;
-    } else {
-      this._projectedEl.hidden = true;
-    }
+    const { series, runningTotal } = buildRunningTotalSeries(deltaByBucketStart);
+    const projection = computeProjection(data, series, runningTotal);
 
     const periodStartMs = data.start ? data.start.getTime() : undefined;
     // An active zoom's timestamps almost certainly don't make sense against
@@ -219,41 +194,6 @@ class EnergyCostCard extends HTMLElement {
       this._zoomRange = null;
     }
     this._renderChart(series, projection, periodStartMs);
-  }
-
-  // The reference line spans the period at a constant rate — while the
-  // period is still ongoing, that rate is a linear extrapolation from
-  // data so far (an estimate of where the total will land); once the
-  // period is over, the real final total is already known, so the same
-  // line becomes the period's actual average pace instead of a forecast
-  // — still useful (which hours/days ran above or below that average),
-  // just no longer something to also announce as a "projected" total.
-  // Deliberately simple and self-contained either way — no reaching
-  // outside the data this card already has, at the cost of not
-  // anticipating a tariff tier crossover late in an ongoing period (see
-  // the "linear vs tariff-aware" discussion this was chosen over).
-  _computeProjection(data, series, runningTotal) {
-    if (series.length < 2 || !data.start || !data.end) {
-      return null;
-    }
-
-    const periodStartMs = data.start.getTime();
-    const periodEndMs = data.end.getTime();
-    const nowMs = Date.now();
-
-    if (nowMs >= periodEndMs) {
-      return { endMs: periodEndMs, total: runningTotal, isEstimate: false };
-    }
-
-    const elapsedMs = nowMs - periodStartMs;
-    const remainingMs = periodEndMs - nowMs;
-    if (elapsedMs <= 0) {
-      return null;
-    }
-
-    const rate = runningTotal / elapsedMs;
-    const total = runningTotal + rate * remainingMs;
-    return { endMs: periodEndMs, total, isEstimate: true };
   }
 
   _formatCurrency(value, compact = false) {
