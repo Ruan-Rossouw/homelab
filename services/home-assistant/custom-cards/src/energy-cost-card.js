@@ -67,7 +67,12 @@ class EnergyCostCard extends HTMLElement {
     this._totalEl = this.shadowRoot.querySelector(".total");
     this._projectedEl = this.shadowRoot.querySelector(".projected");
     this._chartEl = this.shadowRoot.querySelector(".chart");
-    this._headerEl.textContent = this._config.title || "Grid Cost";
+    // HA's own energy-usage-graph card only renders a header when a title
+    // is explicitly configured (hui-energy-usage-graph-card.ts renders
+    // .card-header conditionally on this._config.title) — no default
+    // fallback string, so match that instead of forcing one here.
+    this._headerEl.hidden = !this._config.title;
+    this._headerEl.textContent = this._config.title || "";
 
     if (firstRender) {
       this._pointerPin = createPointerPin();
