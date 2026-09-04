@@ -53,7 +53,10 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     this._headerEl = this.shadowRoot.querySelector(".header");
     this._chartEl = this.shadowRoot.querySelector(".chart");
-    this._headerEl.textContent = this._config.title || "Grid Cost by Period";
+    // See energy-cost-card.js: HA's own energy-usage-graph card only shows
+    // a header when a title is explicitly configured, no default fallback.
+    this._headerEl.hidden = !this._config.title;
+    this._headerEl.textContent = this._config.title || "";
 
     if (firstRender) {
       this._pointerPin = createPointerPin();
