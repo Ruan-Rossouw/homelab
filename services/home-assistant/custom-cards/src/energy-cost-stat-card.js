@@ -31,6 +31,7 @@ import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
 import { buildRunningTotalSeries, computeProjection } from "./lib/energy-cost-projection.js";
 import { formatCurrency, formatTimeForSpan, haStyleTimeTiers } from "./lib/format.js";
+import { observeChartResize } from "./lib/svg-chart.js";
 
 // mdi path data, verbatim from @mdi/svg (unpkg.com/@mdi/svg@7.4.47/svg/),
 // fetched and inlined the same way energy-cost-card.js's legend icons
@@ -58,6 +59,11 @@ const DEFAULT_LABELS = {
 
 const STATS = ["total", "highest", "lowest", "average", "range"];
 
+// Fixed strip height for the sparkline feature row — small enough to stay
+// a "feature," not a second chart. See _renderSparkline's comment for why
+// this exists at all.
+const SPARKLINE_HEIGHT = 28;
+
 // Card-shell.js's shared CHART_CARD_STYLES targets the chart cards'
 // header/total/tooltip/legend rules, none of which this card uses — its
 // layout (icon + primary/secondary info row) is a different shape, so it
@@ -71,6 +77,19 @@ const STATS = ["total", "highest", "lowest", "average", "range"];
 // --secondary-text-color, so matched that rather than "fixing" it to
 // what might look more expected). Row layout (icon left, info right,
 // 10px gap) from components/tile/ha-tile-container.ts's `.content` rule.
+//
+// .primary's size is a deliberate deviation from that verified HA spec,
+// not a correction to it: the user asked for the number itself, "the
+// most valuable part of the card," to read bigger than HA's literal
+// --ha-font-size-m. Bumped one step up HA's own font-size scale
+// (--ha-font-size-l) rather than inventing an arbitrary px value.
+//
+// .sparkline: the empty space a bare icon+info tile leaves when it has no
+// configured "feature" row is real HA behavior, not a bug in the CSS
+// above (confirmed against ha-tile-container.ts/hui-tile-card.ts — a
+// feature-less tile's own default grid size, columns: 6, is wider than
+// this card's). HA fills that space with a feature (mini-graph/bar/
+// buttons); this is that same real mechanism, not an invented one.
 const STAT_CARD_STYLES = `
   :host { display: flex; height: 100%; }
   ha-card {
@@ -125,7 +144,7 @@ const STAT_CARD_STYLES = `
     flex-direction: column;
   }
   .primary {
-    font-size: var(--ha-font-size-m, 14px);
+    font-size: var(--ha-font-size-l, 16px);
     font-weight: var(--ha-font-weight-medium, 500);
     line-height: 1.4;
     color: var(--primary-text-color);
@@ -143,6 +162,17 @@ const STAT_CARD_STYLES = `
     white-space: nowrap;
   }
   .secondary[hidden] { display: none; }
+  .sparkline {
+    flex: none;
+    margin-top: 8px;
+    height: ${SPARKLINE_HEIGHT}px;
+  }
+  .sparkline[hidden] { display: none; }
+  .sparkline svg {
+    display: block;
+    width: 100%;
+    height: ${SPARKLINE_HEIGHT}px;
+  }
   .message {
     color: var(--secondary-text-color);
     font-size: 0.9rem;
@@ -171,13 +201,23 @@ class EnergyCostStatCard extends HTMLElement {
               <div class="secondary" hidden></div>
             </div>
           </div>
+          <div class="sparkline" hidden></div>
         </ha-card>
       `;
     }
 
+    const firstRender = !this._sparklineEl;
+
     this._headerEl = this.shadowRoot.querySelector(".header");
     this._primaryEl = this.shadowRoot.querySelector(".primary");
     this._secondaryEl = this.shadowRoot.querySelector(".secondary");
+    this._sparklineEl = this.shadowRoot.querySelector(".sparkline");
+
+    if (firstRender) {
+      this._resizeObserver = observeChartResize(this._sparklineEl, () => {
+        this._renderSparkline(this._sparklinePoints);
+      });
+    }
     // Matches every other card in this directory: no title unless the
     // user explicitly configures one (see energy-cost-card.js's own
     // header-removal commit for the HA source this was verified
@@ -205,16 +245,26 @@ class EnergyCostStatCard extends HTMLElement {
       this._unsub();
       this._unsub = undefined;
     }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+    }
   }
 
   getCardSize() {
-    return 1;
+    return 2;
   }
 
+  // Shrunk from the original grid_columns: 3 default now that the
+  // sparkline feature row gives a tile a real reason to fill whatever
+  // width it's given — the old wider default was compensating for empty
+  // space that a feature row now fills on its own. grid_rows bumped 1->2
+  // for the same reason: the sparkline is real added vertical content,
+  // not free. (The user has already independently landed on rows: 2 via
+  // their own grid_options override, which matches.)
   getLayoutOptions() {
     return {
-      grid_columns: 3,
-      grid_rows: 1,
+      grid_columns: 2,
+      grid_rows: 2,
       grid_min_columns: 2,
     };
   }
@@ -232,6 +282,7 @@ class EnergyCostStatCard extends HTMLElement {
         this._primaryEl.textContent = "";
         this._secondaryEl.hidden = false;
         this._secondaryEl.textContent = "Waiting for an Energy date-selection card…";
+        this._renderSparkline(null);
       }
     );
   }
@@ -245,6 +296,7 @@ class EnergyCostStatCard extends HTMLElement {
       this._primaryEl.textContent = "";
       this._secondaryEl.hidden = false;
       this._secondaryEl.textContent = "No grid cost tracking configured";
+      this._renderSparkline(null);
       return;
     }
 
@@ -268,8 +320,21 @@ class EnergyCostStatCard extends HTMLElement {
       this._primaryEl.textContent = "";
       this._secondaryEl.hidden = false;
       this._secondaryEl.textContent = "No data yet for this period";
+      this._renderSparkline(null);
       return;
     }
+
+    // Same underlying per-bucket trend backs the sparkline regardless of
+    // which of average/highest/lowest/range this tile highlights — it's
+    // period context, not specific to one stat. Sorted chronologically:
+    // entries' insertion order isn't guaranteed to be ascending (it's
+    // whatever order the WS response's stats came back in), but a
+    // sparkline reads left-to-right as time.
+    const sortedPoints = entries
+      .slice()
+      .sort((a, b) => a[0] - b[0])
+      .map(([x, y]) => ({ x, y }));
+    this._renderSparkline(sortedPoints);
 
     if (this._config.stat === "average") {
       const values = entries.map(([, v]) => v);
@@ -335,6 +400,12 @@ class EnergyCostStatCard extends HTMLElement {
   _updateTotal(data, deltaByBucketStart) {
     const { series, runningTotal } = buildRunningTotalSeries(deltaByBucketStart);
     this._primaryEl.textContent = this._formatCurrency(runningTotal);
+    // "total" shows the cumulative bill-so-far curve rather than the
+    // discrete per-bucket costs the other stats' sparklines show — matches
+    // this tile's own identity (a running total) and the shape of the
+    // full "Grid Cost" line chart elsewhere on the dashboard, rather than
+    // the breakdown bar chart's shape.
+    this._renderSparkline(series);
 
     const projection = computeProjection(data, series, runningTotal);
     // Only meaningful as a forward-looking estimate — for an
@@ -348,6 +419,51 @@ class EnergyCostStatCard extends HTMLElement {
     } else {
       this._secondaryEl.hidden = true;
     }
+  }
+
+  // Renders (or hides) the sparkline feature row. Not svg-chart.js's full
+  // chart machinery — no axes, no gridlines, no tooltip, no zoom, a
+  // strip this small has none of that, just a scaled line+fill in the
+  // tile's own icon color. viewBox width is set to the container's real
+  // measured clientWidth (not an arbitrary fixed coordinate count) so
+  // preserveAspectRatio="none" doesn't distort — same 1:1-with-CSS-pixels
+  // principle CLAUDE.md documents for the full chart cards, just without
+  // needing the height half of that (height is a fixed constant here,
+  // there's no text/glyphs in a sparkline to distort).
+  //
+  // points: [{x, y}, ...] sorted ascending by x, or null/short to hide.
+  _renderSparkline(points) {
+    this._sparklinePoints = points;
+    if (!this._sparklineEl) return;
+
+    // A single bucket (e.g. day 1 of a new period) has no trend to draw —
+    // hide rather than render a degenerate flat/1-point line.
+    if (!points || points.length < 2) {
+      this._sparklineEl.hidden = true;
+      this._sparklineEl.innerHTML = "";
+      return;
+    }
+
+    this._sparklineEl.hidden = false;
+    const width = this._sparklineEl.clientWidth || 100;
+    const height = SPARKLINE_HEIGHT;
+
+    const ys = points.map((p) => p.y);
+    const minY = Math.min(0, ...ys);
+    const maxY = Math.max(...ys, minY + 0.0001);
+    const scaleX = (i) => (i / (points.length - 1)) * width;
+    const scaleY = (y) => height - ((y - minY) / (maxY - minY)) * height;
+
+    const linePoints = points.map((p, i) => `${scaleX(i).toFixed(1)},${scaleY(p.y).toFixed(1)}`).join(" ");
+    const areaPoints = `0,${height.toFixed(1)} ${linePoints} ${width.toFixed(1)},${height.toFixed(1)}`;
+    const color = "var(--tile-color, var(--state-icon-color, var(--primary-color)))";
+
+    this._sparklineEl.innerHTML = `
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+        <polygon points="${areaPoints}" fill="${color}" opacity="0.2"></polygon>
+        <polyline points="${linePoints}" fill="none" stroke="${color}" stroke-width="1.5"></polyline>
+      </svg>
+    `;
   }
 
   _formatCurrency(value) {

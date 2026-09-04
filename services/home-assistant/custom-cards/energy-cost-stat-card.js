@@ -117,6 +117,22 @@
     ];
   }
 
+  // src/lib/svg-chart.js
+  function observeChartResize(chartEl, onResize) {
+    let frame;
+    const observer = new ResizeObserver(() => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+      }
+      frame = requestAnimationFrame(() => {
+        frame = void 0;
+        onResize();
+      });
+    });
+    observer.observe(chartEl);
+    return observer;
+  }
+
   // src/energy-cost-stat-card.js
   var ICONS = {
     total: "M5,6H23V18H5V6M14,9A3,3 0 0,1 17,12A3,3 0 0,1 14,15A3,3 0 0,1 11,12A3,3 0 0,1 14,9M9,8A2,2 0 0,1 7,10V14A2,2 0 0,1 9,16H19A2,2 0 0,1 21,14V10A2,2 0 0,1 19,8H9M1,10H3V20H19V22H1V10Z",
@@ -137,6 +153,7 @@
     range: "Highest / Lowest"
   };
   var STATS = ["total", "highest", "lowest", "average", "range"];
+  var SPARKLINE_HEIGHT = 28;
   var STAT_CARD_STYLES = `
   :host { display: flex; height: 100%; }
   ha-card {
@@ -191,7 +208,7 @@
     flex-direction: column;
   }
   .primary {
-    font-size: var(--ha-font-size-m, 14px);
+    font-size: var(--ha-font-size-l, 16px);
     font-weight: var(--ha-font-weight-medium, 500);
     line-height: 1.4;
     color: var(--primary-text-color);
@@ -209,6 +226,17 @@
     white-space: nowrap;
   }
   .secondary[hidden] { display: none; }
+  .sparkline {
+    flex: none;
+    margin-top: 8px;
+    height: ${SPARKLINE_HEIGHT}px;
+  }
+  .sparkline[hidden] { display: none; }
+  .sparkline svg {
+    display: block;
+    width: 100%;
+    height: ${SPARKLINE_HEIGHT}px;
+  }
   .message {
     color: var(--secondary-text-color);
     font-size: 0.9rem;
@@ -235,12 +263,20 @@
               <div class="secondary" hidden></div>
             </div>
           </div>
+          <div class="sparkline" hidden></div>
         </ha-card>
       `;
       }
+      const firstRender = !this._sparklineEl;
       this._headerEl = this.shadowRoot.querySelector(".header");
       this._primaryEl = this.shadowRoot.querySelector(".primary");
       this._secondaryEl = this.shadowRoot.querySelector(".secondary");
+      this._sparklineEl = this.shadowRoot.querySelector(".sparkline");
+      if (firstRender) {
+        this._resizeObserver = observeChartResize(this._sparklineEl, () => {
+          this._renderSparkline(this._sparklinePoints);
+        });
+      }
       this._headerEl.hidden = !this._config.title;
       this._headerEl.textContent = this._config.title || "";
       this._attachToCollection();
@@ -259,14 +295,24 @@
         this._unsub();
         this._unsub = void 0;
       }
+      if (this._resizeObserver) {
+        this._resizeObserver.disconnect();
+      }
     }
     getCardSize() {
-      return 1;
+      return 2;
     }
+    // Shrunk from the original grid_columns: 3 default now that the
+    // sparkline feature row gives a tile a real reason to fill whatever
+    // width it's given — the old wider default was compensating for empty
+    // space that a feature row now fills on its own. grid_rows bumped 1->2
+    // for the same reason: the sparkline is real added vertical content,
+    // not free. (The user has already independently landed on rows: 2 via
+    // their own grid_options override, which matches.)
     getLayoutOptions() {
       return {
-        grid_columns: 3,
-        grid_rows: 1,
+        grid_columns: 2,
+        grid_rows: 2,
         grid_min_columns: 2
       };
     }
@@ -282,6 +328,7 @@
           this._primaryEl.textContent = "";
           this._secondaryEl.hidden = false;
           this._secondaryEl.textContent = "Waiting for an Energy date-selection card\u2026";
+          this._renderSparkline(null);
         }
       );
     }
@@ -293,6 +340,7 @@
         this._primaryEl.textContent = "";
         this._secondaryEl.hidden = false;
         this._secondaryEl.textContent = "No grid cost tracking configured";
+        this._renderSparkline(null);
         return;
       }
       const deltaByBucketStart = sumCostByBucket(stats, costStatIds);
@@ -305,8 +353,11 @@
         this._primaryEl.textContent = "";
         this._secondaryEl.hidden = false;
         this._secondaryEl.textContent = "No data yet for this period";
+        this._renderSparkline(null);
         return;
       }
+      const sortedPoints = entries.slice().sort((a, b) => a[0] - b[0]).map(([x, y]) => ({ x, y }));
+      this._renderSparkline(sortedPoints);
       if (this._config.stat === "average") {
         const values = entries.map(([, v]) => v);
         const value = values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -347,6 +398,7 @@
     _updateTotal(data, deltaByBucketStart) {
       const { series, runningTotal } = buildRunningTotalSeries(deltaByBucketStart);
       this._primaryEl.textContent = this._formatCurrency(runningTotal);
+      this._renderSparkline(series);
       const projection = computeProjection(data, series, runningTotal);
       if (projection && projection.isEstimate) {
         this._secondaryEl.hidden = false;
@@ -354,6 +406,43 @@
       } else {
         this._secondaryEl.hidden = true;
       }
+    }
+    // Renders (or hides) the sparkline feature row. Not svg-chart.js's full
+    // chart machinery — no axes, no gridlines, no tooltip, no zoom, a
+    // strip this small has none of that, just a scaled line+fill in the
+    // tile's own icon color. viewBox width is set to the container's real
+    // measured clientWidth (not an arbitrary fixed coordinate count) so
+    // preserveAspectRatio="none" doesn't distort — same 1:1-with-CSS-pixels
+    // principle CLAUDE.md documents for the full chart cards, just without
+    // needing the height half of that (height is a fixed constant here,
+    // there's no text/glyphs in a sparkline to distort).
+    //
+    // points: [{x, y}, ...] sorted ascending by x, or null/short to hide.
+    _renderSparkline(points) {
+      this._sparklinePoints = points;
+      if (!this._sparklineEl) return;
+      if (!points || points.length < 2) {
+        this._sparklineEl.hidden = true;
+        this._sparklineEl.innerHTML = "";
+        return;
+      }
+      this._sparklineEl.hidden = false;
+      const width = this._sparklineEl.clientWidth || 100;
+      const height = SPARKLINE_HEIGHT;
+      const ys = points.map((p) => p.y);
+      const minY = Math.min(0, ...ys);
+      const maxY = Math.max(...ys, minY + 1e-4);
+      const scaleX = (i) => i / (points.length - 1) * width;
+      const scaleY = (y) => height - (y - minY) / (maxY - minY) * height;
+      const linePoints = points.map((p, i) => `${scaleX(i).toFixed(1)},${scaleY(p.y).toFixed(1)}`).join(" ");
+      const areaPoints = `0,${height.toFixed(1)} ${linePoints} ${width.toFixed(1)},${height.toFixed(1)}`;
+      const color = "var(--tile-color, var(--state-icon-color, var(--primary-color)))";
+      this._sparklineEl.innerHTML = `
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+        <polygon points="${areaPoints}" fill="${color}" opacity="0.2"></polygon>
+        <polyline points="${linePoints}" fill="none" stroke="${color}" stroke-width="1.5"></polyline>
+      </svg>
+    `;
     }
     _formatCurrency(value) {
       return formatCurrency(value, {
