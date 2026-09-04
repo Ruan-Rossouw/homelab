@@ -213,12 +213,37 @@
   }
   function formatTimeForSpan(timestamp, locale, spanMs, tiers) {
     const date = new Date(timestamp);
-    for (const tier of tiers) {
-      if (tier.maxSpanMs == null || spanMs < tier.maxSpanMs) {
-        return new Intl.DateTimeFormat(locale, tier.options).format(date);
-      }
+    const tier = tiers.find((t) => t.maxSpanMs == null || spanMs < t.maxSpanMs) || tiers[tiers.length - 1];
+    if (tier.midnightOptions && date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0) {
+      return new Intl.DateTimeFormat(locale, tier.midnightOptions).format(date);
     }
-    return new Intl.DateTimeFormat(locale, tiers[tiers.length - 1].options).format(date);
+    if (tier.formatter) {
+      return tier.formatter(date, locale);
+    }
+    return new Intl.DateTimeFormat(locale, tier.options).format(date);
+  }
+  var DAY_MS = 24 * 60 * 60 * 1e3;
+  function haStyleTimeTiers() {
+    return [
+      {
+        maxSpanMs: 2 * DAY_MS + 1,
+        options: { hour: "numeric", minute: "2-digit" },
+        // Real code special-cases an exact-midnight tick within this tier to
+        // show the date instead of e.g. "12:00 AM" — a real, useful behavior
+        // at day boundaries, not a guess.
+        midnightOptions: { day: "numeric", month: "short" }
+      },
+      { maxSpanMs: 7 * DAY_MS + 1, options: { weekday: "short" } },
+      { maxSpanMs: 88 * DAY_MS + 1, options: { day: "numeric", month: "short" } },
+      {
+        // Real code shows the bare month name once a span exceeds ~3 months,
+        // adding the year only on a January tick (context resets each year) —
+        // month:"long", not "short" (HA's own formatDateMonth/MonthYear use
+        // "long"). Needs a formatter (not static options) since which format
+        // applies depends on each individual tick's own month.
+        formatter: (date, locale) => date.getMonth() === 0 ? new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(date) : new Intl.DateTimeFormat(locale, { month: "long" }).format(date)
+      }
+    ];
   }
 
   // src/lib/svg-chart.js
@@ -431,30 +456,22 @@
         compact
       });
     }
-    // Four tiers instead of energy-cost-card.js's three: this chart can span
-    // a full year of monthly buckets, where a day-of-month label (e.g. "Aug
-    // 1" repeated on every bucket) reads oddly — drop the day and show
-    // "MMM 'YY" once buckets are month-sized, matching the original
-    // apexcharts card's month labels ("Sep '25", "Dec '25", ...).
-    //
-    // The weekday-only tier (2-7 day span) is verified against HA's own
-    // axis-label logic, not a guess: ha-chart-base.ts's _formatTimeLabel ->
-    // components/chart/axis-label.ts's formatTimeLabel() picks
-    // formatDateWeekdayShort (== Intl.DateTimeFormat(locale, {weekday:
-    // "short"})) whenever the *visible axis span* is >2 and <=7 days — based
-    // on the currently-rendered span (ha-chart-base multiplies by its zoom
-    // ratio), matching this._chartBounds already being derived from
-    // renderBuckets (the zoomed subset when zoomed), not the full period.
+    // Ported byte-for-byte from HA's own axis-label.ts formatTimeLabel()
+    // cascade — see format.js's haStyleTimeTiers() for the exact thresholds/
+    // formats and what's deliberately not replicated. Unlike
+    // energy-cost-card.js, this card's dataMinX/dataMaxX (from
+    // `_chartBounds`, derived from `renderBuckets`) already reflect the full
+    // plotted domain and don't need a separate domain span: `_update()`
+    // tail-pads `buckets` with zero-cost placeholders out to the period's
+    // true end before `_renderChart` ever runs, and `renderBuckets` narrows
+    // to the zoomed subset when zoomed — so this span was already correct
+    // (this card never had the projection-domain bug energy-cost-card.js
+    // did, since it has no projection concept extending its domain past its
+    // own data).
     _formatTime(timestamp) {
       const locale = this._hass?.locale?.language;
       const spanMs = this._chartBounds ? this._chartBounds.dataMaxX - this._chartBounds.dataMinX : 0;
-      const dayMs = 24 * 60 * 60 * 1e3;
-      return formatTimeForSpan(timestamp, locale, spanMs, [
-        { maxSpanMs: 2 * dayMs, options: { hour: "2-digit", minute: "2-digit" } },
-        { maxSpanMs: 7 * dayMs + 1, options: { weekday: "short" } },
-        { maxSpanMs: 60 * dayMs, options: { month: "short", day: "numeric" } },
-        { options: { month: "short", year: "2-digit" } }
-      ]);
+      return formatTimeForSpan(timestamp, locale, spanMs, haStyleTimeTiers());
     }
     // Bare number for the y-axis's per-tick labels (no currency symbol) — the
     // unit is shown once instead, via renderYGridlines' axisName. See

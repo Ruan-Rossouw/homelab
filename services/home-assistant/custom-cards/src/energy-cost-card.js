@@ -24,7 +24,7 @@ import { CHART_CARD_STYLES } from "./lib/card-shell.js";
 import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
 import { niceAxisScale } from "./lib/nice-axis.js";
-import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
+import { formatCurrency, formatTimeForSpan, haStyleTimeTiers } from "./lib/format.js";
 import {
   CHART_PADDING,
   measureChartBox,
@@ -257,31 +257,29 @@ class EnergyCostCard extends HTMLElement {
     });
   }
 
-  // Sub-day ranges (the "Today" picker) get hour:minute labels; a 2-7 day
-  // span gets bare weekday names ("Sun", "Mon", ...); anything longer gets
-  // a short date, since a time-of-day label on a month-long range would be
-  // meaningless. Based on the real data span, not the padded plotting
-  // domain.
+  // Ported byte-for-byte from HA's own axis-label.ts formatTimeLabel()
+  // cascade — see format.js's haStyleTimeTiers() for the exact thresholds/
+  // formats and what's deliberately not replicated (bold-only distinctions,
+  // the unreachable <5-minute tier).
   //
-  // The weekday tier is verified against HA's own axis-label logic, not a
-  // guess: ha-chart-base.ts's _formatTimeLabel -> components/chart/
-  // axis-label.ts's formatTimeLabel() picks formatDateWeekdayShort (==
-  // Intl.DateTimeFormat(locale, {weekday: "short"})) whenever the *visible
-  // axis span* is >2 and <=7 days — based on the currently-rendered span
-  // (ha-chart-base multiplies by its zoom ratio), matching
-  // this._chartBounds already reflecting the zoomed domain when zoomed,
-  // not always the full period.
+  // spanMs MUST be the plotted *domain* span (this._chartBounds.domainMaxX
+  // - domainMinX), matching HA's own axis.max - axis.min — not
+  // dataMaxX - dataMinX (the real-series-only span). This card's domain
+  // extends past the real series via the projection line out to the
+  // period end (or zoom range, when zoomed); using the real-data-only span
+  // here was a real bug (fixed): early in a still-short period, dataMaxX
+  // stays small even though the plotted/visible domain already spans the
+  // whole period, so ticks near the end of a long period were wrongly
+  // formatted as if the chart were only a few days wide (e.g. weekday
+  // labels showing up on a month-long view). domainMinX/domainMaxX already
+  // account for this (and for an active zoom), so no other change is
+  // needed here beyond reading the right field.
   _formatTime(timestamp) {
     const locale = this._hass?.locale?.language;
     const spanMs = this._chartBounds
-      ? this._chartBounds.dataMaxX - this._chartBounds.dataMinX
+      ? this._chartBounds.domainMaxX - this._chartBounds.domainMinX
       : 0;
-    const dayMs = 24 * 60 * 60 * 1000;
-    return formatTimeForSpan(timestamp, locale, spanMs, [
-      { maxSpanMs: 2 * dayMs, options: { hour: "2-digit", minute: "2-digit" } },
-      { maxSpanMs: 7 * dayMs + 1, options: { weekday: "short" } },
-      { options: { month: "short", day: "numeric" } },
-    ]);
+    return formatTimeForSpan(timestamp, locale, spanMs, haStyleTimeTiers());
   }
 
   // Bare number for the y-axis's per-tick labels (no currency symbol) — the
