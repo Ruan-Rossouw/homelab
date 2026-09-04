@@ -20,7 +20,13 @@ export function formatCurrency(value, { symbol = "R", locale, compact = false } 
   } catch {
     number = value.toFixed(compact ? 0 : 2);
   }
-  return `${symbol} ${number}`;
+  // Empty symbol -> bare number, no leading space. Used for y-axis tick
+  // labels, which show the unit once (see svg-chart.js's renderYGridlines
+  // axisName) rather than repeating it on every tick — matches HA's own
+  // yAxis.name + per-tick axisLabel.formatter split (energy-chart-options.ts
+  // getCommonOptions: name: unit on the axis, createYAxisLabelFormatter
+  // returns bare numbers).
+  return symbol ? `${symbol} ${number}` : number;
 }
 
 // Picks a date/time format based on how wide a span the chart is

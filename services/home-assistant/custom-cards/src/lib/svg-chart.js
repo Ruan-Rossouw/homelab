@@ -3,7 +3,11 @@
 // with point hover vs. discrete bars with slot hover) stays per-card. See
 // ../../CLAUDE.md "Minimizing duplication" for why the split lands here.
 
-export const CHART_PADDING = { left: 56, right: 12, top: 10, bottom: 24 };
+// top: 14, not 10 — leaves headroom for the y-axis unit-name label (see
+// renderYGridlines' axisName) that now sits just above the topmost
+// gridline, matching HA's own grid.top: 15 (energy-chart-options.ts
+// getCommonOptions) rather than the plot area running edge-to-edge.
+export const CHART_PADDING = { left: 56, right: 12, top: 14, bottom: 24 };
 
 // Screen-space pixel threshold a mouse drag must clear before it commits to
 // a zoom range rather than being treated as a plain click — shared so both
@@ -47,9 +51,17 @@ export function observeChartResize(chartEl, onResize) {
 // max — matches ha-chart-base's ~5-gridline splitNumber and its solid
 // (non-dashed) splitLine style, without hardcoding "divide by 4" (which
 // doesn't line up with a tickSpacing that isn't axisMax/4).
-export function renderYGridlines({ domainMaxY, tickSpacing, scaleY, padLeft, width, padRight, formatValue }) {
+// axisName (optional): the unit, rendered ONCE just above the topmost
+// gridline instead of on every tick — matches HA's real yAxis config
+// (energy-chart-options.ts getCommonOptions: `yAxis: { name: unit, nameGap:
+// 2, nameTextStyle: { align: "left" } }`, ECharts' default nameLocation
+// "end" puts a value axis's name above its max). formatValue should return
+// a bare number with no unit for this to read correctly (see format.js's
+// formatCurrency: pass `symbol: ""` and it drops the unit/leading space) —
+// per-tick labels stay bare, the name carries the unit alone.
+export function renderYGridlines({ domainMaxY, tickSpacing, scaleY, padLeft, width, padRight, formatValue, axisName }) {
   const tickCount = Math.round(domainMaxY / tickSpacing);
-  return Array.from({ length: tickCount + 1 }, (_, i) => i * tickSpacing)
+  const gridlines = Array.from({ length: tickCount + 1 }, (_, i) => i * tickSpacing)
     .map((v) => {
       const y = scaleY(v).toFixed(1);
       return `
@@ -58,6 +70,10 @@ export function renderYGridlines({ domainMaxY, tickSpacing, scaleY, padLeft, wid
       `;
     })
     .join("");
+  const nameLabel = axisName
+    ? `<text x="${padLeft}" y="${(scaleY(domainMaxY) - 2).toFixed(1)}" text-anchor="start" class="axis-label">${axisName}</text>`
+    : "";
+  return gridlines + nameLabel;
 }
 
 // Solid vertical gridlines at each x-axis tick position — matches

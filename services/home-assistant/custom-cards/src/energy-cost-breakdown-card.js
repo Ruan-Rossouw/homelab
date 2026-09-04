@@ -185,11 +185,20 @@ class EnergyCostBreakdownCard extends HTMLElement {
     });
   }
 
-  // Three tiers instead of energy-cost-card.js's two: this chart can span
+  // Four tiers instead of energy-cost-card.js's three: this chart can span
   // a full year of monthly buckets, where a day-of-month label (e.g. "Aug
   // 1" repeated on every bucket) reads oddly — drop the day and show
   // "MMM 'YY" once buckets are month-sized, matching the original
   // apexcharts card's month labels ("Sep '25", "Dec '25", ...).
+  //
+  // The weekday-only tier (2-7 day span) is verified against HA's own
+  // axis-label logic, not a guess: ha-chart-base.ts's _formatTimeLabel ->
+  // components/chart/axis-label.ts's formatTimeLabel() picks
+  // formatDateWeekdayShort (== Intl.DateTimeFormat(locale, {weekday:
+  // "short"})) whenever the *visible axis span* is >2 and <=7 days — based
+  // on the currently-rendered span (ha-chart-base multiplies by its zoom
+  // ratio), matching this._chartBounds already being derived from
+  // renderBuckets (the zoomed subset when zoomed), not the full period.
   _formatTime(timestamp) {
     const locale = this._hass?.locale?.language;
     const spanMs = this._chartBounds
@@ -198,9 +207,22 @@ class EnergyCostBreakdownCard extends HTMLElement {
     const dayMs = 24 * 60 * 60 * 1000;
     return formatTimeForSpan(timestamp, locale, spanMs, [
       { maxSpanMs: 2 * dayMs, options: { hour: "2-digit", minute: "2-digit" } },
+      { maxSpanMs: 7 * dayMs + 1, options: { weekday: "short" } },
       { maxSpanMs: 60 * dayMs, options: { month: "short", day: "numeric" } },
       { options: { month: "short", year: "2-digit" } },
     ]);
+  }
+
+  // Bare number for the y-axis's per-tick labels (no currency symbol) — the
+  // unit is shown once instead, via renderYGridlines' axisName. See
+  // format.js's formatCurrency: an empty symbol drops the unit/leading
+  // space entirely.
+  _formatCompactNumber(value) {
+    return formatCurrency(value, {
+      symbol: "",
+      locale: this._hass?.locale?.language,
+      compact: true,
+    });
   }
 
   _renderChart(buckets, periodStartMs, periodEndMs) {
@@ -310,7 +332,8 @@ class EnergyCostBreakdownCard extends HTMLElement {
       padLeft,
       width,
       padRight,
-      formatValue: (v) => this._formatCurrency(v, true),
+      formatValue: (v) => this._formatCompactNumber(v),
+      axisName: this._config.currency_symbol || "R",
     });
 
     // Evenly spaced x labels rather than just first/middle/last, snapped

@@ -235,19 +235,43 @@ class EnergyCostCard extends HTMLElement {
     });
   }
 
-  // Sub-day ranges (the "Today" picker) get hour:minute labels; anything
-  // longer gets a short date, since a time-of-day label on a month-long
-  // range would be meaningless. Based on the real data span, not the
-  // padded plotting domain.
+  // Sub-day ranges (the "Today" picker) get hour:minute labels; a 2-7 day
+  // span gets bare weekday names ("Sun", "Mon", ...); anything longer gets
+  // a short date, since a time-of-day label on a month-long range would be
+  // meaningless. Based on the real data span, not the padded plotting
+  // domain.
+  //
+  // The weekday tier is verified against HA's own axis-label logic, not a
+  // guess: ha-chart-base.ts's _formatTimeLabel -> components/chart/
+  // axis-label.ts's formatTimeLabel() picks formatDateWeekdayShort (==
+  // Intl.DateTimeFormat(locale, {weekday: "short"})) whenever the *visible
+  // axis span* is >2 and <=7 days — based on the currently-rendered span
+  // (ha-chart-base multiplies by its zoom ratio), matching
+  // this._chartBounds already reflecting the zoomed domain when zoomed,
+  // not always the full period.
   _formatTime(timestamp) {
     const locale = this._hass?.locale?.language;
     const spanMs = this._chartBounds
       ? this._chartBounds.dataMaxX - this._chartBounds.dataMinX
       : 0;
+    const dayMs = 24 * 60 * 60 * 1000;
     return formatTimeForSpan(timestamp, locale, spanMs, [
-      { maxSpanMs: 2 * 24 * 60 * 60 * 1000, options: { hour: "2-digit", minute: "2-digit" } },
+      { maxSpanMs: 2 * dayMs, options: { hour: "2-digit", minute: "2-digit" } },
+      { maxSpanMs: 7 * dayMs + 1, options: { weekday: "short" } },
       { options: { month: "short", day: "numeric" } },
     ]);
+  }
+
+  // Bare number for the y-axis's per-tick labels (no currency symbol) — the
+  // unit is shown once instead, via renderYGridlines' axisName. See
+  // format.js's formatCurrency: an empty symbol drops the unit/leading
+  // space entirely.
+  _formatCompactNumber(value) {
+    return formatCurrency(value, {
+      symbol: "",
+      locale: this._hass?.locale?.language,
+      compact: true,
+    });
   }
 
   _renderChart(series, projection, periodStartMs) {
@@ -367,7 +391,8 @@ class EnergyCostCard extends HTMLElement {
       padLeft,
       width,
       padRight,
-      formatValue: (v) => this._formatCurrency(v, true),
+      formatValue: (v) => this._formatCompactNumber(v),
+      axisName: this._config.currency_symbol || "R",
     });
 
     // Ticks at evenly-spaced *timestamps* across the plotted domain, not
