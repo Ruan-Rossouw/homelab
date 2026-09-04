@@ -16,13 +16,6 @@
     margin-bottom: 8px;
     flex: none;
   }
-  .total {
-    font-size: 1.6rem;
-    font-weight: 500;
-    color: var(--primary-text-color);
-    margin-bottom: 8px;
-    flex: none;
-  }
   .chart { position: relative; flex: 1; min-height: 0; touch-action: pan-y; }
   .chart svg { width: 100%; display: block; }
   .axis-label {
