@@ -293,6 +293,26 @@
     if (count <= 1) return [startMs];
     return Array.from({ length: count }, (_, i) => startMs + (endMs - startMs) * i / (count - 1));
   }
+  var DAY_MS2 = 24 * 60 * 60 * 1e3;
+  var DAY_INTERVAL_CANDIDATES_DAYS = [1, 2, 3, 4, 5, 7, 10, 14, 21, 30, 60, 90, 120, 182, 365];
+  var MAX_DAY_TICK_COUNT = 8;
+  function selectNiceDayTicks(startMs, endMs, maxTicks = MAX_DAY_TICK_COUNT) {
+    const spanDays = (endMs - startMs) / DAY_MS2;
+    let intervalDays = DAY_INTERVAL_CANDIDATES_DAYS[DAY_INTERVAL_CANDIDATES_DAYS.length - 1];
+    for (const candidate of DAY_INTERVAL_CANDIDATES_DAYS) {
+      const count = Math.floor(spanDays / candidate) + 1;
+      if (count <= maxTicks) {
+        intervalDays = candidate;
+        break;
+      }
+    }
+    const intervalMs = intervalDays * DAY_MS2;
+    const ticks = [];
+    for (let t = startMs; t <= endMs; t += intervalMs) {
+      ticks.push(t);
+    }
+    return ticks;
+  }
   function inferFixedStepMs(sortedTimestamps) {
     if (sortedTimestamps.length < 2) return void 0;
     const step = sortedTimestamps[1] - sortedTimestamps[0];
@@ -618,18 +638,26 @@
         formatValue: (v) => this._formatCompactNumber(v),
         axisName: this._config.currency_symbol || "R"
       });
-      const step = inferFixedStepMs(series.map((p) => p.x));
-      const idealTicks = selectEvenTimestamps(tickRangeStartMs, tickRangeEndMs, DEFAULT_TICK_COUNT);
-      const tickTimestamps = step ? [
-        ...new Set(
-          idealTicks.map(
-            (t, i) => i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
+      const tickRangeSpanMs = tickRangeEndMs - tickRangeStartMs;
+      let tickTimestamps;
+      if (tickRangeSpanMs >= 24 * 60 * 60 * 1e3) {
+        tickTimestamps = selectNiceDayTicks(tickRangeStartMs, tickRangeEndMs, MAX_DAY_TICK_COUNT);
+      } else {
+        const step = inferFixedStepMs(series.map((p) => p.x));
+        const idealTicks = selectEvenTimestamps(tickRangeStartMs, tickRangeEndMs, DEFAULT_TICK_COUNT);
+        tickTimestamps = step ? [
+          ...new Set(
+            idealTicks.map(
+              (t, i) => i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
+            )
           )
-        )
-      ] : idealTicks;
+        ] : idealTicks;
+      }
       const xTicks = tickTimestamps.map((t, i, all) => {
         const x = scaleX(t).toFixed(1);
-        const anchor = i === 0 ? "start" : i === all.length - 1 ? "end" : "middle";
+        const isLast = i === all.length - 1;
+        const nearRightEdge = isLast && tickRangeEndMs - t <= (all.length > 1 ? all[1] - all[0] : 0);
+        const anchor = i === 0 ? "start" : nearRightEdge ? "end" : "middle";
         return `<text x="${x}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(t)}</text>`;
       }).join("");
       const xGridlines = renderXGridlines({

@@ -293,8 +293,8 @@
     if (count <= 1) return [startMs];
     return Array.from({ length: count }, (_, i) => startMs + (endMs - startMs) * i / (count - 1));
   }
-  function selectLabelIndexesForTimestamps(itemTimestamps, startMs, endMs, count) {
-    const indexes = selectEvenTimestamps(startMs, endMs, count).map((target) => {
+  function snapTimestampsToIndexes(itemTimestamps, idealTimestamps) {
+    const indexes = idealTimestamps.map((target) => {
       let nearest = 0;
       let nearestDist = Infinity;
       for (let i = 0; i < itemTimestamps.length; i++) {
@@ -307,6 +307,32 @@
       return nearest;
     });
     return [...new Set(indexes)];
+  }
+  function selectLabelIndexesForTimestamps(itemTimestamps, startMs, endMs, count) {
+    return snapTimestampsToIndexes(itemTimestamps, selectEvenTimestamps(startMs, endMs, count));
+  }
+  var DAY_MS2 = 24 * 60 * 60 * 1e3;
+  var DAY_INTERVAL_CANDIDATES_DAYS = [1, 2, 3, 4, 5, 7, 10, 14, 21, 30, 60, 90, 120, 182, 365];
+  var MAX_DAY_TICK_COUNT = 8;
+  function selectNiceDayTicks(startMs, endMs, maxTicks = MAX_DAY_TICK_COUNT) {
+    const spanDays = (endMs - startMs) / DAY_MS2;
+    let intervalDays = DAY_INTERVAL_CANDIDATES_DAYS[DAY_INTERVAL_CANDIDATES_DAYS.length - 1];
+    for (const candidate of DAY_INTERVAL_CANDIDATES_DAYS) {
+      const count = Math.floor(spanDays / candidate) + 1;
+      if (count <= maxTicks) {
+        intervalDays = candidate;
+        break;
+      }
+    }
+    const intervalMs = intervalDays * DAY_MS2;
+    const ticks = [];
+    for (let t = startMs; t <= endMs; t += intervalMs) {
+      ticks.push(t);
+    }
+    return ticks;
+  }
+  function selectNiceDayLabelIndexes(itemTimestamps, startMs, endMs, maxTicks = MAX_DAY_TICK_COUNT) {
+    return snapTimestampsToIndexes(itemTimestamps, selectNiceDayTicks(startMs, endMs, maxTicks));
   }
   function inferFixedStepMs(sortedTimestamps) {
     if (sortedTimestamps.length < 2) return void 0;
@@ -559,9 +585,11 @@
       });
       const tickStartMs = this._zoomRange ? this._zoomRange.startMs : periodStartMs ?? dataMinX;
       const tickEndMs = this._zoomRange ? this._zoomRange.endMs : periodEndMs ?? dataMaxX;
-      const labelIndexes = selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
-      const xTicks = labelIndexes.map((i) => {
-        const anchor = i === 0 ? "start" : i === renderBuckets.length - 1 ? "end" : "middle";
+      const tickSpanMs = tickEndMs - tickStartMs;
+      const labelIndexes = tickSpanMs >= 24 * 60 * 60 * 1e3 ? selectNiceDayLabelIndexes(xs, tickStartMs, tickEndMs, MAX_DAY_TICK_COUNT) : selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
+      const xTicks = labelIndexes.map((i, idx, all) => {
+        const isLastIndex = i === renderBuckets.length - 1;
+        const anchor = i === 0 ? "start" : isLastIndex ? "end" : "middle";
         return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(renderBuckets[i].x)}</text>`;
       }).join("");
       const xGridlines = renderXGridlines({

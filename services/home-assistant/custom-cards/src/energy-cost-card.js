@@ -33,7 +33,14 @@ import {
   renderXGridlines,
   DRAG_ZOOM_THRESHOLD_PX,
 } from "./lib/svg-chart.js";
-import { selectEvenTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs, snapToStep } from "./lib/tick-labels.js";
+import {
+  selectEvenTimestamps,
+  selectNiceDayTicks,
+  DEFAULT_TICK_COUNT,
+  MAX_DAY_TICK_COUNT,
+  inferFixedStepMs,
+  snapToStep,
+} from "./lib/tick-labels.js";
 import { createPointerPin } from "./lib/pointer-interaction.js";
 
 // mdiCheckCircle / mdiCircleOutline path data, verbatim from @mdi/js —
@@ -428,45 +435,59 @@ class EnergyCostCard extends HTMLElement {
       axisName: this._config.currency_symbol || "R",
     });
 
-    // Ticks at evenly-spaced *timestamps* across the plotted domain, not
-    // evenly-spaced indices into `series` — those aren't the same thing
-    // once a projection extends the domain well past the real data (e.g.
-    // "Today" at noon, plotted out to midnight): picking indices out of
-    // only the real (so far, first-half-of-the-day) series bunches every
-    // interior tick into the already-elapsed portion, then jumps straight
-    // to the far edge for the last one. The right edge is the period end
-    // when there's a projection, otherwise the last actual point.
+    // For a day-or-longer span, HA's real charts don't evenly-divide the
+    // domain into a fixed tick count — ECharts' own time-axis "nice
+    // interval" behavior picks a calendar-round day interval (verified:
+    // a September/30-day period ticks at Sep 1, 5, 9, 13, 17, 21, 25, 29,
+    // not 6 index-evenly-spaced dates) and lets the count fall out of
+    // that. See tick-labels.js's selectNiceDayTicks for the algorithm and
+    // why it's a reimplementation of that general technique rather than a
+    // port (the actual interval-choosing code lives inside the ECharts
+    // library itself, not in home-assistant/frontend's own source).
     //
-    // Uses the same DEFAULT_TICK_COUNT and the same evenly-spaced-in-time
-    // algorithm as energy-cost-breakdown-card.js's bar chart, so the two
-    // cards' x-axes land on the same dates/times for the same period
-    // instead of each picking its own count independently. Snapped onto
-    // the real bucket grid (inferred the same way the breakdown card
-    // infers its padding step) so labels land on round times like
-    // "5:00 AM" — splitting the domain into equal fractions alone would
-    // land on whatever arbitrary time each fraction happens to be (e.g.
-    // "4:48 AM" for a 24-hour domain split 5 ways).
-    const step = inferFixedStepMs(series.map((p) => p.x));
-    const idealTicks = selectEvenTimestamps(tickRangeStartMs, tickRangeEndMs, DEFAULT_TICK_COUNT);
-    // Only the interior ticks get snapped — the first and last are pinned
-    // exactly at tickRangeStartMs/tickRangeEndMs (e.g. the real period end, often
-    // 23:59:59.999) on purpose, and rounding that to the nearest step
-    // could overshoot past it (23:59:59.999 rounds *up* to next midnight
-    // at an hourly step), turning a correct "11:59 PM" edge label into a
-    // wrong "12:00 AM".
-    const tickTimestamps = step
-      ? [
-          ...new Set(
-            idealTicks.map((t, i) =>
-              i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
-            )
-          ),
-        ]
-      : idealTicks;
+    // Below a day, that same day-interval algorithm doesn't apply — keep
+    // the previous evenly-spaced-then-snapped-to-the-real-bucket-grid
+    // approach, which already reads fine for an hour-granularity domain
+    // (e.g. "Today") and isn't part of what HA visibly does differently.
+    const tickRangeSpanMs = tickRangeEndMs - tickRangeStartMs;
+    let tickTimestamps;
+    if (tickRangeSpanMs >= 24 * 60 * 60 * 1000) {
+      tickTimestamps = selectNiceDayTicks(tickRangeStartMs, tickRangeEndMs, MAX_DAY_TICK_COUNT);
+    } else {
+      const step = inferFixedStepMs(series.map((p) => p.x));
+      const idealTicks = selectEvenTimestamps(tickRangeStartMs, tickRangeEndMs, DEFAULT_TICK_COUNT);
+      // Only the interior ticks get snapped — the first and last are pinned
+      // exactly at tickRangeStartMs/tickRangeEndMs (e.g. the real period end, often
+      // 23:59:59.999) on purpose, and rounding that to the nearest step
+      // could overshoot past it (23:59:59.999 rounds *up* to next midnight
+      // at an hourly step), turning a correct "11:59 PM" edge label into a
+      // wrong "12:00 AM".
+      tickTimestamps = step
+        ? [
+            ...new Set(
+              idealTicks.map((t, i) =>
+                i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
+              )
+            ),
+          ]
+        : idealTicks;
+    }
     const xTicks = tickTimestamps
       .map((t, i, all) => {
         const x = scaleX(t).toFixed(1);
-        const anchor = i === 0 ? "start" : i === all.length - 1 ? "end" : "middle";
+        // First tick is always pinned exactly at tickRangeStartMs (both
+        // the sub-day and nice-day-interval paths anchor there), so
+        // "start" always avoids left-edge clipping. The last tick is only
+        // guaranteed to sit at tickRangeEndMs in the sub-day path — the
+        // nice-day-interval path (e.g. "Sep 29" for a month ending at
+        // "Sep 30") deliberately doesn't force the boundary, matching
+        // HA's real output — so only right-anchor it when it's actually
+        // at (or within one intervalMs of) the true right edge; otherwise
+        // it reads as a normal interior label, not hugging a clip risk
+        // that isn't there.
+        const isLast = i === all.length - 1;
+        const nearRightEdge = isLast && tickRangeEndMs - t <= (all.length > 1 ? all[1] - all[0] : 0);
+        const anchor = i === 0 ? "start" : nearRightEdge ? "end" : "middle";
         return `<text x="${x}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(t)}</text>`;
       })
       .join("");

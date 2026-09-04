@@ -29,7 +29,13 @@ import {
   renderXGridlines,
   DRAG_ZOOM_THRESHOLD_PX,
 } from "./lib/svg-chart.js";
-import { selectLabelIndexesForTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs } from "./lib/tick-labels.js";
+import {
+  selectLabelIndexesForTimestamps,
+  selectNiceDayLabelIndexes,
+  DEFAULT_TICK_COUNT,
+  MAX_DAY_TICK_COUNT,
+  inferFixedStepMs,
+} from "./lib/tick-labels.js";
 import { createPointerPin } from "./lib/pointer-interaction.js";
 
 class EnergyCostBreakdownCard extends HTMLElement {
@@ -331,19 +337,36 @@ class EnergyCostBreakdownCard extends HTMLElement {
       axisName: this._config.currency_symbol || "R",
     });
 
-    // Evenly spaced x labels rather than just first/middle/last, snapped
-    // to the nearest real bucket for each ideal evenly-spaced timestamp —
-    // uses the same DEFAULT_TICK_COUNT and the same period bounds
-    // (data.start/data.end, not just this chart's own first/last bucket)
-    // as energy-cost-card.js's line chart, so the two cards' x-axes land
-    // on the same dates/times for the same period. When zoomed, the tick
-    // bounds become the zoom window itself rather than the full period.
+    // For a day-or-longer span, use the same "nice" calendar-day-interval
+    // algorithm energy-cost-card.js's line chart uses (see
+    // tick-labels.js's selectNiceDayTicks for why/how) instead of
+    // evenly-spaced-by-index — verified against HA's real observed output
+    // (a September/30-day period ticks at Sep 1, 5, 9, 13, 17, 21, 25,
+    // 29, not 6 index-evenly-spaced dates). Below a day (hour-granularity
+    // buckets, e.g. a "Today" view), keep the previous evenly-spaced
+    // approach, which isn't part of what HA visibly does differently
+    // here. The period bounds (data.start/data.end, not just this
+    // chart's own first/last bucket) match energy-cost-card.js's line
+    // chart so the two cards' x-axes land on the same dates/times for
+    // the same period. When zoomed, the tick bounds become the zoom
+    // window itself rather than the full period.
     const tickStartMs = this._zoomRange ? this._zoomRange.startMs : periodStartMs ?? dataMinX;
     const tickEndMs = this._zoomRange ? this._zoomRange.endMs : periodEndMs ?? dataMaxX;
-    const labelIndexes = selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
+    const tickSpanMs = tickEndMs - tickStartMs;
+    const labelIndexes =
+      tickSpanMs >= 24 * 60 * 60 * 1000
+        ? selectNiceDayLabelIndexes(xs, tickStartMs, tickEndMs, MAX_DAY_TICK_COUNT)
+        : selectLabelIndexesForTimestamps(xs, tickStartMs, tickEndMs, DEFAULT_TICK_COUNT);
     const xTicks = labelIndexes
-      .map((i) => {
-        const anchor = i === 0 ? "start" : i === renderBuckets.length - 1 ? "end" : "middle";
+      .map((i, idx, all) => {
+        // Same "only right-anchor when actually at the true right edge"
+        // reasoning as energy-cost-card.js — the nice-day-interval path's
+        // last label (e.g. "Sep 29" for a period ending "Sep 30") isn't
+        // guaranteed to land on the very last bucket, so end-anchoring it
+        // unconditionally would misalign it against a tick that isn't
+        // actually at the plot's right edge.
+        const isLastIndex = i === renderBuckets.length - 1;
+        const anchor = i === 0 ? "start" : isLastIndex ? "end" : "middle";
         return `<text x="${scaleX(i).toFixed(1)}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(renderBuckets[i].x)}</text>`;
       })
       .join("");
