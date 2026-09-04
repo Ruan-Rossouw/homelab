@@ -30,7 +30,7 @@
 import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
 import { buildRunningTotalSeries, computeProjection } from "./lib/energy-cost-projection.js";
-import { formatCurrency } from "./lib/format.js";
+import { formatCurrency, formatTimeForSpan, haStyleTimeTiers } from "./lib/format.js";
 
 // mdi path data, verbatim from @mdi/svg (unpkg.com/@mdi/svg@7.4.47/svg/),
 // fetched and inlined the same way energy-cost-card.js's legend icons
@@ -41,6 +41,11 @@ const ICONS = {
   highest: "M16,6L18.29,8.29L13.41,13.17L9.41,9.17L2,16.59L3.41,18L9.41,12L13.41,16L19.71,9.71L22,12V6H16Z",
   lowest: "M16,18L18.29,15.71L13.41,10.83L9.41,14.83L2,7.41L3.41,6L9.41,12L13.41,8L19.71,14.29L22,12V18H16Z",
   average: "M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z",
+  // arrow-expand-vertical, from Templarian/MaterialDesign (the same @mdi
+  // icon set the others above were pulled from) — a combined highest+lowest
+  // tile reads as a "range", not a single trend direction, so neither the
+  // highest nor lowest arrow alone fits.
+  range: "M13,9V15H16L12,19L8,15H11V9H8L12,5L16,9H13M4,2H20V4H4V2M4,20H20V22H4V20Z",
 };
 
 const DEFAULT_LABELS = {
@@ -48,7 +53,10 @@ const DEFAULT_LABELS = {
   highest: "Highest",
   lowest: "Lowest",
   average: "Average",
+  range: "Highest / Lowest",
 };
+
+const STATS = ["total", "highest", "lowest", "average", "range"];
 
 // Card-shell.js's shared CHART_CARD_STYLES targets the chart cards'
 // header/total/tooltip/legend rules, none of which this card uses — its
@@ -144,8 +152,8 @@ const STAT_CARD_STYLES = `
 class EnergyCostStatCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
-    if (!["total", "highest", "lowest", "average"].includes(this._config.stat)) {
-      throw new Error('energy-cost-stat-card: "stat" must be one of total, highest, lowest, average');
+    if (!STATS.includes(this._config.stat)) {
+      throw new Error(`energy-cost-stat-card: "stat" must be one of ${STATS.join(", ")}`);
     }
 
     if (!this.shadowRoot) {
@@ -255,26 +263,65 @@ class EnergyCostStatCard extends HTMLElement {
     // number has no such need). Same real-buckets-only set the old,
     // removed breakdown-card average used (captured before its own
     // tail-padding step) — see 29a576d.
-    const values = [...deltaByBucketStart.values()];
-    if (!values.length) {
+    const entries = [...deltaByBucketStart.entries()]; // [bucketStartMs, cost][]
+    if (!entries.length) {
       this._primaryEl.textContent = "";
       this._secondaryEl.hidden = false;
       this._secondaryEl.textContent = "No data yet for this period";
       return;
     }
 
-    let value;
-    if (this._config.stat === "highest") {
-      value = Math.max(...values);
-    } else if (this._config.stat === "lowest") {
-      value = Math.min(...values);
-    } else {
-      value = values.reduce((sum, v) => sum + v, 0) / values.length;
+    if (this._config.stat === "average") {
+      const values = entries.map(([, v]) => v);
+      const value = values.reduce((sum, v) => sum + v, 0) / values.length;
+      this._primaryEl.textContent = this._formatCurrency(value);
+      this._secondaryEl.hidden = !!this._config.title;
+      this._secondaryEl.textContent = this._config.title ? "" : DEFAULT_LABELS.average;
+      return;
     }
 
-    this._primaryEl.textContent = this._formatCurrency(value);
-    this._secondaryEl.hidden = !!this._config.title;
-    this._secondaryEl.textContent = this._config.title ? "" : DEFAULT_LABELS[this._config.stat];
+    // Track which bucket produced the extreme value, not just the value
+    // itself — a bare "R 46.57" with no indication of *when* isn't
+    // actionable. reduce() rather than Math.max/min(...values) since we
+    // need the whole [x, y] pair, not just y.
+    const maxEntry = entries.reduce((best, e) => (e[1] > best[1] ? e : best));
+    const minEntry = entries.reduce((best, e) => (e[1] < best[1] ? e : best));
+
+    if (this._config.stat === "highest" || this._config.stat === "lowest") {
+      const [x, y] = this._config.stat === "highest" ? maxEntry : minEntry;
+      const dateStr = this._formatBucketDate(x, data);
+      this._primaryEl.textContent = this._formatCurrency(y);
+      // Unlike average/total, the secondary line here carries real
+      // information (when this happened), not just a redundant repeat of
+      // the stat's name — so it stays visible even when a title is set,
+      // dropping only the now-redundant label prefix.
+      this._secondaryEl.hidden = false;
+      this._secondaryEl.textContent = this._config.title
+        ? dateStr
+        : `${DEFAULT_LABELS[this._config.stat]} · ${dateStr}`;
+      return;
+    }
+
+    // "range": both extremes in one tile, per the user's own suggestion to
+    // merge the highest/lowest cards rather than needing two side by side.
+    // Additive, not a replacement — "highest"/"lowest" above still work
+    // standalone for anyone who'd rather keep them separate.
+    const maxDateStr = this._formatBucketDate(maxEntry[0], data);
+    const minDateStr = this._formatBucketDate(minEntry[0], data);
+    this._primaryEl.textContent = `${this._formatCurrency(maxEntry[1])} – ${this._formatCurrency(minEntry[1])}`;
+    this._secondaryEl.hidden = false;
+    this._secondaryEl.textContent = `Highest ${maxDateStr} · Lowest ${minDateStr}`;
+  }
+
+  // Same date-formatting cascade the chart cards' axis labels use (a real
+  // port of HA's own formatTimeLabel(), see format.js), driven by the
+  // currently selected period's span so a "Today" view reads as an hour
+  // and a "This year" view reads as a month, matching how the charts
+  // already format the same kind of timestamp elsewhere on the dashboard.
+  _formatBucketDate(timestampMs, data) {
+    const locale = this._hass?.locale?.language;
+    const spanMs = data.start && data.end ? data.end.getTime() - data.start.getTime() : 0;
+    return formatTimeForSpan(timestampMs, locale, spanMs, haStyleTimeTiers());
   }
 
   // Same running-total + projection math energy-cost-card.js's chart
@@ -313,5 +360,5 @@ window.customCards.push({
   type: "energy-cost-stat-card",
   name: "Energy Cost Stat",
   description:
-    "A single grid-cost number (current total, projected, highest, lowest, or average per bucket) for the Energy dashboard's currently selected period. Set `stat:` to total, highest, lowest, or average.",
+    "A grid-cost number (current total + projected, highest, lowest, average per bucket, or highest+lowest combined) for the Energy dashboard's currently selected period. Set `stat:` to total, highest, lowest, average, or range.",
 });
