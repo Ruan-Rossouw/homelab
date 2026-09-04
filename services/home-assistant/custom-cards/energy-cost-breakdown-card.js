@@ -77,6 +77,61 @@
     border-radius: 4px;
     cursor: pointer;
   }
+  /* Togglable series legend \u2014 matches ha-chart-base.ts's real chart-legend
+     markup (a plain <ul><li><button> HTML legend, not an ECharts canvas
+     one): mdiCheckCircle/mdiCircleOutline toggle icon, secondary-text-color
+     on a hidden item, opacity-0.5 hover, larger touch targets on coarse
+     pointers. Simplified from HA's version (no overflow/expand chip, no
+     more-info-clickable label) since this card only ever has 1-2 series. */
+  .legend {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: var(--ha-space-2, 8px);
+    font-family: Roboto, Noto, sans-serif;
+    font-size: var(--ha-font-size-s, 12px);
+    color: var(--primary-text-color);
+    flex: none;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+  }
+  .legend-item.hidden {
+    color: var(--secondary-text-color);
+  }
+  .legend-toggle {
+    background: none;
+    border: none;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 4px;
+    margin: -4px;
+  }
+  .legend-toggle:hover {
+    opacity: 0.5;
+  }
+  .legend-label {
+    cursor: default;
+  }
+  @media (pointer: coarse) {
+    .legend-item {
+      height: 40px;
+    }
+    .legend-toggle {
+      padding: 11px;
+      margin: 0;
+    }
+  }
 `;
 
   // src/lib/energy-collection.js
@@ -154,7 +209,7 @@
     } catch {
       number = value.toFixed(compact ? 0 : 2);
     }
-    return `${symbol} ${number}`;
+    return symbol ? `${symbol} ${number}` : number;
   }
   function formatTimeForSpan(timestamp, locale, spanMs, tiers) {
     const date = new Date(timestamp);
@@ -167,7 +222,7 @@
   }
 
   // src/lib/svg-chart.js
-  var CHART_PADDING = { left: 56, right: 12, top: 10, bottom: 24 };
+  var CHART_PADDING = { left: 56, right: 12, top: 14, bottom: 24 };
   var DRAG_ZOOM_THRESHOLD_PX = 8;
   function measureChartBox(chartEl) {
     const width = chartEl.clientWidth || 600;
@@ -188,15 +243,17 @@
     observer.observe(chartEl);
     return observer;
   }
-  function renderYGridlines({ domainMaxY, tickSpacing, scaleY, padLeft, width, padRight, formatValue }) {
+  function renderYGridlines({ domainMaxY, tickSpacing, scaleY, padLeft, width, padRight, formatValue, axisName }) {
     const tickCount = Math.round(domainMaxY / tickSpacing);
-    return Array.from({ length: tickCount + 1 }, (_, i) => i * tickSpacing).map((v) => {
+    const gridlines = Array.from({ length: tickCount + 1 }, (_, i) => i * tickSpacing).map((v) => {
       const y = scaleY(v).toFixed(1);
       return `
         <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="var(--divider-color)" stroke-width="1"></line>
         <text x="${padLeft - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="axis-label">${formatValue(v)}</text>
       `;
     }).join("");
+    const nameLabel = axisName ? `<text x="${padLeft}" y="${(scaleY(domainMaxY) - 2).toFixed(1)}" text-anchor="start" class="axis-label">${axisName}</text>` : "";
+    return gridlines + nameLabel;
   }
   function renderXGridlines({ tickXs, padTop, padBottom, height }) {
     const y2 = (height - padBottom).toFixed(1);
@@ -281,7 +338,8 @@
       const firstRender = !this._headerEl;
       this._headerEl = this.shadowRoot.querySelector(".header");
       this._chartEl = this.shadowRoot.querySelector(".chart");
-      this._headerEl.textContent = this._config.title || "Grid Cost by Period";
+      this._headerEl.hidden = !this._config.title;
+      this._headerEl.textContent = this._config.title || "";
       if (firstRender) {
         this._pointerPin = createPointerPin();
         this._zoomRange = null;
@@ -373,20 +431,41 @@
         compact
       });
     }
-    // Three tiers instead of energy-cost-card.js's two: this chart can span
+    // Four tiers instead of energy-cost-card.js's three: this chart can span
     // a full year of monthly buckets, where a day-of-month label (e.g. "Aug
     // 1" repeated on every bucket) reads oddly — drop the day and show
     // "MMM 'YY" once buckets are month-sized, matching the original
     // apexcharts card's month labels ("Sep '25", "Dec '25", ...).
+    //
+    // The weekday-only tier (2-7 day span) is verified against HA's own
+    // axis-label logic, not a guess: ha-chart-base.ts's _formatTimeLabel ->
+    // components/chart/axis-label.ts's formatTimeLabel() picks
+    // formatDateWeekdayShort (== Intl.DateTimeFormat(locale, {weekday:
+    // "short"})) whenever the *visible axis span* is >2 and <=7 days — based
+    // on the currently-rendered span (ha-chart-base multiplies by its zoom
+    // ratio), matching this._chartBounds already being derived from
+    // renderBuckets (the zoomed subset when zoomed), not the full period.
     _formatTime(timestamp) {
       const locale = this._hass?.locale?.language;
       const spanMs = this._chartBounds ? this._chartBounds.dataMaxX - this._chartBounds.dataMinX : 0;
       const dayMs = 24 * 60 * 60 * 1e3;
       return formatTimeForSpan(timestamp, locale, spanMs, [
         { maxSpanMs: 2 * dayMs, options: { hour: "2-digit", minute: "2-digit" } },
+        { maxSpanMs: 7 * dayMs + 1, options: { weekday: "short" } },
         { maxSpanMs: 60 * dayMs, options: { month: "short", day: "numeric" } },
         { options: { month: "short", year: "2-digit" } }
       ]);
+    }
+    // Bare number for the y-axis's per-tick labels (no currency symbol) — the
+    // unit is shown once instead, via renderYGridlines' axisName. See
+    // format.js's formatCurrency: an empty symbol drops the unit/leading
+    // space entirely.
+    _formatCompactNumber(value) {
+      return formatCurrency(value, {
+        symbol: "",
+        locale: this._hass?.locale?.language,
+        compact: true
+      });
     }
     _renderChart(buckets, periodStartMs, periodEndMs) {
       this._buckets = buckets;
@@ -458,7 +537,8 @@
         padLeft,
         width,
         padRight,
-        formatValue: (v) => this._formatCurrency(v, true)
+        formatValue: (v) => this._formatCompactNumber(v),
+        axisName: this._config.currency_symbol || "R"
       });
       const tickStartMs = this._zoomRange ? this._zoomRange.startMs : periodStartMs ?? dataMinX;
       const tickEndMs = this._zoomRange ? this._zoomRange.endMs : periodEndMs ?? dataMaxX;
@@ -480,7 +560,7 @@
         ${bars}
         ${xTicks}
         <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
-        <rect class="hover-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
+        <circle class="scrub-handle" r="10" fill="var(--primary-color)" visibility="hidden"></circle>
         <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
       <div class="tooltip" hidden></div>
@@ -488,7 +568,7 @@
     `;
       this._svgEl = this._chartEl.querySelector("svg");
       this._hoverLine = this._chartEl.querySelector(".hover-line");
-      this._hoverRect = this._chartEl.querySelector(".hover-rect");
+      this._scrubHandle = this._chartEl.querySelector(".scrub-handle");
       this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
       this._tooltipEl = this._chartEl.querySelector(".tooltip");
       this._resetEl = this._chartEl.querySelector(".zoom-reset");
@@ -514,7 +594,7 @@
       this._dragging = true;
       this._chartEl.setPointerCapture(e.pointerId);
       if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
-      if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
+      if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
       if (this._tooltipEl) this._tooltipEl.hidden = true;
     }
     _onPointerMove(e) {
@@ -526,7 +606,7 @@
         return;
       }
       const rect = this._svgEl.getBoundingClientRect();
-      const { width, height, plotLeft, slotWidth, padTop, padBottom, barWidth } = this._chartBounds;
+      const { width, height, padBottom } = this._chartBounds;
       const relX = (e.clientX - rect.left) / rect.width;
       const viewBoxX = relX * width;
       const index = this._indexForViewBoxX(viewBoxX);
@@ -538,11 +618,15 @@
         this._hoverLine.setAttribute("x2", cx.toFixed(1));
         this._hoverLine.setAttribute("visibility", "visible");
       }
-      this._hoverRect.setAttribute("x", (cx - barWidth / 2).toFixed(1));
-      this._hoverRect.setAttribute("y", padTop);
-      this._hoverRect.setAttribute("width", barWidth.toFixed(1));
-      this._hoverRect.setAttribute("height", (height - padBottom - padTop).toFixed(1));
-      this._hoverRect.setAttribute("visibility", "visible");
+      if (this._scrubHandle) {
+        if (e.pointerType === "touch") {
+          this._scrubHandle.setAttribute("cx", cx.toFixed(1));
+          this._scrubHandle.setAttribute("cy", (height - padBottom).toFixed(1));
+          this._scrubHandle.setAttribute("visibility", "visible");
+        } else {
+          this._scrubHandle.setAttribute("visibility", "hidden");
+        }
+      }
       this._tooltipEl.hidden = false;
       this._tooltipEl.innerHTML = `
       <div class="tooltip-header">${this._formatTime(bucket.x)}</div>
@@ -614,7 +698,7 @@
       }
       this._pointerPin.clear();
       if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
-      if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
+      if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
       if (this._tooltipEl) this._tooltipEl.hidden = true;
     }
     // Slot index (nearest visible bucket) for a viewBox-space x coordinate —

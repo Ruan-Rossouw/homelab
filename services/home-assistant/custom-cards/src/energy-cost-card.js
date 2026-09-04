@@ -36,6 +36,16 @@ import {
 import { selectEvenTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs, snapToStep } from "./lib/tick-labels.js";
 import { createPointerPin } from "./lib/pointer-interaction.js";
 
+// mdiCheckCircle / mdiCircleOutline path data, verbatim from @mdi/js —
+// matches the exact icons ha-chart-base.ts's real chart-legend toggle uses
+// for a visible/hidden dataset. Inlined as raw path data (no ha-svg-icon
+// dependency) to stay consistent with this codebase's hand-rolled-SVG,
+// dependency-free approach.
+const CHECK_CIRCLE_PATH =
+  "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z";
+const CIRCLE_OUTLINE_PATH =
+  "M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z";
+
 class EnergyCostCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
@@ -57,6 +67,7 @@ class EnergyCostCard extends HTMLElement {
           <div class="total"></div>
           <div class="projected" hidden></div>
           <div class="chart"></div>
+          <ul class="legend"></ul>
         </ha-card>
       `;
     }
@@ -73,11 +84,17 @@ class EnergyCostCard extends HTMLElement {
     // fallback string, so match that instead of forcing one here.
     this._headerEl.hidden = !this._config.title;
     this._headerEl.textContent = this._config.title || "";
+    this._legendEl = this.shadowRoot.querySelector(".legend");
 
     if (firstRender) {
       this._pointerPin = createPointerPin();
       this._zoomRange = null;
       this._dragging = false;
+      this._hiddenSeries = new Set();
+      this._legendEl.addEventListener("click", (e) => {
+        const target = e.target.closest("[data-series]");
+        if (target) this._toggleSeries(target.dataset.series);
+      });
       this._chartEl.addEventListener("pointerdown", (e) => this._onPointerDown(e));
       this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
       this._chartEl.addEventListener("pointerup", (e) => this._onPointerUp(e));
@@ -319,18 +336,28 @@ class EnergyCostCard extends HTMLElement {
     // rescales to just what's visible in it — matching HA's confirmed
     // dataZoom filterMode behavior (ha-chart-base.ts) rather than keeping
     // the full-range max while zoomed in on a small slice of it.
+    // A series toggled off via the legend still counts for the plotted
+    // domain/ticks (matches HA: hiding a dataset never changes the chart's
+    // x-axis) — it only drops out of the Y-axis max and the drawn markup
+    // below.
+    const showActual = !this._hiddenSeries.has("actual");
+    const showProjected = !this._hiddenSeries.has("projected");
+
     let domainMinX, domainMaxX, yMaxWithProjection, tickRangeStartMs, tickRangeEndMs;
     if (this._zoomRange) {
       domainMinX = this._zoomRange.startMs;
       domainMaxX = this._zoomRange.endMs;
-      const visiblePoints = series.filter((p) => p.x >= domainMinX && p.x <= domainMaxX);
-      const yCandidates = (visiblePoints.length ? visiblePoints : series).map((p) => p.y);
+      const yCandidates = [];
+      if (showActual) {
+        const visiblePoints = series.filter((p) => p.x >= domainMinX && p.x <= domainMaxX);
+        yCandidates.push(...(visiblePoints.length ? visiblePoints : series).map((p) => p.y));
+      }
       // Only let the projection influence the zoomed Y-max if its endpoint
       // actually falls inside the zoomed window — otherwise an off-screen
       // projected total (hidden by the clip-path below anyway) would
       // needlessly stretch the axis of a zoomed-in view, working against
       // the point of zooming in for a closer look.
-      if (projection && projection.endMs >= domainMinX && projection.endMs <= domainMaxX) {
+      if (showProjected && projection && projection.endMs >= domainMinX && projection.endMs <= domainMaxX) {
         yCandidates.push(projection.total);
       }
       yMaxWithProjection = Math.max(...yCandidates, 0.0001);
@@ -339,7 +366,10 @@ class EnergyCostCard extends HTMLElement {
     } else {
       domainMinX = dataMinX;
       domainMaxX = projection ? projection.endMs : dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
-      yMaxWithProjection = projection ? Math.max(dataMaxY, projection.total) : dataMaxY;
+      const yCandidates = [];
+      if (showActual) yCandidates.push(dataMaxY);
+      if (showProjected && projection) yCandidates.push(projection.total);
+      yMaxWithProjection = Math.max(...yCandidates, 0.0001);
       tickRangeStartMs = domainMinX;
       tickRangeEndMs = projection ? projection.endMs : dataMaxX;
     }
@@ -383,7 +413,7 @@ class EnergyCostCard extends HTMLElement {
     // "now" on the actual series too, so days where the actual (blue)
     // line runs above it spent faster than the projected average pace,
     // and below it spent slower — the point of drawing it full-span.
-    const projectionLine = projection
+    const projectionLine = projection && showProjected
       ? `<polyline points="${scaleX(periodStartMs ?? dataMinX).toFixed(1)},${scaleY(0).toFixed(1)} ${scaleX(
           projection.endMs
         ).toFixed(1)},${scaleY(projection.total).toFixed(1)}" fill="none" stroke="var(--warning-color)" stroke-width="1.5" stroke-dasharray="6,8"></polyline>`
@@ -494,8 +524,12 @@ class EnergyCostCard extends HTMLElement {
         ${yGridlines}
         ${xGridlines}
         <g clip-path="url(#plot-clip)">
-          <polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
-          <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
+          ${
+            showActual
+              ? `<polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
+          <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>`
+              : ""
+          }
           ${projectionLine}
         </g>
         ${xTicks}
@@ -516,6 +550,59 @@ class EnergyCostCard extends HTMLElement {
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
     this._resetEl = this._chartEl.querySelector(".zoom-reset");
     this._resetEl.addEventListener("click", () => this._clearZoom());
+    this._renderLegend();
+  }
+
+  // Plain HTML legend (matches ha-chart-base.ts's real chart-legend, which
+  // is itself a <ul><li><button> template, not an ECharts canvas legend —
+  // verified against current source before implementing). "Projected" only
+  // appears once a projection actually exists for the current period.
+  _renderLegend() {
+    const items = [{ id: "actual", label: "Grid Cost", color: "var(--primary-color)" }];
+    if (this._projection) {
+      items.push({ id: "projected", label: "Projected", color: "var(--warning-color)" });
+    }
+    this._legendEl.innerHTML = items
+      .map((item) => {
+        const isHidden = this._hiddenSeries.has(item.id);
+        const iconPath = isHidden ? CIRCLE_OUTLINE_PATH : CHECK_CIRCLE_PATH;
+        return `
+          <li class="legend-item${isHidden ? " hidden" : ""}">
+            <button type="button" class="legend-toggle" data-series="${item.id}" aria-pressed="${!isHidden}" title="Toggle visibility">
+              <svg viewBox="0 0 24 24" width="18" height="18" style="${isHidden ? "" : `color:${item.color}`}"><path fill="currentColor" d="${iconPath}"></path></svg>
+            </button>
+            <span class="legend-label" data-series="${item.id}">${item.label}</span>
+          </li>
+        `;
+      })
+      .join("");
+  }
+
+  _toggleSeries(id) {
+    if (this._hiddenSeries.has(id)) {
+      this._hiddenSeries.delete(id);
+    } else {
+      this._hiddenSeries.add(id);
+    }
+    if (this._series) {
+      this._renderChart(this._series, this._projection, this._periodStartMs);
+    } else {
+      this._renderLegend();
+    }
+  }
+
+  // Linear interpolation along the same reference line _renderChart draws
+  // as the dashed projection (period start, R0 → projection.endMs,
+  // projection.total) — lets the tooltip report the projected-pace value
+  // at any hovered x, not just the discrete real-data points nearest.x
+  // already covers.
+  _projectedValueAt(x) {
+    if (!this._projection || !this._chartBounds) return null;
+    const startX = this._periodStartMs ?? this._chartBounds.dataMinX;
+    const endX = this._projection.endMs;
+    if (endX === startX) return this._projection.total;
+    const t = (x - startX) / (endX - startX);
+    return t * this._projection.total;
   }
 
   // Touch: pin the tap so the overlay/tooltip survives finger-lift (see
@@ -553,25 +640,61 @@ class EnergyCostCard extends HTMLElement {
       return;
     }
 
+    const showActual = !this._hiddenSeries.has("actual");
+    const showProjected = !this._hiddenSeries.has("projected") && this._projection != null;
+    if (!showActual && !showProjected) {
+      this._onPointerLeave(e);
+      return;
+    }
+
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, height, padBottom } = this._chartBounds;
+    const { width, height, padBottom, dataMaxX, domainMaxX } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
-    const targetX = this._viewBoxXToMs(viewBoxX);
+    const targetX = Math.min(this._viewBoxXToMs(viewBoxX), domainMaxX);
+    // Past the last real bucket, there's no discrete point to snap to —
+    // only the continuous projection reference line (if shown) has a
+    // value there.
+    const beyondRealData = targetX > dataMaxX;
 
-    let nearest = this._series[0];
-    let nearestDist = Infinity;
-    for (const point of this._series) {
-      const dist = Math.abs(point.x - targetX);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearest = point;
+    let px, py, headerX, rows;
+
+    if (showActual && !beyondRealData) {
+      let nearest = this._series[0];
+      let nearestDist = Infinity;
+      for (const point of this._series) {
+        const dist = Math.abs(point.x - targetX);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = point;
+        }
       }
+      px = this._scaleX(nearest.x);
+      py = this._scaleY(nearest.y);
+      headerX = nearest.x;
+      rows = `<div class="tooltip-row"><span class="tooltip-dot" style="background:var(--primary-color)"></span>Grid Cost: ${this._formatCurrency(nearest.y)}</div>`;
+      if (showProjected && nearest.x <= this._projection.endMs) {
+        rows += `<div class="tooltip-row"><span class="tooltip-dot" style="background:var(--warning-color)"></span>Projected: ${this._formatCurrency(this._projectedValueAt(nearest.x))}</div>`;
+      }
+    } else if (showProjected) {
+      // Follow the cursor continuously along the projection line instead
+      // of snapping to a discrete point — it's the one series here that
+      // isn't discrete samples, matching the reference line _renderChart
+      // draws across the whole period.
+      const startX = this._periodStartMs ?? this._chartBounds.dataMinX;
+      const clampedX = Math.max(startX, Math.min(targetX, this._projection.endMs));
+      const projY = this._projectedValueAt(clampedX);
+      px = this._scaleX(clampedX);
+      py = this._scaleY(projY);
+      headerX = clampedX;
+      rows = `<div class="tooltip-row"><span class="tooltip-dot" style="background:var(--warning-color)"></span>Projected: ${this._formatCurrency(projY)}</div>`;
+    } else {
+      // Only "actual" is visible and we're past its real data with no
+      // projection to show there — nothing meaningful to point at.
+      this._onPointerLeave(e);
+      return;
     }
-
-    const px = this._scaleX(nearest.x);
-    const py = this._scaleY(nearest.y);
 
     this._hoverLine.setAttribute("x1", px);
     this._hoverLine.setAttribute("x2", px);
@@ -591,16 +714,14 @@ class EnergyCostCard extends HTMLElement {
       }
     }
 
-    // Bold date header + a colored-dot value row — matches the shape of
-    // HA's own tooltip (energy-chart-options.ts formatTooltip: bold <h4>
-    // period header, one <ha-chart-tooltip-marker>-prefixed row per
-    // series), adapted for this card's single series (no "Total" row,
-    // since HA's own total line only appears when there's more than one
-    // series to sum).
+    // Bold date header + a colored-dot value row per visible series —
+    // matches the shape of HA's own tooltip (energy-chart-options.ts
+    // formatTooltip: bold <h4> period header, one
+    // <ha-chart-tooltip-marker>-prefixed "Label: value" row per series).
     this._tooltipEl.hidden = false;
     this._tooltipEl.innerHTML = `
-      <div class="tooltip-header">${this._formatTime(nearest.x)}</div>
-      <div class="tooltip-row"><span class="tooltip-dot" style="background:var(--primary-color)"></span>${this._formatCurrency(nearest.y)}</div>
+      <div class="tooltip-header">${this._formatTime(headerX)}</div>
+      ${rows}
     `;
     this._tooltipEl.style.left = `${(px / width) * rect.width}px`;
     this._tooltipEl.style.top = `${(py / height) * rect.height}px`;
