@@ -353,7 +353,22 @@ class EnergyCostBreakdownCard extends HTMLElement {
     // position — matches HA's own axisPointer (ha-chart-base.ts theme:
     // `lineStyle: { color: --info-color }`, dashed by ECharts' own
     // axisPointer default), and gives the tooltip a visible anchor to the
-    // selected bar instead of floating disconnected above it.
+    // selected bar instead of floating disconnected above it. No
+    // background-highlight rect on the hovered bar — verified HA's own
+    // charts don't draw one either, only the crosshair + tooltip.
+    //
+    // .scrub-handle is the small draggable nub HA shows on touch devices at
+    // the axis-pointer's x position while the tooltip is pinned — verified
+    // against ha-chart-base.ts's "show axis pointer handle on touch
+    // devices" block (axisPointer.handle: { color: --primary-color, margin:
+    // 0, size: 20 }, shown on the chart's "showTip" event, hidden on a real
+    // "hideTip"). ECharts' actual handle icon is a custom pin/diamond
+    // shape from its own bundled asset — approximated here as a plain
+    // filled circle at the same color/size/position, since replicating the
+    // exact icon path would mean pulling in ECharts itself, which this
+    // codebase deliberately doesn't depend on. The underlying scrub-by-drag
+    // behavior already works via the existing touch pointermove handling
+    // below — this is purely the visual affordance that was missing.
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         ${yGridlines}
@@ -361,7 +376,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
         ${bars}
         ${xTicks}
         <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
-        <rect class="hover-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
+        <circle class="scrub-handle" r="10" fill="var(--primary-color)" visibility="hidden"></circle>
         <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
       <div class="tooltip" hidden></div>
@@ -370,7 +385,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
 
     this._svgEl = this._chartEl.querySelector("svg");
     this._hoverLine = this._chartEl.querySelector(".hover-line");
-    this._hoverRect = this._chartEl.querySelector(".hover-rect");
+    this._scrubHandle = this._chartEl.querySelector(".scrub-handle");
     this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
     this._resetEl = this._chartEl.querySelector(".zoom-reset");
@@ -397,7 +412,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
     this._dragging = true;
     this._chartEl.setPointerCapture(e.pointerId);
     if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
-    if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
+    if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
@@ -412,8 +427,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
     }
 
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, height, plotLeft, slotWidth, padTop, padBottom, barWidth } =
-      this._chartBounds;
+    const { width, height, padBottom } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
@@ -428,11 +442,17 @@ class EnergyCostBreakdownCard extends HTMLElement {
       this._hoverLine.setAttribute("x2", cx.toFixed(1));
       this._hoverLine.setAttribute("visibility", "visible");
     }
-    this._hoverRect.setAttribute("x", (cx - barWidth / 2).toFixed(1));
-    this._hoverRect.setAttribute("y", padTop);
-    this._hoverRect.setAttribute("width", barWidth.toFixed(1));
-    this._hoverRect.setAttribute("height", (height - padBottom - padTop).toFixed(1));
-    this._hoverRect.setAttribute("visibility", "visible");
+    // Touch only — matches HA's own axisPointer.handle, gated behind
+    // _isTouchDevice in ha-chart-base.ts, never shown for mouse/pen.
+    if (this._scrubHandle) {
+      if (e.pointerType === "touch") {
+        this._scrubHandle.setAttribute("cx", cx.toFixed(1));
+        this._scrubHandle.setAttribute("cy", (height - padBottom).toFixed(1));
+        this._scrubHandle.setAttribute("visibility", "visible");
+      } else {
+        this._scrubHandle.setAttribute("visibility", "hidden");
+      }
+    }
 
     // Bold date header + a colored-dot value row — matches the shape of
     // HA's own tooltip (energy-chart-options.ts formatTooltip: bold <h4>
@@ -522,7 +542,7 @@ class EnergyCostBreakdownCard extends HTMLElement {
     }
     this._pointerPin.clear();
     if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
-    if (this._hoverRect) this._hoverRect.setAttribute("visibility", "hidden");
+    if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
