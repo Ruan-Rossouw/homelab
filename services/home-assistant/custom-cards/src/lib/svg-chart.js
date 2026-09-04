@@ -7,7 +7,51 @@
 // renderYGridlines' axisName) that now sits just above the topmost
 // gridline, matching HA's own grid.top: 15 (energy-chart-options.ts
 // getCommonOptions) rather than the plot area running edge-to-edge.
-export const CHART_PADDING = { left: 56, right: 12, top: 14, bottom: 24 };
+//
+// No `left` here — unlike the other three sides, the left margin has to
+// fit whatever the y-axis's actual tick labels currently need (a "1.5K"
+// max is wider than a "40" max), so it's computed per-render by
+// computeYAxisLeftPadding below instead of reserved as a flat constant.
+// See that function's comment for why a fixed value was wrong.
+export const CHART_PADDING = { right: 12, top: 14, bottom: 24 };
+
+// Font used to measure y-axis label width — matches card-shell.js's
+// .axis-label rule (Roboto/Noto, HA's --ha-font-size-s var). Canvas
+// measureText can't read a CSS custom property, so this hardcodes that
+// var's fallback value (12px), which is also what it resolves to in HA's
+// default theme — a deliberate fixed-value approximation for sizing
+// purposes, not pixel-perfect under every possible theme override.
+const AXIS_LABEL_FONT = "12px Roboto, Noto, sans-serif";
+
+let _measureCtx;
+export function measureTextWidth(text, font = AXIS_LABEL_FONT) {
+  if (!_measureCtx) {
+    _measureCtx = document.createElement("canvas").getContext("2d");
+  }
+  _measureCtx.font = font;
+  return _measureCtx.measureText(text).width;
+}
+
+// Sizes the left margin to whatever the y-axis's actual tick labels need
+// for the current render, instead of a flat generous reservation that
+// wastes space when the labels are short (a "40"/"R 40" case) and could in
+// principle clip when they're long. Matches HA's real behavior: its chart
+// grid uses ECharts' `containLabel: true` (confirmed via
+// energy-chart-options.ts's getCommonOptions: `grid: { top: 15, bottom: 0,
+// left: 1, right: 1, containLabel: true }`), which auto-fits the plot area
+// to the actual rendered label widths rather than reserving fixed space
+// regardless of content — the flat 56px this replaced was the "wasted left
+// space on mobile" the user reported.
+export function computeYAxisLeftPadding({ domainMaxY, tickSpacing, formatValue, minPadding = 24 }) {
+  const tickCount = Math.round(domainMaxY / tickSpacing);
+  const widths = Array.from({ length: tickCount + 1 }, (_, i) => measureTextWidth(formatValue(i * tickSpacing)));
+  // +6 matches renderYGridlines' existing 6px gap between a label's right
+  // edge and the gridline (`x="${padLeft - 6}"`); +2 more so text doesn't
+  // sit flush against the card's own edge. HA's own containLabel margin is
+  // tighter still (`left: 1`), but that's ECharts sizing its own rendered
+  // label element exactly — this is a hand-measured estimate, not that.
+  return Math.max(minPadding, Math.ceil(Math.max(...widths, 0)) + 8);
+}
 
 // Screen-space pixel threshold a mouse drag must clear before it commits to
 // a zoom range rather than being treated as a plain click — shared so both

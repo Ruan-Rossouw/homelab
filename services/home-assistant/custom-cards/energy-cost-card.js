@@ -247,7 +247,21 @@
   }
 
   // src/lib/svg-chart.js
-  var CHART_PADDING = { left: 56, right: 12, top: 14, bottom: 24 };
+  var CHART_PADDING = { right: 12, top: 14, bottom: 24 };
+  var AXIS_LABEL_FONT = "12px Roboto, Noto, sans-serif";
+  var _measureCtx;
+  function measureTextWidth(text, font = AXIS_LABEL_FONT) {
+    if (!_measureCtx) {
+      _measureCtx = document.createElement("canvas").getContext("2d");
+    }
+    _measureCtx.font = font;
+    return _measureCtx.measureText(text).width;
+  }
+  function computeYAxisLeftPadding({ domainMaxY, tickSpacing, formatValue, minPadding = 24 }) {
+    const tickCount = Math.round(domainMaxY / tickSpacing);
+    const widths = Array.from({ length: tickCount + 1 }, (_, i) => measureTextWidth(formatValue(i * tickSpacing)));
+    return Math.max(minPadding, Math.ceil(Math.max(...widths, 0)) + 8);
+  }
   var DRAG_ZOOM_THRESHOLD_PX = 8;
   function measureChartBox(chartEl) {
     const width = chartEl.clientWidth || 600;
@@ -571,7 +585,7 @@
         return;
       }
       const { width, height } = measureChartBox(this._chartEl);
-      const { left: padLeft, right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
+      const { right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
       const xs = series.map((p) => p.x);
       const dataMinX = Math.min(...xs);
       const dataMaxX = Math.max(...xs);
@@ -604,6 +618,11 @@
         tickRangeEndMs = projection ? projection.endMs : dataMaxX;
       }
       const { axisMax: domainMaxY, tickSpacing } = niceAxisScale(yMaxWithProjection, 5);
+      const padLeft = computeYAxisLeftPadding({
+        domainMaxY,
+        tickSpacing,
+        formatValue: (v) => this._formatCompactNumber(v)
+      });
       const scaleX = (x) => padLeft + (x - domainMinX) / (domainMaxX - domainMinX || 1) * (width - padLeft - padRight);
       const scaleY = (y) => height - padBottom - y / domainMaxY * (height - padTop - padBottom);
       this._scaleX = scaleX;

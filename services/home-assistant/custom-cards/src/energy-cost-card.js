@@ -27,6 +27,7 @@ import { niceAxisScale } from "./lib/nice-axis.js";
 import { formatCurrency, formatTimeForSpan, haStyleTimeTiers } from "./lib/format.js";
 import {
   CHART_PADDING,
+  computeYAxisLeftPadding,
   measureChartBox,
   observeChartResize,
   renderYGridlines,
@@ -327,7 +328,7 @@ class EnergyCostCard extends HTMLElement {
     }
 
     const { width, height } = measureChartBox(this._chartEl);
-    const { left: padLeft, right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
+    const { right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
 
     const xs = series.map((p) => p.x);
     const dataMinX = Math.min(...xs);
@@ -379,6 +380,14 @@ class EnergyCostCard extends HTMLElement {
       tickRangeEndMs = projection ? projection.endMs : dataMaxX;
     }
     const { axisMax: domainMaxY, tickSpacing } = niceAxisScale(yMaxWithProjection, 5);
+    // Sized to this render's actual tick labels (see computeYAxisLeftPadding
+    // for why — matches HA's real containLabel: true behavior instead of a
+    // flat reservation that wastes space when labels are short).
+    const padLeft = computeYAxisLeftPadding({
+      domainMaxY,
+      tickSpacing,
+      formatValue: (v) => this._formatCompactNumber(v),
+    });
 
     const scaleX = (x) =>
       padLeft +
