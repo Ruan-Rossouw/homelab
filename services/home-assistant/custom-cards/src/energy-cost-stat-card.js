@@ -308,9 +308,14 @@ class EnergyCostStatCard extends HTMLElement {
     // standalone for anyone who'd rather keep them separate.
     const maxDateStr = this._formatBucketDate(maxEntry[0], data);
     const minDateStr = this._formatBucketDate(minEntry[0], data);
-    this._primaryEl.textContent = `${this._formatCurrency(maxEntry[1])} – ${this._formatCurrency(minEntry[1])}`;
+    // Lowest first, then highest — reads as an ascending range rather than
+    // a "biggest number first" framing, per the user's own preference.
+    // Extra spacing around the dash (vs. a single space either side) gives
+    // the two values visual breathing room instead of reading as one
+    // cramped run of text.
+    this._primaryEl.textContent = `${this._formatCurrency(minEntry[1])}   –   ${this._formatCurrency(maxEntry[1])}`;
     this._secondaryEl.hidden = false;
-    this._secondaryEl.textContent = `Highest ${maxDateStr} · Lowest ${minDateStr}`;
+    this._secondaryEl.textContent = `Lowest ${minDateStr} · Highest ${maxDateStr}`;
   }
 
   // Same date-formatting cascade the chart cards' axis labels use (a real

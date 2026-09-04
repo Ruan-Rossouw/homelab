@@ -327,9 +327,9 @@
       }
       const maxDateStr = this._formatBucketDate(maxEntry[0], data);
       const minDateStr = this._formatBucketDate(minEntry[0], data);
-      this._primaryEl.textContent = `${this._formatCurrency(maxEntry[1])} \u2013 ${this._formatCurrency(minEntry[1])}`;
+      this._primaryEl.textContent = `${this._formatCurrency(minEntry[1])}   \u2013   ${this._formatCurrency(maxEntry[1])}`;
       this._secondaryEl.hidden = false;
-      this._secondaryEl.textContent = `Highest ${maxDateStr} \xB7 Lowest ${minDateStr}`;
+      this._secondaryEl.textContent = `Lowest ${minDateStr} \xB7 Highest ${maxDateStr}`;
     }
     // Same date-formatting cascade the chart cards' axis labels use (a real
     // port of HA's own formatTimeLabel(), see format.js), driven by the
