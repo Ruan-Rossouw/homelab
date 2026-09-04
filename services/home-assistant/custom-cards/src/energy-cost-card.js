@@ -472,6 +472,14 @@ class EnergyCostCard extends HTMLElement {
     // hides that overflow (nothing needs it while unzoomed, since the
     // domain already spans the full series then, but applying it
     // unconditionally is simpler than branching the markup).
+    //
+    // .scrub-handle: the small draggable nub HA shows on touch devices at
+    // the axis-pointer's x position while the tooltip is pinned — see
+    // energy-cost-breakdown-card.js's _renderChart for the verified
+    // ha-chart-base.ts source reference (axisPointer.handle: color
+    // --primary-color, margin 0, size 20). Approximated as a plain filled
+    // circle rather than ECharts' own bundled handle icon, same reasoning
+    // as that card. Never shown for mouse/pen, only touch.
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
         <defs>
@@ -493,6 +501,7 @@ class EnergyCostCard extends HTMLElement {
         ${xTicks}
         <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
         <circle class="hover-dot" r="4" fill="var(--info-color)" visibility="hidden"></circle>
+        <circle class="scrub-handle" r="10" fill="var(--primary-color)" visibility="hidden"></circle>
         <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
       <div class="tooltip" hidden></div>
@@ -502,6 +511,7 @@ class EnergyCostCard extends HTMLElement {
     this._svgEl = this._chartEl.querySelector("svg");
     this._hoverLine = this._chartEl.querySelector(".hover-line");
     this._hoverDot = this._chartEl.querySelector(".hover-dot");
+    this._scrubHandle = this._chartEl.querySelector(".scrub-handle");
     this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
     this._resetEl = this._chartEl.querySelector(".zoom-reset");
@@ -529,6 +539,7 @@ class EnergyCostCard extends HTMLElement {
     this._chartEl.setPointerCapture(e.pointerId);
     if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
     if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
+    if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
@@ -543,7 +554,7 @@ class EnergyCostCard extends HTMLElement {
     }
 
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, height } = this._chartBounds;
+    const { width, height, padBottom } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
@@ -568,6 +579,17 @@ class EnergyCostCard extends HTMLElement {
     this._hoverDot.setAttribute("cx", px);
     this._hoverDot.setAttribute("cy", py);
     this._hoverDot.setAttribute("visibility", "visible");
+    // Touch only — matches HA's own axisPointer.handle, gated behind
+    // _isTouchDevice in ha-chart-base.ts, never shown for mouse/pen.
+    if (this._scrubHandle) {
+      if (e.pointerType === "touch") {
+        this._scrubHandle.setAttribute("cx", px);
+        this._scrubHandle.setAttribute("cy", (height - padBottom).toFixed(1));
+        this._scrubHandle.setAttribute("visibility", "visible");
+      } else {
+        this._scrubHandle.setAttribute("visibility", "hidden");
+      }
+    }
 
     // Bold date header + a colored-dot value row — matches the shape of
     // HA's own tooltip (energy-chart-options.ts formatTooltip: bold <h4>
@@ -660,6 +682,7 @@ class EnergyCostCard extends HTMLElement {
     this._pointerPin.clear();
     if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
     if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
+    if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
