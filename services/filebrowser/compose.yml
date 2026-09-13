@@ -1,0 +1,32 @@
+services:
+  filebrowser:
+    # -s6 variant: the official image's s6-overlay build, which adds
+    # PUID/PGID support -- the plain tag runs as root with no such option
+    # (see README's "Container User" section for why this variant was
+    # picked instead).
+    image: filebrowser/filebrowser:v2.63.23-s6
+    container_name: filebrowser
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Africa/Johannesburg}
+    ports:
+      - "${FILEBROWSER_PORT:-8091}:80"
+    volumes:
+      # Read-only: this is a friend-facing share, never a write path.
+      # Same source directory the SMB friend user already has read-only
+      # access to (services/smb/README.md) -- not a new data set.
+      - /DATA/Media:/srv:ro
+      # Filebrowser's own database (users, settings) -- writable, and
+      # separate from the read-only media mount above.
+      - /DATA/AppData/filebrowser/database:/database
