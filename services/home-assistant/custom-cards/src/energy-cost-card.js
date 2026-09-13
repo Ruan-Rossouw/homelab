@@ -23,10 +23,37 @@
 import { CHART_CARD_STYLES } from "./lib/card-shell.js";
 import { attachToEnergyCollection } from "./lib/energy-collection.js";
 import { discoverGridCostStatIds, sumCostByBucket } from "./lib/energy-cost-sources.js";
+import { buildRunningTotalSeries, computeProjection } from "./lib/energy-cost-projection.js";
 import { niceAxisScale } from "./lib/nice-axis.js";
-import { formatCurrency, formatTimeForSpan } from "./lib/format.js";
-import { CHART_PADDING, measureChartBox, observeChartResize, renderYGridlines } from "./lib/svg-chart.js";
-import { selectEvenTimestamps, DEFAULT_TICK_COUNT, inferFixedStepMs, snapToStep } from "./lib/tick-labels.js";
+import { formatCurrency, formatTimeForSpan, haStyleTimeTiers } from "./lib/format.js";
+import {
+  CHART_PADDING,
+  computeYAxisLeftPadding,
+  measureChartBox,
+  observeChartResize,
+  renderYGridlines,
+  renderXGridlines,
+  DRAG_ZOOM_THRESHOLD_PX,
+} from "./lib/svg-chart.js";
+import {
+  selectEvenTimestamps,
+  selectNiceDayTicks,
+  DEFAULT_TICK_COUNT,
+  MAX_DAY_TICK_COUNT,
+  inferFixedStepMs,
+  snapToStep,
+} from "./lib/tick-labels.js";
+import { createPointerPin } from "./lib/pointer-interaction.js";
+
+// mdiCheckCircle / mdiCircleOutline path data, verbatim from @mdi/js —
+// matches the exact icons ha-chart-base.ts's real chart-legend toggle uses
+// for a visible/hidden dataset. Inlined as raw path data (no ha-svg-icon
+// dependency) to stay consistent with this codebase's hand-rolled-SVG,
+// dependency-free approach.
+const CHECK_CIRCLE_PATH =
+  "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z";
+const CIRCLE_OUTLINE_PATH =
+  "M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z";
 
 class EnergyCostCard extends HTMLElement {
   setConfig(config) {
@@ -37,18 +64,11 @@ class EnergyCostCard extends HTMLElement {
       this.shadowRoot.innerHTML = `
         <style>
           ${CHART_CARD_STYLES}
-          .projected {
-            font-size: var(--ha-font-size-s, 12px);
-            color: var(--secondary-text-color);
-            margin-bottom: 8px;
-            flex: none;
-          }
         </style>
         <ha-card>
           <div class="header"></div>
-          <div class="total"></div>
-          <div class="projected" hidden></div>
           <div class="chart"></div>
+          <ul class="legend"></ul>
         </ha-card>
       `;
     }
@@ -56,14 +76,29 @@ class EnergyCostCard extends HTMLElement {
     const firstRender = !this._headerEl;
 
     this._headerEl = this.shadowRoot.querySelector(".header");
-    this._totalEl = this.shadowRoot.querySelector(".total");
-    this._projectedEl = this.shadowRoot.querySelector(".projected");
     this._chartEl = this.shadowRoot.querySelector(".chart");
-    this._headerEl.textContent = this._config.title || "Grid Cost";
+    // HA's own energy-usage-graph card only renders a header when a title
+    // is explicitly configured (hui-energy-usage-graph-card.ts renders
+    // .card-header conditionally on this._config.title) — no default
+    // fallback string, so match that instead of forcing one here.
+    this._headerEl.hidden = !this._config.title;
+    this._headerEl.textContent = this._config.title || "";
+    this._legendEl = this.shadowRoot.querySelector(".legend");
 
     if (firstRender) {
+      this._pointerPin = createPointerPin();
+      this._zoomRange = null;
+      this._dragging = false;
+      this._hiddenSeries = new Set();
+      this._legendEl.addEventListener("click", (e) => {
+        const target = e.target.closest("[data-series]");
+        if (target) this._toggleSeries(target.dataset.series);
+      });
+      this._chartEl.addEventListener("pointerdown", (e) => this._onPointerDown(e));
       this._chartEl.addEventListener("pointermove", (e) => this._onPointerMove(e));
-      this._chartEl.addEventListener("pointerleave", () => this._onPointerLeave());
+      this._chartEl.addEventListener("pointerup", (e) => this._onPointerUp(e));
+      this._chartEl.addEventListener("pointercancel", (e) => this._onPointerCancel(e));
+      this._chartEl.addEventListener("pointerleave", (e) => this._onPointerLeave(e));
 
       this._resizeObserver = observeChartResize(this._chartEl, () => {
         if (this._series) {
@@ -137,72 +172,29 @@ class EnergyCostCard extends HTMLElement {
 
     if (!costStatIds.length) {
       this._chartEl.innerHTML = `<div class="message">No grid source has cost tracking configured yet (Settings → Dashboards → Energy).</div>`;
-      this._totalEl.textContent = "";
-      this._projectedEl.hidden = true;
       return;
     }
 
     // Merge every source's per-bucket delta into one summed series, then
     // turn deltas into a running total — this is the "Bill So Far" shape.
+    // The running total and "Projected: R X" figure themselves are no
+    // longer displayed on this card — see energy-cost-stat-card.js
+    // (stat: "total") — but the chart itself still needs both: the
+    // dashed projection line, and the Y-domain has to fit whichever is
+    // bigger, actual-so-far or the projected total.
     const deltaByBucketStart = sumCostByBucket(stats, costStatIds);
+    const { series, runningTotal } = buildRunningTotalSeries(deltaByBucketStart);
+    const projection = computeProjection(data, series, runningTotal);
 
-    const bucketStarts = [...deltaByBucketStart.keys()].sort((a, b) => a - b);
-    let runningTotal = 0;
-    const series = bucketStarts.map((start) => {
-      runningTotal += deltaByBucketStart.get(start);
-      return { x: start, y: runningTotal };
-    });
-
-    this._totalEl.textContent = this._formatCurrency(runningTotal);
-
-    const projection = this._computeProjection(data, series, runningTotal);
-    // The header text is only meaningful as a forward-looking estimate —
-    // for an already-elapsed period (e.g. "Yesterday"), projection.total
-    // *is* runningTotal, so showing "Projected: R X" under the identical
-    // "R X" total would just be a redundant duplicate.
-    if (projection && projection.isEstimate) {
-      this._projectedEl.hidden = false;
-      this._projectedEl.textContent = `Projected: ${this._formatCurrency(projection.total)}`;
-    } else {
-      this._projectedEl.hidden = true;
+    const periodStartMs = data.start ? data.start.getTime() : undefined;
+    // An active zoom's timestamps almost certainly don't make sense against
+    // a completely different selected period — a live stats refresh for
+    // the *same* period should leave the zoom alone, only a period change
+    // clears it.
+    if (this._zoomRange && periodStartMs !== this._periodStartMs) {
+      this._zoomRange = null;
     }
-
-    this._renderChart(series, projection, data.start ? data.start.getTime() : undefined);
-  }
-
-  // The reference line spans the period at a constant rate — while the
-  // period is still ongoing, that rate is a linear extrapolation from
-  // data so far (an estimate of where the total will land); once the
-  // period is over, the real final total is already known, so the same
-  // line becomes the period's actual average pace instead of a forecast
-  // — still useful (which hours/days ran above or below that average),
-  // just no longer something to also announce as a "projected" total.
-  // Deliberately simple and self-contained either way — no reaching
-  // outside the data this card already has, at the cost of not
-  // anticipating a tariff tier crossover late in an ongoing period (see
-  // the "linear vs tariff-aware" discussion this was chosen over).
-  _computeProjection(data, series, runningTotal) {
-    if (series.length < 2 || !data.start || !data.end) {
-      return null;
-    }
-
-    const periodStartMs = data.start.getTime();
-    const periodEndMs = data.end.getTime();
-    const nowMs = Date.now();
-
-    if (nowMs >= periodEndMs) {
-      return { endMs: periodEndMs, total: runningTotal, isEstimate: false };
-    }
-
-    const elapsedMs = nowMs - periodStartMs;
-    const remainingMs = periodEndMs - nowMs;
-    if (elapsedMs <= 0) {
-      return null;
-    }
-
-    const rate = runningTotal / elapsedMs;
-    const total = runningTotal + rate * remainingMs;
-    return { endMs: periodEndMs, total, isEstimate: true };
+    this._renderChart(series, projection, periodStartMs);
   }
 
   _formatCurrency(value, compact = false) {
@@ -213,19 +205,41 @@ class EnergyCostCard extends HTMLElement {
     });
   }
 
-  // Sub-day ranges (the "Today" picker) get hour:minute labels; anything
-  // longer gets a short date, since a time-of-day label on a month-long
-  // range would be meaningless. Based on the real data span, not the
-  // padded plotting domain.
+  // Ported byte-for-byte from HA's own axis-label.ts formatTimeLabel()
+  // cascade — see format.js's haStyleTimeTiers() for the exact thresholds/
+  // formats and what's deliberately not replicated (bold-only distinctions,
+  // the unreachable <5-minute tier).
+  //
+  // spanMs MUST be the plotted *domain* span (this._chartBounds.domainMaxX
+  // - domainMinX), matching HA's own axis.max - axis.min — not
+  // dataMaxX - dataMinX (the real-series-only span). This card's domain
+  // extends past the real series via the projection line out to the
+  // period end (or zoom range, when zoomed); using the real-data-only span
+  // here was a real bug (fixed): early in a still-short period, dataMaxX
+  // stays small even though the plotted/visible domain already spans the
+  // whole period, so ticks near the end of a long period were wrongly
+  // formatted as if the chart were only a few days wide (e.g. weekday
+  // labels showing up on a month-long view). domainMinX/domainMaxX already
+  // account for this (and for an active zoom), so no other change is
+  // needed here beyond reading the right field.
   _formatTime(timestamp) {
     const locale = this._hass?.locale?.language;
     const spanMs = this._chartBounds
-      ? this._chartBounds.dataMaxX - this._chartBounds.dataMinX
+      ? this._chartBounds.domainMaxX - this._chartBounds.domainMinX
       : 0;
-    return formatTimeForSpan(timestamp, locale, spanMs, [
-      { maxSpanMs: 2 * 24 * 60 * 60 * 1000, options: { hour: "2-digit", minute: "2-digit" } },
-      { options: { month: "short", day: "numeric" } },
-    ]);
+    return formatTimeForSpan(timestamp, locale, spanMs, haStyleTimeTiers());
+  }
+
+  // Bare number for the y-axis's per-tick labels (no currency symbol) — the
+  // unit is shown once instead, via renderYGridlines' axisName. See
+  // format.js's formatCurrency: an empty symbol drops the unit/leading
+  // space entirely.
+  _formatCompactNumber(value) {
+    return formatCurrency(value, {
+      symbol: "",
+      locale: this._hass?.locale?.language,
+      compact: true,
+    });
   }
 
   _renderChart(series, projection, periodStartMs) {
@@ -254,7 +268,7 @@ class EnergyCostCard extends HTMLElement {
     }
 
     const { width, height } = measureChartBox(this._chartEl);
-    const { left: padLeft, right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
+    const { right: padRight, top: padTop, bottom: padBottom } = CHART_PADDING;
 
     const xs = series.map((p) => p.x);
     const dataMinX = Math.min(...xs);
@@ -263,15 +277,57 @@ class EnergyCostCard extends HTMLElement {
 
     // With a projection, the period end (not just the last real data
     // point) is the natural right edge, and the axis needs to fit
-    // whichever is bigger — actual so far, or the projected total.
-    const domainMinX = dataMinX;
-    const domainMaxX = projection
-      ? projection.endMs
-      : dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
-    const yMaxWithProjection = projection
-      ? Math.max(dataMaxY, projection.total)
-      : dataMaxY;
+    // whichever is bigger — actual so far, or the projected total. When
+    // zoomed, the domain becomes the zoom window itself, and the Y-axis
+    // rescales to just what's visible in it — matching HA's confirmed
+    // dataZoom filterMode behavior (ha-chart-base.ts) rather than keeping
+    // the full-range max while zoomed in on a small slice of it.
+    // A series toggled off via the legend still counts for the plotted
+    // domain/ticks (matches HA: hiding a dataset never changes the chart's
+    // x-axis) — it only drops out of the Y-axis max and the drawn markup
+    // below.
+    const showActual = !this._hiddenSeries.has("actual");
+    const showProjected = !this._hiddenSeries.has("projected");
+
+    let domainMinX, domainMaxX, yMaxWithProjection, tickRangeStartMs, tickRangeEndMs;
+    if (this._zoomRange) {
+      domainMinX = this._zoomRange.startMs;
+      domainMaxX = this._zoomRange.endMs;
+      const yCandidates = [];
+      if (showActual) {
+        const visiblePoints = series.filter((p) => p.x >= domainMinX && p.x <= domainMaxX);
+        yCandidates.push(...(visiblePoints.length ? visiblePoints : series).map((p) => p.y));
+      }
+      // Only let the projection influence the zoomed Y-max if its endpoint
+      // actually falls inside the zoomed window — otherwise an off-screen
+      // projected total (hidden by the clip-path below anyway) would
+      // needlessly stretch the axis of a zoomed-in view, working against
+      // the point of zooming in for a closer look.
+      if (showProjected && projection && projection.endMs >= domainMinX && projection.endMs <= domainMaxX) {
+        yCandidates.push(projection.total);
+      }
+      yMaxWithProjection = Math.max(...yCandidates, 0.0001);
+      tickRangeStartMs = domainMinX;
+      tickRangeEndMs = domainMaxX;
+    } else {
+      domainMinX = dataMinX;
+      domainMaxX = projection ? projection.endMs : dataMaxX + (dataMaxX - dataMinX || 1) * 0.04;
+      const yCandidates = [];
+      if (showActual) yCandidates.push(dataMaxY);
+      if (showProjected && projection) yCandidates.push(projection.total);
+      yMaxWithProjection = Math.max(...yCandidates, 0.0001);
+      tickRangeStartMs = domainMinX;
+      tickRangeEndMs = projection ? projection.endMs : dataMaxX;
+    }
     const { axisMax: domainMaxY, tickSpacing } = niceAxisScale(yMaxWithProjection, 5);
+    // Sized to this render's actual tick labels (see computeYAxisLeftPadding
+    // for why — matches HA's real containLabel: true behavior instead of a
+    // flat reservation that wastes space when labels are short).
+    const padLeft = computeYAxisLeftPadding({
+      domainMaxY,
+      tickSpacing,
+      formatValue: (v) => this._formatCompactNumber(v),
+    });
 
     const scaleX = (x) =>
       padLeft +
@@ -311,7 +367,7 @@ class EnergyCostCard extends HTMLElement {
     // "now" on the actual series too, so days where the actual (blue)
     // line runs above it spent faster than the projected average pace,
     // and below it spent slower — the point of drawing it full-span.
-    const projectionLine = projection
+    const projectionLine = projection && showProjected
       ? `<polyline points="${scaleX(periodStartMs ?? dataMinX).toFixed(1)},${scaleY(0).toFixed(1)} ${scaleX(
           projection.endMs
         ).toFixed(1)},${scaleY(projection.total).toFixed(1)}" fill="none" stroke="var(--warning-color)" stroke-width="1.5" stroke-dasharray="6,8"></polyline>`
@@ -324,99 +380,289 @@ class EnergyCostCard extends HTMLElement {
       padLeft,
       width,
       padRight,
-      formatValue: (v) => this._formatCurrency(v, true),
+      formatValue: (v) => this._formatCompactNumber(v),
+      axisName: this._config.currency_symbol || "R",
     });
 
-    // Ticks at evenly-spaced *timestamps* across the plotted domain, not
-    // evenly-spaced indices into `series` — those aren't the same thing
-    // once a projection extends the domain well past the real data (e.g.
-    // "Today" at noon, plotted out to midnight): picking indices out of
-    // only the real (so far, first-half-of-the-day) series bunches every
-    // interior tick into the already-elapsed portion, then jumps straight
-    // to the far edge for the last one. The right edge is the period end
-    // when there's a projection, otherwise the last actual point.
+    // For a day-or-longer span, HA's real charts don't evenly-divide the
+    // domain into a fixed tick count — ECharts' own time-axis "nice
+    // interval" behavior picks a calendar-round day interval (verified:
+    // a September/30-day period ticks at Sep 1, 5, 9, 13, 17, 21, 25, 29,
+    // not 6 index-evenly-spaced dates) and lets the count fall out of
+    // that. See tick-labels.js's selectNiceDayTicks for the algorithm and
+    // why it's a reimplementation of that general technique rather than a
+    // port (the actual interval-choosing code lives inside the ECharts
+    // library itself, not in home-assistant/frontend's own source).
     //
-    // Uses the same DEFAULT_TICK_COUNT and the same evenly-spaced-in-time
-    // algorithm as energy-cost-breakdown-card.js's bar chart, so the two
-    // cards' x-axes land on the same dates/times for the same period
-    // instead of each picking its own count independently. Snapped onto
-    // the real bucket grid (inferred the same way the breakdown card
-    // infers its padding step) so labels land on round times like
-    // "5:00 AM" — splitting the domain into equal fractions alone would
-    // land on whatever arbitrary time each fraction happens to be (e.g.
-    // "4:48 AM" for a 24-hour domain split 5 ways).
-    const lastTickMs = projection ? projection.endMs : dataMaxX;
-    const step = inferFixedStepMs(series.map((p) => p.x));
-    const idealTicks = selectEvenTimestamps(domainMinX, lastTickMs, DEFAULT_TICK_COUNT);
-    // Only the interior ticks get snapped — the first and last are pinned
-    // exactly at domainMinX/lastTickMs (e.g. the real period end, often
-    // 23:59:59.999) on purpose, and rounding that to the nearest step
-    // could overshoot past it (23:59:59.999 rounds *up* to next midnight
-    // at an hourly step), turning a correct "11:59 PM" edge label into a
-    // wrong "12:00 AM".
-    const tickTimestamps = step
-      ? [
-          ...new Set(
-            idealTicks.map((t, i) =>
-              i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
-            )
-          ),
-        ]
-      : idealTicks;
+    // Below a day, that same day-interval algorithm doesn't apply — keep
+    // the previous evenly-spaced-then-snapped-to-the-real-bucket-grid
+    // approach, which already reads fine for an hour-granularity domain
+    // (e.g. "Today") and isn't part of what HA visibly does differently.
+    const tickRangeSpanMs = tickRangeEndMs - tickRangeStartMs;
+    let tickTimestamps;
+    if (tickRangeSpanMs >= 24 * 60 * 60 * 1000) {
+      tickTimestamps = selectNiceDayTicks(tickRangeStartMs, tickRangeEndMs, MAX_DAY_TICK_COUNT);
+    } else {
+      const step = inferFixedStepMs(series.map((p) => p.x));
+      const idealTicks = selectEvenTimestamps(tickRangeStartMs, tickRangeEndMs, DEFAULT_TICK_COUNT);
+      // Only the interior ticks get snapped — the first and last are pinned
+      // exactly at tickRangeStartMs/tickRangeEndMs (e.g. the real period end, often
+      // 23:59:59.999) on purpose, and rounding that to the nearest step
+      // could overshoot past it (23:59:59.999 rounds *up* to next midnight
+      // at an hourly step), turning a correct "11:59 PM" edge label into a
+      // wrong "12:00 AM".
+      tickTimestamps = step
+        ? [
+            ...new Set(
+              idealTicks.map((t, i) =>
+                i === 0 || i === idealTicks.length - 1 ? t : snapToStep(t, domainMinX, step)
+              )
+            ),
+          ]
+        : idealTicks;
+    }
     const xTicks = tickTimestamps
       .map((t, i, all) => {
         const x = scaleX(t).toFixed(1);
-        const anchor = i === 0 ? "start" : i === all.length - 1 ? "end" : "middle";
+        // First tick is always pinned exactly at tickRangeStartMs (both
+        // the sub-day and nice-day-interval paths anchor there), so
+        // "start" always avoids left-edge clipping. The last tick is only
+        // guaranteed to sit at tickRangeEndMs in the sub-day path — the
+        // nice-day-interval path (e.g. "Sep 29" for a month ending at
+        // "Sep 30") deliberately doesn't force the boundary, matching
+        // HA's real output — so only right-anchor it when it's actually
+        // at (or within one intervalMs of) the true right edge; otherwise
+        // it reads as a normal interior label, not hugging a clip risk
+        // that isn't there.
+        const isLast = i === all.length - 1;
+        const nearRightEdge = isLast && tickRangeEndMs - t <= (all.length > 1 ? all[1] - all[0] : 0);
+        const anchor = i === 0 ? "start" : nearRightEdge ? "end" : "middle";
         return `<text x="${x}" y="${height - 6}" text-anchor="${anchor}" class="axis-label">${this._formatTime(t)}</text>`;
       })
       .join("");
 
+    // Vertical gridlines at the same ticks as the x-axis labels above —
+    // matches ha-chart-base.ts's own default for any time-type xAxis
+    // (verified: _createOptions force-defaults splitLine.show:true, never
+    // overridden off by the Energy dashboard's own xAxis options; the
+    // timeAxis theme block confirms solid --divider-color, same as the Y
+    // gridlines).
+    const xGridlines = renderXGridlines({
+      tickXs: tickTimestamps.map((t) => scaleX(t)),
+      padTop,
+      padBottom,
+      height,
+    });
+
+    // Vertical gradient area fill (denser near the line, fading toward the
+    // baseline) rather than a flat opacity — matches HA's Energy panel
+    // "Power sources" line+area chart (power-sources-graph-data.ts: 0.75
+    // opacity at the line down to 0.25 at the baseline). Lower confidence
+    // than the bar-chart styling above: no native Energy-dashboard chart
+    // is this exact shape (cumulative currency-over-time), so this is an
+    // extrapolation from a differently-shaped chart, not a direct match —
+    // worth a close look once deployed. Gradient id is safely scoped to
+    // this card instance's own shadow root, so no cross-instance collision
+    // even with multiple cards of this type on one dashboard.
+    // Zooming changes domainMinX/domainMaxX to the zoom window, so a point
+    // outside it now maps to a pixel outside the plot rect rather than
+    // being excluded from the series — the clip-path is what actually
+    // hides that overflow (nothing needs it while unzoomed, since the
+    // domain already spans the full series then, but applying it
+    // unconditionally is simpler than branching the markup).
+    //
+    // .scrub-handle: the small draggable nub HA shows on touch devices at
+    // the axis-pointer's x position while the tooltip is pinned — see
+    // energy-cost-breakdown-card.js's _renderChart for the verified
+    // ha-chart-base.ts source reference (axisPointer.handle: color
+    // --primary-color, margin 0, size 20). Approximated as a plain filled
+    // circle rather than ECharts' own bundled handle icon, same reasoning
+    // as that card. Never shown for mouse/pen, only touch.
     this._chartEl.innerHTML = `
       <svg viewBox="0 0 ${width} ${height}" style="height: ${height}px;" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--primary-color)" stop-opacity="0.75"></stop>
+            <stop offset="100%" stop-color="var(--primary-color)" stop-opacity="0.25"></stop>
+          </linearGradient>
+          <clipPath id="plot-clip">
+            <rect x="${padLeft}" y="${padTop}" width="${(width - padLeft - padRight).toFixed(1)}" height="${(height - padTop - padBottom).toFixed(1)}"></rect>
+          </clipPath>
+        </defs>
         ${yGridlines}
-        <polygon points="${areaPoints}" fill="var(--primary-color)" opacity="0.25"></polygon>
-        <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>
-        ${projectionLine}
+        ${xGridlines}
+        <g clip-path="url(#plot-clip)">
+          ${
+            showActual
+              ? `<polygon points="${areaPoints}" fill="url(#area-fill)"></polygon>
+          <polyline points="${linePoints}" fill="none" stroke="var(--primary-color)" stroke-width="2"></polyline>`
+              : ""
+          }
+          ${projectionLine}
+        </g>
         ${xTicks}
         <line class="hover-line" x1="0" y1="${padTop}" x2="0" y2="${height - padBottom}" stroke="var(--info-color)" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"></line>
         <circle class="hover-dot" r="4" fill="var(--info-color)" visibility="hidden"></circle>
+        <circle class="scrub-handle" r="10" fill="var(--primary-color)" visibility="hidden"></circle>
+        <rect class="zoom-select-rect" fill="var(--info-color)" opacity="0.15" visibility="hidden"></rect>
       </svg>
       <div class="tooltip" hidden></div>
+      <button type="button" class="zoom-reset" ${this._zoomRange ? "" : "hidden"}>Reset zoom</button>
     `;
 
     this._svgEl = this._chartEl.querySelector("svg");
     this._hoverLine = this._chartEl.querySelector(".hover-line");
     this._hoverDot = this._chartEl.querySelector(".hover-dot");
+    this._scrubHandle = this._chartEl.querySelector(".scrub-handle");
+    this._zoomSelectRect = this._chartEl.querySelector(".zoom-select-rect");
     this._tooltipEl = this._chartEl.querySelector(".tooltip");
+    this._resetEl = this._chartEl.querySelector(".zoom-reset");
+    this._resetEl.addEventListener("click", () => this._clearZoom());
+    this._renderLegend();
+  }
+
+  // Plain HTML legend (matches ha-chart-base.ts's real chart-legend, which
+  // is itself a <ul><li><button> template, not an ECharts canvas legend —
+  // verified against current source before implementing). "Projected" only
+  // appears once a projection actually exists for the current period.
+  _renderLegend() {
+    const items = [{ id: "actual", label: "Grid Cost", color: "var(--primary-color)" }];
+    if (this._projection) {
+      items.push({ id: "projected", label: "Projected", color: "var(--warning-color)" });
+    }
+    this._legendEl.innerHTML = items
+      .map((item) => {
+        const isHidden = this._hiddenSeries.has(item.id);
+        const iconPath = isHidden ? CIRCLE_OUTLINE_PATH : CHECK_CIRCLE_PATH;
+        return `
+          <li class="legend-item${isHidden ? " hidden" : ""}">
+            <button type="button" class="legend-toggle" data-series="${item.id}" aria-pressed="${!isHidden}" title="Toggle visibility">
+              <svg viewBox="0 0 24 24" width="18" height="18" style="${isHidden ? "" : `color:${item.color}`}"><path fill="currentColor" d="${iconPath}"></path></svg>
+            </button>
+            <span class="legend-label" data-series="${item.id}">${item.label}</span>
+          </li>
+        `;
+      })
+      .join("");
+  }
+
+  _toggleSeries(id) {
+    if (this._hiddenSeries.has(id)) {
+      this._hiddenSeries.delete(id);
+    } else {
+      this._hiddenSeries.add(id);
+    }
+    if (this._series) {
+      this._renderChart(this._series, this._projection, this._periodStartMs);
+    } else {
+      this._renderLegend();
+    }
+  }
+
+  // Linear interpolation along the same reference line _renderChart draws
+  // as the dashed projection (period start, R0 → projection.endMs,
+  // projection.total) — lets the tooltip report the projected-pace value
+  // at any hovered x, not just the discrete real-data points nearest.x
+  // already covers.
+  _projectedValueAt(x) {
+    if (!this._projection || !this._chartBounds) return null;
+    const startX = this._periodStartMs ?? this._chartBounds.dataMinX;
+    const endX = this._projection.endMs;
+    if (endX === startX) return this._projection.total;
+    const t = (x - startX) / (endX - startX);
+    return t * this._projection.total;
+  }
+
+  // Touch: pin the tap so the overlay/tooltip survives finger-lift (see
+  // lib/pointer-interaction.js). Mouse/pen: start a drag-to-zoom gesture —
+  // recorded in time-domain (ms), not pixel space, so an in-progress drag
+  // survives a window resize instead of going stale.
+  _onPointerDown(e) {
+    if (e.pointerType === "touch") {
+      this._pointerPin.pin();
+      this._onPointerMove(e);
+      return;
+    }
+    if (e.pointerType !== "mouse" || !this._svgEl || !this._chartBounds || !this._series) {
+      return;
+    }
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    this._dragStartMs = this._viewBoxXToMs(viewBoxX);
+    this._dragging = true;
+    this._chartEl.setPointerCapture(e.pointerId);
+    if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
+    if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
+    if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
+    if (this._tooltipEl) this._tooltipEl.hidden = true;
   }
 
   _onPointerMove(e) {
-    if (!this._series || !this._svgEl || !this._chartBounds) {
+    if (this._dragging && e.pointerType === "mouse") {
+      this._updateDragSelection(e);
+      return;
+    }
+
+    if (!this._series || !this._svgEl || !this._chartBounds || !this._pointerPin.shouldUpdateOnMove(e)) {
+      return;
+    }
+
+    const showActual = !this._hiddenSeries.has("actual");
+    const showProjected = !this._hiddenSeries.has("projected") && this._projection != null;
+    if (!showActual && !showProjected) {
+      this._onPointerLeave(e);
       return;
     }
 
     const rect = this._svgEl.getBoundingClientRect();
-    const { width, height, padLeft, padRight, domainMinX, domainMaxX } = this._chartBounds;
+    const { width, height, padBottom, dataMaxX, domainMaxX } = this._chartBounds;
 
     const relX = (e.clientX - rect.left) / rect.width;
     const viewBoxX = relX * width;
-    const targetX =
-      domainMinX +
-      ((viewBoxX - padLeft) / (width - padLeft - padRight)) *
-        (domainMaxX - domainMinX);
+    const targetX = Math.min(this._viewBoxXToMs(viewBoxX), domainMaxX);
+    // Past the last real bucket, there's no discrete point to snap to —
+    // only the continuous projection reference line (if shown) has a
+    // value there.
+    const beyondRealData = targetX > dataMaxX;
 
-    let nearest = this._series[0];
-    let nearestDist = Infinity;
-    for (const point of this._series) {
-      const dist = Math.abs(point.x - targetX);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearest = point;
+    let px, py, headerX, rows;
+
+    if (showActual && !beyondRealData) {
+      let nearest = this._series[0];
+      let nearestDist = Infinity;
+      for (const point of this._series) {
+        const dist = Math.abs(point.x - targetX);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = point;
+        }
       }
+      px = this._scaleX(nearest.x);
+      py = this._scaleY(nearest.y);
+      headerX = nearest.x;
+      rows = `<div class="tooltip-row"><span class="tooltip-dot" style="background:var(--primary-color)"></span>Grid Cost: ${this._formatCurrency(nearest.y)}</div>`;
+      if (showProjected && nearest.x <= this._projection.endMs) {
+        rows += `<div class="tooltip-row"><span class="tooltip-dot" style="background:var(--warning-color)"></span>Projected: ${this._formatCurrency(this._projectedValueAt(nearest.x))}</div>`;
+      }
+    } else if (showProjected) {
+      // Follow the cursor continuously along the projection line instead
+      // of snapping to a discrete point — it's the one series here that
+      // isn't discrete samples, matching the reference line _renderChart
+      // draws across the whole period.
+      const startX = this._periodStartMs ?? this._chartBounds.dataMinX;
+      const clampedX = Math.max(startX, Math.min(targetX, this._projection.endMs));
+      const projY = this._projectedValueAt(clampedX);
+      px = this._scaleX(clampedX);
+      py = this._scaleY(projY);
+      headerX = clampedX;
+      rows = `<div class="tooltip-row"><span class="tooltip-dot" style="background:var(--warning-color)"></span>Projected: ${this._formatCurrency(projY)}</div>`;
+    } else {
+      // Only "actual" is visible and we're past its real data with no
+      // projection to show there — nothing meaningful to point at.
+      this._onPointerLeave(e);
+      return;
     }
-
-    const px = this._scaleX(nearest.x);
-    const py = this._scaleY(nearest.y);
 
     this._hoverLine.setAttribute("x1", px);
     this._hoverLine.setAttribute("x2", px);
@@ -424,17 +670,158 @@ class EnergyCostCard extends HTMLElement {
     this._hoverDot.setAttribute("cx", px);
     this._hoverDot.setAttribute("cy", py);
     this._hoverDot.setAttribute("visibility", "visible");
+    // Touch only — matches HA's own axisPointer.handle, gated behind
+    // _isTouchDevice in ha-chart-base.ts, never shown for mouse/pen.
+    if (this._scrubHandle) {
+      if (e.pointerType === "touch") {
+        this._scrubHandle.setAttribute("cx", px);
+        this._scrubHandle.setAttribute("cy", (height - padBottom).toFixed(1));
+        this._scrubHandle.setAttribute("visibility", "visible");
+      } else {
+        this._scrubHandle.setAttribute("visibility", "hidden");
+      }
+    }
 
+    // Bold date header + a colored-dot value row per visible series —
+    // matches the shape of HA's own tooltip (energy-chart-options.ts
+    // formatTooltip: bold <h4> period header, one
+    // <ha-chart-tooltip-marker>-prefixed "Label: value" row per series).
     this._tooltipEl.hidden = false;
-    this._tooltipEl.textContent = `${this._formatTime(nearest.x)} — ${this._formatCurrency(nearest.y)}`;
+    this._tooltipEl.innerHTML = `
+      <div class="tooltip-header">${this._formatTime(headerX)}</div>
+      ${rows}
+    `;
     this._tooltipEl.style.left = `${(px / width) * rect.width}px`;
     this._tooltipEl.style.top = `${(py / height) * rect.height}px`;
   }
 
-  _onPointerLeave() {
+  // Touch: leave the tap pinned — do not clear on lift. Mouse: finish the
+  // drag-to-zoom gesture — below the pixel threshold is treated as a plain
+  // click (no zoom), otherwise commits this._zoomRange and re-renders.
+  _onPointerUp(e) {
+    if (e.pointerType === "touch") {
+      return;
+    }
+    if (e.pointerType !== "mouse" || !this._dragging) {
+      return;
+    }
+    this._dragging = false;
+    if (this._chartEl.hasPointerCapture && this._chartEl.hasPointerCapture(e.pointerId)) {
+      this._chartEl.releasePointerCapture(e.pointerId);
+    }
+    this._hideDragSelection();
+
+    const dragStartMs = this._dragStartMs;
+    this._dragStartMs = undefined;
+    if (dragStartMs == null || !this._svgEl || !this._chartBounds || !this._series) {
+      return;
+    }
+
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    const startPixelX = this._msToViewBoxX(dragStartMs);
+    const pixelDelta = Math.abs(viewBoxX - startPixelX);
+    if (pixelDelta < DRAG_ZOOM_THRESHOLD_PX) {
+      return;
+    }
+
+    const endMsRaw = this._viewBoxXToMs(viewBoxX);
+    let startMs = Math.min(dragStartMs, endMsRaw);
+    let endMs = Math.max(dragStartMs, endMsRaw);
+
+    const minSpan = this._minZoomSpanMs();
+    if (endMs - startMs < minSpan) {
+      const mid = (startMs + endMs) / 2;
+      startMs = mid - minSpan / 2;
+      endMs = mid + minSpan / 2;
+    }
+
+    // Don't commit a zoom into an empty range — no real point and no
+    // visible projection endpoint inside it.
+    const hasVisibleData =
+      this._series.some((p) => p.x >= startMs && p.x <= endMs) ||
+      (this._projection && this._projection.endMs >= startMs && this._projection.endMs <= endMs);
+    if (!hasVisibleData) {
+      return;
+    }
+
+    this._zoomRange = { startMs, endMs };
+    this._renderChart(this._series, this._projection, this._periodStartMs);
+  }
+
+  // A cancelled gesture (e.g. an OS-level interruption) never commits a
+  // zoom — just drop whatever drag was in progress. Touch's tap-pin state
+  // is untouched here, matching _onPointerUp's touch branch.
+  _onPointerCancel(e) {
+    if (e.pointerType === "touch") {
+      return;
+    }
+    if (this._dragging) {
+      this._dragging = false;
+      this._dragStartMs = undefined;
+      this._hideDragSelection();
+    }
+  }
+
+  _onPointerLeave(e) {
+    if (!this._pointerPin.shouldClearOnLeave(e)) {
+      return;
+    }
+    this._pointerPin.clear();
     if (this._hoverLine) this._hoverLine.setAttribute("visibility", "hidden");
     if (this._hoverDot) this._hoverDot.setAttribute("visibility", "hidden");
+    if (this._scrubHandle) this._scrubHandle.setAttribute("visibility", "hidden");
     if (this._tooltipEl) this._tooltipEl.hidden = true;
+  }
+
+  // ms → viewBox-x and back, using the chart's current (possibly
+  // zoomed) domain — shared by hover, drag-to-zoom start/end conversion,
+  // and redrawing the drag-selection rect.
+  _viewBoxXToMs(viewBoxX) {
+    const { padLeft, padRight, width, domainMinX, domainMaxX } = this._chartBounds;
+    return domainMinX + ((viewBoxX - padLeft) / (width - padLeft - padRight)) * (domainMaxX - domainMinX);
+  }
+
+  _msToViewBoxX(ms) {
+    return this._scaleX(ms);
+  }
+
+  // A zoom narrower than a couple of real bucket steps isn't a meaningful
+  // zoom on a per-bucket line chart — expand around the drag's midpoint
+  // instead. Falls back to a flat few-hour floor when inferFixedStepMs
+  // can't estimate a step (e.g. too few points yet).
+  _minZoomSpanMs() {
+    const step = inferFixedStepMs(this._series ? this._series.map((p) => p.x) : []);
+    return step ? step * 2 : 3 * 60 * 60 * 1000;
+  }
+
+  _updateDragSelection(e) {
+    if (!this._zoomSelectRect || !this._svgEl || !this._chartBounds || this._dragStartMs == null) {
+      return;
+    }
+    const rect = this._svgEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const viewBoxX = relX * this._chartBounds.width;
+    const startPixelX = this._msToViewBoxX(this._dragStartMs);
+    const x1 = Math.min(startPixelX, viewBoxX);
+    const x2 = Math.max(startPixelX, viewBoxX);
+    const { padTop, padBottom, height } = this._chartBounds;
+
+    this._zoomSelectRect.setAttribute("x", x1.toFixed(1));
+    this._zoomSelectRect.setAttribute("y", padTop);
+    this._zoomSelectRect.setAttribute("width", Math.max(x2 - x1, 0).toFixed(1));
+    this._zoomSelectRect.setAttribute("height", (height - padTop - padBottom).toFixed(1));
+    this._zoomSelectRect.setAttribute("visibility", "visible");
+  }
+
+  _hideDragSelection() {
+    if (this._zoomSelectRect) this._zoomSelectRect.setAttribute("visibility", "hidden");
+  }
+
+  _clearZoom() {
+    this._zoomRange = null;
+    this._renderChart(this._series, this._projection, this._periodStartMs);
   }
 }
 
