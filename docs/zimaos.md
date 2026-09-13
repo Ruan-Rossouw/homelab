@@ -782,6 +782,24 @@ by loosening its mode — root-run scripts keep writing into it exactly
 as before, since root ignores directory ownership. The `chown` line
 below is part of a from-scratch install now, not a separate step.
 
+**Second bug, caught 2026-09-13 — `docker` needs its own `$HOME`.**
+This script runs `docker compose` as `ruan`, and ZimaOS sets `HOME=/DATA`
+for every user (see "HOME Directory" above) — but `/DATA` isn't writable
+by non-root users. Docker's client looks for `$HOME/.docker/config.json`,
+i.e. `/DATA/.docker/config.json`, which `ruan` can't even read; the
+resulting failure doesn't surface as a clean permission error, it
+cascades into a garbled top-level `docker: unknown flag: --quiet` since
+docker never gets far enough to dispatch into the `compose` plugin.
+**Do not fix this by `chown`ing `/DATA/.docker`** — that path is not a
+small per-user config directory. `mount` shows it as a *second* overlay
+mount of Docker's entire real data-root (identical `lowerdir`/`upperdir`/
+`workdir` to `/var/lib/docker/overlay2/*`), so a recursive `chown` on it
+forces overlayfs to copy up every file in every running container's
+image just to relabel it — caught live when exactly that command sat in
+uninterruptible I/O wait for 5+ minutes before being killed. The actual
+fix is to keep docker's config off `/DATA` entirely via `DOCKER_CONFIG`,
+folded into the script below.
+
 **State**: the last-deployed commit SHA lives at
 `/DATA/Infrastructure/homelab-deploy/last-deployed.sha` — outside the
 git repo since it's server-local runtime state, not something to
@@ -833,8 +851,13 @@ REPO_DIR=/DATA/Infrastructure/homelab
 STATE_DIR=/DATA/Infrastructure/homelab-deploy
 LAST_SHA_FILE="$STATE_DIR/last-deployed.sha"
 TEXTFILE_DIR=/DATA/Infrastructure/node-exporter/textfile_collector
+# ruan's $HOME is /DATA (a ZimaOS default), and /DATA isn't writable by
+# non-root users -- keep docker's client config off it entirely rather
+# than let it fall back to the unreadable /DATA/.docker (see the note
+# above; never chown that path, it's Docker's real data-root in disguise)
+export DOCKER_CONFIG="$STATE_DIR/.docker"
 
-mkdir -p "$STATE_DIR" "$TEXTFILE_DIR"
+mkdir -p "$STATE_DIR" "$TEXTFILE_DIR" "$DOCKER_CONFIG"
 
 write_status() {
   {
