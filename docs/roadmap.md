@@ -273,6 +273,14 @@ on Compose first (on whichever box), then migrating it into the cluster
 once Kubernetes itself is proven, is the safer order if that risk ever
 matters more than the learning value of doing both at once.
 
+**A first, small slice of CD landed 2026-09-03**: a host-level systemd
+timer auto-deploys after every merge to `main` (`docs/zimaos.md`'s
+"Auto-Deploy on Merge to Main"). Deliberately pull-based (poller, not a
+push-triggered runner) — this repo is public, and a self-hosted GitHub
+Actions runner is real attack surface there. It's also the same
+reconciliation model ArgoCD will use once the k3s work above lands, so
+this is a step toward that architecture rather than a detour from it.
+
 The goal is to continuously improve the platform while maintaining the
 architectural standards established in the earlier phases.
 

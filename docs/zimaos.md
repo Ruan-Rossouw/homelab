@@ -724,6 +724,252 @@ reinstall and needs re-applying on a rebuild.
 investigated further since UTC was already correct at the time — worth
 rechecking if timestamps drift.
 
+### Auto-Deploy on Merge to Main
+
+`/etc/systemd/system/homelab-deploy.sh` + `.service` + `.timer`, added
+2026-09-03. Previously every merge to `main` needed a manual `git pull` +
+per-service `docker compose pull && up -d` on the box. This closes that
+loop: a systemd timer polls `origin/main` every 5 minutes and, when it's
+moved, diffs the old and new commit against `services/` to find exactly
+which service directories changed, then redeploys only those.
+
+**Why a poller instead of a self-hosted GitHub Actions runner:** a
+push-triggered runner would deploy the instant a PR merges rather than
+within a 5-minute window, but this repo is public, and a persistent
+Docker-socket-privileged runner is real attack surface on a public repo
+even when scoped to `push: main` only (GitHub's own guidance is explicit
+about this pattern). A poller adds nothing new to reach into this
+network — it's the same `git pull` + `docker compose` sequence already
+done by hand, just automated — and it's a closer match for where this
+project is actually headed: a pull-based reconciliation loop is
+conceptually the same model ArgoCD will run once the k3s work in Phase 6
+lands, just hand-rolled against Compose instead of Kubernetes. A runner
+would be a pattern to throw away at that point rather than build on.
+
+**Scope, deliberately broad**: this redeploys after *any* merge to
+`main`, not just Renovate dependency bumps — including hand-written
+feature commits that would otherwise get a manual browser check before
+going live. That trade-off was made consciously in favor of the
+faster feedback loop; the failure alert below exists specifically
+because of it.
+
+**Runs as `ruan`, not root** (a deliberate deviation from every other
+script in this section, which run as root by default under systemd):
+the repo checkout at `/DATA/Infrastructure/homelab` is owned by `ruan`
+from the normal manual-pull workflow, and running `git pull` as root
+here would leave root-owned objects behind that break `ruan`'s next
+manual pull. This assumes `ruan` is already in the `docker` group
+(true today, since `ruan` already runs `docker compose` by hand) —
+worth reconfirming with `groups ruan` if this is ever recreated on a
+rebuilt box. **`ruan` has no group of its own** — `id ruan` shows
+`uid=999(ruan) gid=1000(samba) groups=1000(samba),10(wheel),104(docker)`,
+the same non-standard UID that already caught out Prefetcharr
+(`services/prefetcharr/README.md`'s `chown` note) — its primary group is `samba`,
+not a dedicated `ruan` group, so any ownership fix for this user has to
+target `ruan:samba`, not `ruan:ruan`.
+
+**Caught live on first install, 2026-09-03**: every other script in
+this section writes into `/DATA/Infrastructure/node-exporter/
+textfile_collector/` as root (systemd's default), so nothing had ever
+exercised that directory's permissions for a non-root writer before.
+It's `root:root`, mode `755` — `write_status()` failed with `Permission
+denied` the first time this script (running as `ruan`) actually reached
+that code path. Worse, it failed silently in the sense that mattered
+most: `write_status` is exactly the call that would have reported the
+failure to Grafana/ntfy, so a real deploy failure here would have gone
+completely unalerted. Fixed by `chown`ing the directory to `ruan`, not
+by loosening its mode — root-run scripts keep writing into it exactly
+as before, since root ignores directory ownership. The `chown` line
+below is part of a from-scratch install now, not a separate step.
+
+**Second bug, caught 2026-09-13 — `docker` needs its own `$HOME`.**
+This script runs `docker compose` as `ruan`, and ZimaOS sets `HOME=/DATA`
+for every user (see "HOME Directory" above) — but `/DATA` isn't writable
+by non-root users. Docker's client looks for `$HOME/.docker/config.json`,
+i.e. `/DATA/.docker/config.json`, which `ruan` can't even read; the
+resulting failure doesn't surface as a clean permission error, it
+cascades into a garbled top-level `docker: unknown flag: --quiet` since
+docker never gets far enough to dispatch into the `compose` plugin.
+**Do not fix this by `chown`ing `/DATA/.docker`** — that path is not a
+small per-user config directory. `mount` shows it as a *second* overlay
+mount of Docker's entire real data-root (identical `lowerdir`/`upperdir`/
+`workdir` to `/var/lib/docker/overlay2/*`), so a recursive `chown` on it
+forces overlayfs to copy up every file in every running container's
+image just to relabel it — caught live when exactly that command sat in
+uninterruptible I/O wait for 5+ minutes before being killed. The actual
+fix is to keep docker's config off `/DATA` entirely via `DOCKER_CONFIG`,
+folded into the script below.
+
+**State**: the last-deployed commit SHA lives at
+`/DATA/Infrastructure/homelab-deploy/last-deployed.sha` — outside the
+git repo since it's server-local runtime state, not something to
+commit. First run seeds this to the current `HEAD` and deploys nothing,
+so installing this doesn't trigger a mass redeploy of every already-running
+service. The pointer only advances past a commit once every service
+that commit touched came up cleanly; a partial failure leaves it in
+place so the failed service (and only that one, redundantly re-pulling
+the others is harmless) gets retried on the next poll.
+
+**Health check is intentionally shallow**: after `docker compose up -d`,
+it waits 5 seconds and checks for exited/dead containers — not a real
+readiness probe. Good enough to catch a crash-looping image, not a
+service that starts but is otherwise broken. No systemd-level
+concurrency guard either (no lock file) — a unit systemd is already
+running can't be started a second time by its own timer, and a deploy
+here finishes in well under the 5-minute poll interval regardless.
+
+**Alerting reuses the existing observability path** rather than the
+script calling out to ntfy directly: it writes a `homelab_deploy_failed`
+gauge (1/0, a stateless snapshot each run, same pattern as
+`zimaos_backlight_on` above) into node-exporter's textfile collector,
+and a Grafana alert rule (`homelab_deploy_failed` in
+`services/grafana/config/provisioning/alerting/rules.yaml`) fires
+through the same `ntfy` contact point every other alert in this repo
+already uses. This also means deploy failures show up alongside every
+other host signal in Grafana, not in a channel of their own.
+
+Recreate on a rebuild:
+
+```bash
+mkdir -p /DATA/Infrastructure/homelab-deploy
+
+# textfile_collector is root:root by default (every other writer into it
+# runs as root) -- ruan needs write access for write_status() below, and
+# ruan's group is samba, not a ruan group (see the note above)
+sudo chown ruan:samba /DATA/Infrastructure/node-exporter/textfile_collector
+
+sudo tee /etc/systemd/system/homelab-deploy.sh > /dev/null <<'EOF'
+#!/bin/sh
+# Polls origin/main, and when it has moved, redeploys only the service
+# directories that changed between the last-deployed commit and the new
+# one. See docs/zimaos.md's "Auto-Deploy on Merge to Main" section for
+# the full reasoning (why a poller, why it runs as ruan, why the health
+# check is shallow).
+set -eu
+
+REPO_DIR=/DATA/Infrastructure/homelab
+STATE_DIR=/DATA/Infrastructure/homelab-deploy
+LAST_SHA_FILE="$STATE_DIR/last-deployed.sha"
+TEXTFILE_DIR=/DATA/Infrastructure/node-exporter/textfile_collector
+# ruan's $HOME is /DATA (a ZimaOS default), and /DATA isn't writable by
+# non-root users -- keep docker's client config off it entirely rather
+# than let it fall back to the unreadable /DATA/.docker (see the note
+# above; never chown that path, it's Docker's real data-root in disguise)
+export DOCKER_CONFIG="$STATE_DIR/.docker"
+
+mkdir -p "$STATE_DIR" "$TEXTFILE_DIR" "$DOCKER_CONFIG"
+
+write_status() {
+  {
+    echo "# HELP homelab_deploy_failed Whether the most recent auto-deploy run failed (1) or succeeded (0)"
+    echo "# TYPE homelab_deploy_failed gauge"
+    echo "homelab_deploy_failed $1"
+  } > "$TEXTFILE_DIR/homelab_deploy.prom.tmp"
+  mv "$TEXTFILE_DIR/homelab_deploy.prom.tmp" "$TEXTFILE_DIR/homelab_deploy.prom"
+}
+
+cd "$REPO_DIR"
+git fetch origin main --quiet
+
+NEW_SHA=$(git rev-parse origin/main)
+
+if [ ! -f "$LAST_SHA_FILE" ]; then
+  git rev-parse HEAD > "$LAST_SHA_FILE"
+  logger -t homelab-deploy "First run -- baselined to $(cat "$LAST_SHA_FILE"), nothing deployed"
+  exit 0
+fi
+
+LAST_SHA=$(cat "$LAST_SHA_FILE")
+[ "$NEW_SHA" = "$LAST_SHA" ] && exit 0
+
+CHANGED_SERVICES=$(git diff --name-only "$LAST_SHA" "$NEW_SHA" -- services/ | awk -F/ '{print $2}' | sort -u)
+
+if [ -z "$CHANGED_SERVICES" ]; then
+  echo "$NEW_SHA" > "$LAST_SHA_FILE"
+  exit 0
+fi
+
+if ! git pull --ff-only origin main --quiet; then
+  logger -t homelab-deploy "git pull --ff-only failed -- local checkout has diverged, needs manual attention"
+  write_status 1
+  exit 1
+fi
+
+FAILED=0
+for svc in $CHANGED_SERVICES; do
+  svc_dir="$REPO_DIR/services/$svc"
+  [ -d "$svc_dir" ] || continue
+  logger -t homelab-deploy "Deploying $svc"
+  if ! (cd "$svc_dir" && docker compose pull --quiet && docker compose up -d --remove-orphans); then
+    logger -t homelab-deploy "FAILED to deploy $svc"
+    FAILED=1
+    continue
+  fi
+  sleep 5
+  if [ -n "$(cd "$svc_dir" && docker compose ps --status exited --status dead -q)" ]; then
+    logger -t homelab-deploy "$svc has exited/dead containers after deploy"
+    FAILED=1
+  fi
+done
+
+write_status "$FAILED"
+
+if [ "$FAILED" -eq 0 ]; then
+  echo "$NEW_SHA" > "$LAST_SHA_FILE"
+  logger -t homelab-deploy "Deployed: $CHANGED_SERVICES (now at $NEW_SHA)"
+else
+  logger -t homelab-deploy "One or more services failed -- not advancing state, will retry next run"
+fi
+EOF
+sudo chmod +x /etc/systemd/system/homelab-deploy.sh
+
+sudo tee /etc/systemd/system/homelab-deploy.service > /dev/null <<'EOF'
+[Unit]
+Description=Auto-deploy homelab services after a merge to main (redeploys only what changed)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ruan
+ExecStart=/bin/sh /etc/systemd/system/homelab-deploy.sh
+EOF
+
+sudo tee /etc/systemd/system/homelab-deploy.timer > /dev/null <<'EOF'
+[Unit]
+Description=Run homelab-deploy.service every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=homelab-deploy.service
+
+[Install]
+WantedBy=timers.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now homelab-deploy.timer
+```
+
+**Verify**:
+
+```bash
+sudo systemctl list-timers homelab-deploy.timer
+cat /DATA/Infrastructure/homelab-deploy/last-deployed.sha
+journalctl -u homelab-deploy.service -n 50 --no-pager
+cat /DATA/Infrastructure/node-exporter/textfile_collector/homelab_deploy.prom
+curl -s http://127.0.0.1:9100/metrics | grep homelab_deploy_failed
+groups ruan   # confirm docker-group membership before relying on this
+```
+
+To pause auto-deploy temporarily (e.g. mid-investigation of something
+unrelated) without losing the timer config:
+`sudo systemctl stop homelab-deploy.timer`, then
+`sudo systemctl start homelab-deploy.timer` to resume — the state file
+means it picks up exactly where it left off, it won't replay every
+commit merged while paused.
+
 ## Developer Bootstrap
 
 To provide a standard Linux developer experience, this project redirects developer tooling using:
