@@ -1,0 +1,43 @@
+services:
+  trailarr:
+    image: nandyalu/trailarr:0.12.1
+    container_name: trailarr
+    restart: unless-stopped
+    # No cAdvisor history yet -- a guess, not a measurement. Higher than
+    # Radarr/Sonarr's 512m (docs/conventions.md) because Trailarr runs
+    # ffmpeg to convert downloaded trailers, unlike those two, but nowhere
+    # near Jellyfin's 4g since it's short clips, not sustained streaming.
+    # Revisit after ~1-2 weeks using cAdvisor's real peak, same as every
+    # other service here.
+    mem_limit: 1g
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Africa/Johannesburg}
+    ports:
+      - "${TRAILARR_PORT:-7889}:7889"
+    volumes:
+      - /DATA/AppData/trailarr/config:/config
+      # Same host paths and container-internal paths as Radarr's /movies
+      # and Sonarr's /tv (services/radarr/compose.yml,
+      # services/sonarr/compose.yml) -- required so Trailarr's path
+      # mapping to those *arr instances is a straight passthrough, no
+      # translation needed. Read-write, matching Radarr/Sonarr's own
+      # posture on this tree (Jellyfin is the only read-only mount here) --
+      # Trailarr writes trailer files as new siblings next to the movie/
+      # episode files, it doesn't touch the media files themselves.
+      - /DATA/AppData/media-library/movies:/movies
+      - /DATA/AppData/media-library/tv:/tv
+    # Intel QuickSync via VAAPI, same /dev/dri passthrough as
+    # services/jellyfin/compose.yml -- speeds up the ffmpeg conversion
+    # step after download. See README's "Hardware Acceleration" section.
+    devices:
+      - /dev/dri:/dev/dri

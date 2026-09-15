@@ -179,6 +179,7 @@ table.
 | 3002 | Grafana |
 | 5055 | Seerr |
 | 7878 | Radarr |
+| 7889 | Trailarr |
 | 8080 | cAdvisor |
 | 8096 | Jellyfin |
 | 8123 | Home Assistant |
