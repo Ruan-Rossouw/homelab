@@ -210,6 +210,63 @@ remote-backed filesystem under `/DATA/AppData` needs the same exclude
 treatment added to both Backrest Plans *before* its first scheduled
 backup run, not discovered the way this one was.
 
+## Incident: Backup Drive Mount Lost on Reconnect (2026-09-16)
+
+**Symptom**: Grafana's "Backup Drive Capacity High" alert fired, reporting
+`/DATA/Backup` above 90% full. The actual repo, once found, was at 19%
+used (174G of 932G) — not a capacity problem at all.
+
+**Root cause**: the `ExtHD-1TB` drive (`UUID=6A64-686E`) physically
+disconnected and reconnected (exact trigger unconfirmed — cable/USB port
+flake is the leading suspect; `dmesg`'s ring buffer had already rotated
+past the event by the time this was investigated). On reconnect, ZimaOS's
+CasaOS storage manager auto-claimed the drive and mounted it at its own
+path (`/DATA/.media/ExtHD-1TB`) instead of `/etc/fstab`'s `/DATA/Backup`.
+`sudo mount -a` did not correct this; an explicit
+`mount -v UUID=6A64-686E /DATA/Backup` was required to win the mountpoint
+back. Meanwhile, Docker's default behavior for a missing bind-mount
+source — silently creating an empty directory instead of failing — meant
+Backrest's container had been bind-mounting an empty folder on the
+internal drive the whole time, not erroring loudly.
+
+This is the same class of risk as `storage.md`'s dual-mount note
+(ZimaOS's storage service managing drives independently of `/etc/fstab`),
+previously seen 2026-07-31 as a stale *container* bind mount fixable with
+a `docker restart`. This time the drive was genuinely absent from the
+kernel first, so the fix needed a host-level remount before the container
+restart would help.
+
+**Why the alert was misleading**: the rule's query
+(`node_filesystem_avail_bytes{mountpoint="/DATA/Backup"}`) has no series
+to evaluate once that mountpoint stops existing, so the rule fired on
+`NoData` rather than the real `>90%` threshold — but Grafana sends the
+same static `summary` annotation text either way, so the notification
+read "above 90% full" regardless of which condition actually fired. Fixed
+by rewording both this rule and the equivalent `/DATA/Media` rule (same
+external-drive dual-mount exposure) to name the NoData case explicitly
+and point at `df -h` as the first diagnostic step, rather than sending
+the reader straight into capacity theories.
+
+**Impact**: `homelab-nightly` (local) had no successful run from roughly
+2026-09-06 (last modified timestamp on the repo's `index`/`snapshots`
+directories) through 2026-09-16 — about 10 days of missed local backups.
+`homelab-offsite-nightly` (B2), which targets a completely independent
+repository, ran successfully the entire time — the 3-2-1 policy's offsite
+leg was never actually at risk, only the local leg.
+
+**Fix**: manual remount (`mount -v UUID=6A64-686E /DATA/Backup`),
+`docker restart backrest` to refresh its bind mount onto the real drive,
+confirmed the repo (`config`/`data`/`keys`/`snapshots`) was intact and
+untouched, then a manual **Backup Now** run on `homelab-nightly` to close
+the gap immediately rather than waiting for the next scheduled run.
+
+**Not yet done, deliberately**: no automated detection or self-healing
+for "the drive is present but mounted in the wrong place" — considered
+(a systemd timer checking `/DATA/Backup`'s actual device against the
+expected UUID and re-mounting/restarting Backrest if it drifts, same
+pattern as the existing `smart-textfile.timer`) but deferred to keep this
+fix scoped to alert-wording clarity. Revisit if this recurs.
+
 ## Known Limitations
 
 - **Offsite copy exists but is only partially verified.** `B2-offsite-repo`

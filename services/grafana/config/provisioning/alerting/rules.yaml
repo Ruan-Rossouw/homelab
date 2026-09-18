@@ -151,7 +151,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "/DATA/Backup is above 90% full."
+          summary: "/DATA/Backup is either above 90% full, or its mountpoint has disappeared (this rule also fires on NoData). Run `df -h /DATA/Backup` first -- if the device isn't the ~932G exFAT drive, it's unmounted, not full. See docs/backup.md's 2026-09-16 incident."
         data:
           - refId: A
             relativeTimeRange:
@@ -491,7 +491,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "/DATA/Media is above 90% full -- the most actively growing volume via Radarr/Sonarr/Decypharr."
+          summary: "/DATA/Media is either above 90% full (the most actively growing volume via Radarr/Sonarr/Decypharr), or its mountpoint has disappeared (this rule also fires on NoData). Run `df -h /DATA/Media` first -- if the device isn't the ~1.9T NTFS drive, it's unmounted, not full."
         data:
           - refId: A
             relativeTimeRange:
