@@ -5,6 +5,13 @@ services:
     restart: unless-stopped
     mem_limit: 3g
     pids_limit: 512
+    environment:
+      # PUID/PGID=0: keeps the container's own process at root instead of
+      # letting entrypoint.sh's `su-exec $PUID:$PGID` drop it to UID 1000
+      # before the FUSE mount attempt. See README "FUSE Mount Broken by
+      # Kernel Update" for why that drop matters here.
+      - PUID=0
+      - PGID=0
     logging:
       driver: json-file
       options:

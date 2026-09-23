@@ -59,6 +59,36 @@ looked completely normal via `ls`). Do not re-add `no-new-privileges` to
 this service without a different mount backend that doesn't shell out to
 `fusermount3`.
 
+**`PUID`/`PGID` are pinned to `0` (root), overriding the image's own
+default of `1000`.** Confirmed by a second, distinct incident, first
+noticed 2026-09-22 and root-caused 2026-09-23: the exact same symptom as
+above (`fusermount3: mount failed: Operation not permitted`, container
+silently "healthy" with no mount, dangling symlinks across the whole
+library) recurred a month later with `no-new-privileges` still correctly
+absent. Root cause this time was upstream of this repo entirely — ZimaOS
+1.6.2 (applied at a host reboot on 2026-09-15) bumped the kernel to
+6.18.9 as part of a stated "security hardening" pass. Decypharr's own
+`scripts/entrypoint.sh` always starts as root, then runs
+`exec su-exec "$PUID:$PGID" "$@"` to drop to the low-privilege runtime
+user *before* attempting the mount — and on the new kernel, that
+root-to-non-root transition clears the process's effective/permitted
+capabilities (`CapEff`/`CapPrm` both went to `0000000000000000`, verified
+via `docker exec decypharr cat /proc/1/status`) despite `CapBnd` still
+correctly showing `SYS_ADMIN` from `cap_add`. `fusermount3` itself isn't
+setuid in this image (`-rwxr-xr-x`, non-root-owned), so it has nothing to
+fall back on once the inherited capability is gone. Setting `PUID=0`/
+`PGID=0` makes `su-exec` switch root→root, a no-op, so the
+capability-clearing transition never happens — confirmed fixed
+2026-09-23 (`CapEff` matched `CapBnd` post-fix, DFS mount populated with
+402 entries, Jellyfin saw the same count through the bind mount). Not
+revisited as a security posture question yet: running this one container
+fully as root vs. UID 1000 is a real trade-off, but restoring playback
+took priority over resolving that trade-off in the moment — worth
+reconsidering once a working non-root alternative exists (e.g. a
+mount backend that doesn't require this specific `su-exec` sequencing,
+or an upstream fix that re-adds ambient-capability preservation across
+the drop).
+
 ## Port: 8282
 
 See [`docs/networking.md`](../../docs/networking.md#port-map) for the
