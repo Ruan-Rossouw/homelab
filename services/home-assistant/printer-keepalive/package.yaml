@@ -1,0 +1,63 @@
+# Epson L3350 keep-alive: print a colour page if nothing has printed lately,
+# so the ink in the lines never sits long enough to dry out. See the
+# "Stage 5" section of services/home-assistant/README.md.
+
+input_datetime:
+  printer_last_print:
+    name: Printer last print
+    has_date: true
+    has_time: true
+    initial: "2026-10-04 12:00:00"  # only used on first creation
+
+shell_command:
+  # Prints {stdout, stderr, returncode} for the automation below.
+  printer_keepalive_print: python3 /config/printer-keepalive/print_purge.py 192.168.68.106
+
+automation:
+  - id: printer_record_print
+    alias: Printer - record last print
+    description: Stamp the helper whenever the printer actually prints, from any device.
+    triggers:
+      - trigger: state
+        entity_id: sensor.epson_l3350_series
+        to: printing
+        for: "00:00:05"  # ignore sub-5s blips such as power-on housekeeping
+    actions:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.printer_last_print
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  - id: printer_keepalive
+    alias: Printer - keep-alive print
+    description: Print the colour page if nothing has printed for 10 days.
+    triggers:
+      - trigger: time
+        at: "10:00:00"
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ now().timestamp()
+             - as_timestamp(states('input_datetime.printer_last_print'), 0)
+             > 10 * 86400 }}
+    actions:
+      - action: shell_command.printer_keepalive_print
+        response_variable: result
+      - choose:
+          - conditions: "{{ result.returncode == 0 }}"
+            sequence:
+              - action: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.printer_last_print
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+        default:
+          - action: persistent_notification.create
+            data:
+              title: Printer keep-alive failed
+              message: >-
+                The L3350 keep-alive print did not go through (exit
+                {{ result.returncode }}): {{ result.stdout }} {{ result.stderr }}.
+                Check it is on and has paper. It will retry tomorrow at 10:00.
+    mode: single
