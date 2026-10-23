@@ -283,6 +283,49 @@ another card for this instance — it captures the native-styling
 conventions, the shared-date-picker mechanism, and a few wrong guesses
 already corrected once, so they don't need re-discovering.
 
+## Stage 5: Printer Keep-Alive — Epson L3350 (2026-10-04)
+
+The previous Epson died of dried ink in the lines after sitting unused for
+months. An EcoTank's printhead only stays healthy if ink moves through it,
+so this prints a full-colour page whenever nothing has printed for 10 days.
+
+**Detection.** The IPP integration (`sensor.epson_l3350_series`, states
+`idle` / `printing` / `stopped`) is the only activity signal: the L3350
+reports no page counter, and its ink `marker-levels` are `-2` (unknown), as
+on most EcoTanks. An automation stamps `input_datetime.printer_last_print`
+whenever the sensor sits in `printing` for 5 seconds, so prints from any
+phone or laptop count. HA being down means missed prints, which only ever
+causes an unneeded purge, the safe direction to fail.
+
+**Sending the job.** Home Assistant has no print action, so
+`printer-keepalive/print_purge.py` (stdlib only, runs in the stock HA
+container) posts an IPP `Print-Job` carrying `purge-page.jpg`. Two things
+learned from probing the printer directly:
+
+- It only accepts **JPEG, URF, PWG-raster or Epson ESC/P-R**, not PDF, hence
+  the pre-rendered JPEG (A4 at 300 dpi, solid C/M/Y/K bands, each spanning
+  the full width so every nozzle fires).
+- It **refuses plain HTTP on 631 (426 Upgrade Required)**, so the script
+  uses TLS with certificate verification off (self-signed, fixed LAN IP).
+
+`python3 print_purge.py 192.168.68.106 --validate` sends `Validate-Job`
+instead: the printer confirms it would accept the job, nothing prints.
+
+**Wiring.** `compose.yml` bind-mounts `./printer-keepalive` read-only at
+`/config/printer-keepalive`. The helper, `shell_command` and both
+automations live in `printer-keepalive/package.yaml`, loaded as a package.
+Add to `configuration.yaml` (merge into an existing `homeassistant:` key):
+
+```yaml
+homeassistant:
+  packages:
+    printer_keepalive: !include printer-keepalive/package.yaml
+```
+
+A failed print (printer off, no paper) raises a persistent notification in
+HA and retries the next day at 10:00. The printer's IP should be reserved
+in the Deco app, since the package hardcodes `192.168.68.106`.
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
