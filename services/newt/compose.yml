@@ -1,0 +1,24 @@
+services:
+  newt:
+    # Pinned to the latest release as of 2026-09-13 -- Renovate tracks this
+    # like every other image in this repo.
+    image: fosrl/newt:1.16.0
+    container_name: newt
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    # No PUID/PGID: Newt has no such option, but unlike AdGuard/Caddy's
+    # privileged-port cases, it doesn't need root either -- runs in
+    # userspace with no elevated capabilities (confirmed against the
+    # upstream compose example: no cap_add, devices, or privileged flags).
+    environment:
+      - PANGOLIN_ENDPOINT=${PANGOLIN_ENDPOINT}
+      - NEWT_ID=${NEWT_ID}
+      - NEWT_SECRET=${NEWT_SECRET}
