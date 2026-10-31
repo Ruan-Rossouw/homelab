@@ -1,6 +1,6 @@
 services:
   decypharr:
-    image: cy01/blackhole:v2.5
+    image: cy01/blackhole:v2.7
     container_name: decypharr
     restart: unless-stopped
     mem_limit: 3g
