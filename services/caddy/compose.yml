@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2.11.7
+    image: caddy:2.11.9
     container_name: caddy
     restart: unless-stopped
     mem_limit: 128m
