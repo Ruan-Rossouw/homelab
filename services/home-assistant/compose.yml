@@ -17,3 +17,5 @@ services:
       - TZ=${TZ:-Africa/Johannesburg}
     volumes:
       - /DATA/AppData/home-assistant/config:/config
+      # Versioned keep-alive script/package, read-only; see README Stage 5
+      - ./printer-keepalive:/config/printer-keepalive:ro
