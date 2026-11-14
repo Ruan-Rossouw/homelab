@@ -59,8 +59,9 @@ looked completely normal via `ls`). Do not re-add `no-new-privileges` to
 this service without a different mount backend that doesn't shell out to
 `fusermount3`.
 
-**`PUID`/`PGID` are pinned to `0` (root), overriding the image's own
-default of `1000`.** Confirmed by a second, distinct incident, first
+**`PUID` is pinned to `0` (root), overriding the image's own default of
+`1000`; `PGID=1000` and `UMASK=002` are set separately (see the end of
+this section).** Confirmed by a second, distinct incident, first
 noticed 2026-09-22 and root-caused 2026-09-23: the exact same symptom as
 above (`fusermount3: mount failed: Operation not permitted`, container
 silently "healthy" with no mount, dangling symlinks across the whole
@@ -76,8 +77,8 @@ capabilities (`CapEff`/`CapPrm` both went to `0000000000000000`, verified
 via `docker exec decypharr cat /proc/1/status`) despite `CapBnd` still
 correctly showing `SYS_ADMIN` from `cap_add`. `fusermount3` itself isn't
 setuid in this image (`-rwxr-xr-x`, non-root-owned), so it has nothing to
-fall back on once the inherited capability is gone. Setting `PUID=0`/
-`PGID=0` makes `su-exec` switch root→root, a no-op, so the
+fall back on once the inherited capability is gone. Setting `PUID=0`
+makes `su-exec` switch root→root, a no-op, so the
 capability-clearing transition never happens — confirmed fixed
 2026-09-23 (`CapEff` matched `CapBnd` post-fix, DFS mount populated with
 402 entries, Jellyfin saw the same count through the bind mount). Not
@@ -88,6 +89,16 @@ reconsidering once a working non-root alternative exists (e.g. a
 mount backend that doesn't require this specific `su-exec` sequencing,
 or an upstream fix that re-adds ambient-capability preservation across
 the drop).
+
+**`PGID=1000` and `UMASK=002` keep Sonarr/Radarr imports working.** With
+`PGID=0` and the default umask, everything Decypharr creates under
+`/downloads` is `root:root` mode `755`, which Sonarr/Radarr (running as
+`1000:1000`) can't write or delete into during import -- every new grab
+failed with `EACCES`. Only `PUID` needs to be `0` for the `su-exec`
+capability workaround above; matching the group to `1000` and making
+new files group-writable fixes the import failures without going fully
+world-writable. This was first applied directly on the server and is
+committed here so the checkout stops drifting from `main`.
 
 ## Port: 8282
 
