@@ -80,6 +80,16 @@ Prefetcharr's Rust logger trying to create the log file), so verify with
 `ls -la` that the directory actually shows `1000` as owner before starting
 the container, not just that the `chown` command returned.
 
+**`/tmp` is a tmpfs.** The image's `cmd.sh` writes the generated config to
+`/tmp/config.toml` on every start, and `/tmp` is sticky (`1777`). If that
+file in the container's writable layer ever ends up owned by another UID
+(here: `999`, `ruan`, from a manual `docker cp`/`exec` on 2026-08-22), the
+`1000:1000` process can't overwrite it. The container then runs until its
+next restart and fails with `can't create /tmp/config.toml: Permission
+denied`, which is what took it down on 2026-11-08. A tmpfs gives every
+start a clean `/tmp`. Don't `docker cp`/`exec` into this container as
+another user.
+
 ## Volumes
 
 - `/DATA/AppData/prefetcharr/log` → `/log` — Prefetcharr's own log file.

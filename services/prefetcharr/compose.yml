@@ -13,6 +13,12 @@ services:
     security_opt:
       - no-new-privileges:true
     user: "1000:1000"
+    # cmd.sh writes the config to /tmp/config.toml on every start. /tmp is
+    # sticky, so a stale copy owned by another UID in the container's
+    # writable layer makes the next restart fail with EACCES. A tmpfs gives
+    # every start a clean /tmp.
+    tmpfs:
+      - /tmp
     environment:
       - TZ=${TZ:-Africa/Johannesburg}
       - |
