@@ -1,6 +1,6 @@
 services:
   byparr:
-    image: ghcr.io/thephaseless/byparr:3.0.4
+    image: ghcr.io/thephaseless/byparr:3.1.1
     container_name: byparr
     restart: unless-stopped
     mem_limit: 2g
