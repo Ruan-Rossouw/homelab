@@ -160,7 +160,7 @@ confirmed routing to the `ntfy` contact point, contact point's own
 | Sustained High Load Average | >1.5x core count (8 cores) for 15min | Would have caught the 2026-07-30 backup I/O storm *faster* than CPU% alone — that incident's load average was wildly disproportionate to raw CPU usage, the actual tell that something was I/O-bound |
 | Backup Drive Capacity High | `/DATA/Backup` >90% full | Direct capacity alert |
 | Internal Drive Capacity High | `/DATA` >90% full | Increasingly relevant now that Renovate (`renovate.json`) drives regular image version bumps, each leaving the superseded image on disk until pruned |
-| Sustained Swap Usage | >80% for 15min | Usually the earlier warning sign, before a system gets as sluggish as the 2026-07-30 incident |
+| Sustained Swapping Activity | swap-in + swap-out >200 pages/s for 15min | Alerts on swap *activity*, not swap *fullness*. The old rule (swap >80% for 15min) flapped constantly (2026-11-16) because the box sits at ~75% swap with zero swap I/O (overcommitted container limits park idle pages in swap) -- full swap was normal, thrashing is the real early warning before a slowdown like 2026-07-30 |
 | Container Restart Loop | >2 restarts in 15min | cAdvisor has no direct restart-count metric (unlike Kubernetes' `kube_pod_container_status_restarts_total`) — detected indirectly via `changes(container_start_time_seconds[15m])`, since that gauge only changes value when a container actually restarts |
 
 **Contact point uses ntfy's native JSON publish API directly**
