@@ -279,7 +279,7 @@ groups:
                   type: query
 
       - uid: swap_pressure_sustained
-        title: Sustained Swap Usage
+        title: Sustained Swapping Activity
         condition: C
         for: 15m
         noDataState: NoData
@@ -287,7 +287,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Swap usage has been above 80% for 15+ minutes -- an early warning sign of memory pressure, often precedes the kind of slowdown seen in the 2026-07-30 backup incident."
+          summary: "The host has been actively swapping (swap-in plus swap-out above 200 pages/s) for 15+ minutes -- real memory pressure, the kind that precedes the slowdown seen in the 2026-07-30 backup incident. Swap merely being full is not alerted on: idle pages parked in swap are normal here."
         data:
           - refId: A
             relativeTimeRange:
@@ -298,7 +298,7 @@ groups:
               datasource:
                 type: prometheus
                 uid: prometheus
-              expr: '100 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes * 100)'
+              expr: 'rate(node_vmstat_pswpin[5m]) + rate(node_vmstat_pswpout[5m])'
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -336,7 +336,7 @@ groups:
               conditions:
                 - evaluator:
                     type: gt
-                    params: [80]
+                    params: [200]
                   operator:
                     type: and
                   query:
