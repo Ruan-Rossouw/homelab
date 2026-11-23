@@ -1,11 +1,13 @@
 package com.local.kiosk;
 
 import android.app.Activity;
+import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -27,6 +29,37 @@ public class KioskActivity extends Activity {
         }
     };
 
+    /**
+     * Screen control for the dashboard, exposed to JavaScript as
+     * `window.KioskBridge`. Only honoured while the page on screen is served
+     * from the configured Home Assistant host, so no other page the WebView
+     * might visit can drive the screen. Brightness is a per-window override;
+     * Android clamps it to the panel's own minimum (about 4% on this frame).
+     */
+    private class Bridge {
+        @JavascriptInterface public int version() { return 1; }
+
+        @JavascriptInterface public void setBrightness(final float level) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (!fromTrustedHost()) return;
+                    float v = Float.isNaN(level) ? 0.4f : Math.max(0f, Math.min(1f, level));
+                    WindowManager.LayoutParams lp = getWindow().getAttributes();
+                    lp.screenBrightness = v;
+                    getWindow().setAttributes(lp);
+                }
+            });
+        }
+    }
+
+    private boolean fromTrustedHost() {
+        String current = web.getUrl();
+        if (current == null) return false;
+        String host = Uri.parse(current).getHost();
+        String expected = Uri.parse(url).getHost();
+        return host != null && host.equals(expected);
+    }
+
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -38,6 +71,7 @@ public class KioskActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        web.addJavascriptInterface(new Bridge(), "KioskBridge");
         web.setWebChromeClient(new WebChromeClient());
         web.setBackgroundColor(0xFF000000);
         web.setWebViewClient(new WebViewClient() {
