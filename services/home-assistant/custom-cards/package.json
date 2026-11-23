@@ -4,7 +4,7 @@
   "description": "Build for this directory's Home Assistant Lovelace cards — see CLAUDE.md.",
   "scripts": {
     "build": "esbuild src/energy-cost-card.js --bundle --format=iife --outfile=energy-cost-card.js && esbuild src/energy-cost-breakdown-card.js --bundle --format=iife --outfile=energy-cost-breakdown-card.js && esbuild src/energy-cost-stat-card.js --bundle --format=iife --outfile=energy-cost-stat-card.js && esbuild src/wall-panel-card.js --bundle --format=iife --outfile=wall-panel-card.js",
-    "test": "node --no-warnings --test src/lib/*.test.js"
+    "test": "node --no-warnings --test src/lib/*.test.js src/*.test.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
