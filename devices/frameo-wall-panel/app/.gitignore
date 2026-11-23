@@ -1,0 +1,7 @@
+# Build output and the signing key must never be committed.
+out/
+*.apk
+*.idsig
+*.keystore
+# Copied from the local mkcert CA at build time (see build.sh).
+res/raw/
