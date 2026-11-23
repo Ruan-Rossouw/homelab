@@ -283,6 +283,71 @@ another card for this instance — it captures the native-styling
 conventions, the shared-date-picker mechanism, and a few wrong guesses
 already corrected once, so they don't need re-discovering.
 
+## Stage 5: Wall Panel — Scene-Driven Display Card
+
+A second kind of custom card, unlike the energy ones: `custom-cards/wall-panel-card.js`
+drives the always-on lounge display (the Frameo kiosk in
+[`devices/frameo-wall-panel`](../../devices/frameo-wall-panel/README.md))
+from what is happening in the house. One card, seven scenes, picked in
+priority order from live entity state:
+
+| Scene | Triggered by | Shows | Backlight |
+|---|---|---|---|
+| `cinema` | a video is playing on the Apple TV | black | minimum |
+| `music` | the HomePod (or the TV) is playing music | album art, track, progress | 15% |
+| `browsing` | the Apple TV is paused or idle | poster/artwork, title, progress | 15% |
+| `sleep` | night window and the TV is off | black | minimum |
+| `away` | nobody is `home` | dim clock | 5% |
+| `morning` | morning window | greeting, clock, weather, power tiles | 17% |
+| `day` | otherwise | clock, weather, battery, grid, geyser | 17% |
+
+Media always wins over the clock: starting a film at 01:00 goes to
+`cinema`, not back to `sleep`. Each scene has a hold time (cinema 5 s,
+browsing 8 s, music/day 3 s, away 30 s) so a short pause or an app switch
+doesn't flash the panel. The scene logic is pure and unit-tested
+(`npm test` in `custom-cards/`, `src/lib/panel-scene.js`).
+
+Same no-helper-entities pattern as the energy cards (see
+`custom-cards/CLAUDE.md`): nothing is created in HA, the card reads the
+entities named in its own config. Unlike them it does hardcode no IDs,
+so a different room is just a different YAML block.
+
+Deploy and register exactly like the energy cards:
+
+```bash
+cp services/home-assistant/custom-cards/wall-panel-card.js \
+   /DATA/AppData/home-assistant/config/www/custom-cards/wall-panel-card.js
+```
+
+Add a Lovelace resource `/local/custom-cards/wall-panel-card.js` (type
+"JavaScript Module"), then put the card on a dedicated **panel-mode**
+dashboard (one view, one card) that only the panel's non-admin user opens:
+
+```yaml
+type: custom:wall-panel-card
+tv: media_player.living_room_4_living_room_4
+music:
+  - media_player.kitchen_homepod
+people:
+  - person.ruan
+  - person.mieks
+weather: weather.forecast_home
+battery: sensor.luxpower_inverter_battery_battery_soc
+grid: binary_sensor.luxpower_inverter_grid_grid_connected
+geyser: sensor.geyser_power
+sleep: { start: "22:30", end: "06:00" }
+morning: { start: "06:00", end: "10:00" }
+```
+
+Optional keys: `brightness` (per-scene 0–1), `hold_ms` (per-scene),
+`sleep_clock: true` (dim clock instead of pure black while sleeping).
+
+The card is `position: fixed` over the whole viewport so it covers HA's
+header; the sidebar should also be hidden for that user (Profile → "Always
+hide the sidebar"). If the panel is used in the lounge, the backlight is
+driven through the kiosk app's `KioskBridge` — a no-op in any other
+browser.
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home

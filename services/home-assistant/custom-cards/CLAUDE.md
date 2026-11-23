@@ -291,3 +291,15 @@ the generic code.
 every pattern above — when in doubt, read it before re-deriving something
 from scratch. Edit source under `src/`, never the generated top-level
 `.js` files directly — see "Minimizing duplication" for the build step.
+
+## Wall panel card (not an energy card)
+
+`wall-panel-card.js` is a different kind of card from the energy ones: it
+does not touch the Energy collection at all. It reads the entities named
+in its config and renders full-screen scenes. Two rules specific to it:
+
+- Scene logic lives in `src/lib/panel-scene.js` and is pure; test it with
+  `npm test`. Keep DOM and `hass` objects out of that file.
+- A scene that is being *held* (hysteresis) must keep showing its own last
+  source, not a fresh lookup — see `_lastSources`. A fresh lookup showed the
+  paused film's artwork under a "Now playing" music label during the hold.
