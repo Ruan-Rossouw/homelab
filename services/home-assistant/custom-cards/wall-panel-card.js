@@ -70,6 +70,40 @@
     }
     return { scene: state.scene, candidate, candidateSince };
   }
+  function parseJellyfin(entity) {
+    if (!entity || entity.state !== "playing" && entity.state !== "paused") return null;
+    let d = entity.attributes?.data;
+    if (typeof d === "string") {
+      try {
+        d = JSON.parse(d);
+      } catch (e) {
+        return null;
+      }
+    }
+    if (!d || typeof d !== "object" || !d.title) return null;
+    return d;
+  }
+  var norm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  function matchesJellyfin(tv, jf) {
+    if (!tv || !jf) return false;
+    if (tv.state !== "playing" && tv.state !== "paused") return false;
+    const t = norm(tv.attributes?.media_title);
+    if (!t) return false;
+    return t === norm(jf.title) || t === norm(jf.episode_title);
+  }
+  function jellyfinFacts(jf) {
+    const parts = [];
+    if (jf.season != null) parts.push(`S${jf.season}`);
+    if (jf.episode != null) parts.push(`E${jf.episode}`);
+    if (jf.episode_title) parts.push(jf.episode_title);
+    const chips = [];
+    if (jf.year) chips.push(String(jf.year));
+    if (jf.rating != null) chips.push(`\u2605 ${jf.rating}`);
+    if (jf.runtime_min) chips.push(`${jf.runtime_min} min`);
+    if (jf.official_rating) chips.push(jf.official_rating);
+    if (Array.isArray(jf.genres) && jf.genres.length) chips.push(jf.genres.slice(0, 2).join(" \xB7 "));
+    return { line: parts.join(" \xB7 "), chips };
+  }
 
   // src/wall-panel-card.js
   var DEFAULT_BRIGHTNESS = {
@@ -143,6 +177,12 @@
   .progress { margin-top: 36px; }
   .progress .bar { height: 8px; }
   .progress .times { display: flex; justify-content: space-between; font-size: 22px; opacity: 0.6; margin-top: 10px; }
+  .media.desc .title { font-size: 60px; -webkit-line-clamp: 2; }
+  .media.desc .progress { margin-top: 26px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+  .chip { padding: 6px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.12); font-size: 22px; letter-spacing: 0.5px; }
+  .overview { font-size: 26px; line-height: 1.35; opacity: 0.8; margin-top: 22px;
+              display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
   .badge { display: inline-block; margin-top: 26px; padding: 8px 20px; border-radius: 22px;
            background: rgba(255,255,255,0.14); font-size: 24px; letter-spacing: 1px; }
   .corner { position: absolute; right: 72px; bottom: 44px; }
@@ -253,6 +293,13 @@
       const shown = this._sceneState.scene;
       this._render(shown, shown === scene ? source : this._lastSources[shown] || null, now);
     }
+    // Jellyfin's description and poster, only when it is clearly what the TV shows.
+    _matchedJellyfin(tv) {
+      const id = this._config.jellyfin;
+      if (!id) return null;
+      const jf = parseJellyfin(this._entity(id));
+      return jf && matchesJellyfin(tv, jf) ? jf : null;
+    }
     _artUrl(entity) {
       const pic = entity?.attributes?.entity_picture_local || entity?.attributes?.entity_picture;
       if (!pic) return "";
@@ -270,7 +317,8 @@
     }
     _render(scene, source, now) {
       const c = this._config;
-      const art = this._artUrl(source);
+      const jf = scene === "browsing" ? this._matchedJellyfin(source) : null;
+      const art = jf && jf.poster || this._artUrl(source);
       const progressBucket = Math.floor(now.getTime() / 15e3);
       const key = [
         scene,
@@ -279,6 +327,7 @@
         source?.state,
         source?.attributes?.media_title,
         scene === "music" || scene === "browsing" ? progressBucket : 0,
+        jf ? `${jf.title}|${jf.episode}|${(jf.overview || "").length}` : "",
         this._summaryKey()
       ].join("|");
       if (key === this._renderedKey) return;
@@ -292,7 +341,7 @@
         day: () => this._summary(now, false),
         morning: () => this._summary(now, true),
         music: () => this._nowPlaying(source, now, "music"),
-        browsing: () => this._nowPlaying(source, now, "browsing")
+        browsing: () => this._nowPlaying(source, now, "browsing", jf)
       }[scene]();
       const layerFor = {
         day: "bg-day",
@@ -419,12 +468,13 @@
       </div>
       ${tiles.length ? `<div class="row">${tiles.join("")}</div>` : ""}`;
     }
-    _nowPlaying(source, now, kind) {
+    _nowPlaying(source, now, kind, jf = null) {
       const a = source?.attributes || {};
       const art = this._artUrl(source);
       const isMusic = kind === "music";
-      const title = a.media_title || (isMusic ? "Playing" : a.app_name || "Apple TV");
-      const sub = isMusic ? a.media_artist || "" : a.media_series_title || a.media_artist || a.app_name || "";
+      const facts = jf ? jellyfinFacts(jf) : null;
+      const title = jf ? jf.title : a.media_title || (isMusic ? "Playing" : a.app_name || "Apple TV");
+      const sub = facts ? facts.line : isMusic ? a.media_artist || "" : a.media_series_title || a.media_artist || a.app_name || "";
       const album = isMusic ? a.media_album_name || "" : "";
       const where = isMusic ? source?.attributes?.friendly_name || "" : a.app_name || "";
       const dur = Number(a.media_duration);
@@ -437,13 +487,15 @@
       const kicker = isMusic ? "Now playing" : source?.state === "paused" ? "Paused" : a.app_name || "Apple TV";
       const shape = !art ? "none" : this._shapes[art] || (isMusic ? "square" : "poster");
       return `
-      <div class="media ${shape}">
+      <div class="media ${shape}${jf ? " desc" : ""}">
         <div class="art"></div>
         <div class="meta">
           <div class="kicker">${esc(kicker)}</div>
           <div class="title">${esc(title)}</div>
           ${sub ? `<div class="artist">${esc(sub)}</div>` : ""}
           ${album ? `<div class="album">${esc(album)}</div>` : ""}
+          ${facts && facts.chips.length ? `<div class="chips">${facts.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
+          ${jf && jf.overview ? `<div class="overview">${esc(jf.overview)}</div>` : ""}
           ${showBar ? `<div class="progress"><div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="times"><span>${fmtDuration(pos)}</span><span>${fmtDuration(dur)}</span></div></div>` : ""}
           ${where ? `<div class="badge">${esc(where)}</div>` : ""}
         </div>
