@@ -59,6 +59,31 @@ before tapping Always: the buttons are disabled at first.
 on-screen chooser is the only reliable way. Sign in on the frame's
 touchscreen with a dedicated **non-admin** HA user.
 
+## Backlight Bridge
+
+The app exposes `window.KioskBridge` to the dashboard so the
+[wall-panel card](../../services/home-assistant/README.md#stage-5-wall-panel--scene-driven-display-card)
+can set the screen brightness per scene:
+
+- `KioskBridge.setBrightness(level)` — `level` 0.0–1.0, applied as a
+  per-window override.
+- `KioskBridge.version()` — currently `1`.
+
+It only acts while the page on screen is served from the configured HA
+host, so no other page the WebView visits can drive the screen. Android
+clamps the backlight to the panel's own floor, which on this frame is
+10/255 (about 4%): `Settings` brightness values of 0, 1 and 5 all read
+back as 10. "Black at minimum" is therefore a faint glow, not off. A true
+off would need the app to be a device administrator (`lockNow()`), and
+waking it would then depend on HA reaching the app with the screen off;
+not built.
+
+Signing: `build.sh` generates `app/debug.keystore` on first run. An
+install over an existing one only works if it is signed with the **same**
+key, otherwise Android refuses it (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)
+and the only way forward is an uninstall, which also wipes the panel's HA
+login. Keep that keystore somewhere safe outside the repo.
+
 ## Revert
 
 ```bash
