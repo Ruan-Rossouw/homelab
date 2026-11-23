@@ -119,3 +119,47 @@ export function stepScene(state, candidate, nowMs, hold = DEFAULT_HOLD_MS) {
   }
   return { scene: state.scene, candidate, candidateSince };
 }
+
+// ---- Jellyfin now-playing (sensor.jellyfin_now_playing, see
+// ../../packages/jellyfin_now_playing.yaml) ---------------------------------
+
+// The sensor's `data` attribute is a JSON string or, after HA's native
+// rendering, already an object. Returns null unless something is playing.
+export function parseJellyfin(entity) {
+  if (!entity || (entity.state !== "playing" && entity.state !== "paused")) return null;
+  let d = entity.attributes?.data;
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch (e) { return null; }
+  }
+  if (!d || typeof d !== "object" || !d.title) return null;
+  return d;
+}
+
+const norm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// Only borrow Jellyfin's description when it is clearly the same thing the TV
+// is showing: the Apple TV's title must equal Jellyfin's series or episode
+// title (punctuation and case ignored), so a stale or different session can
+// never put the wrong film's description under the right poster.
+export function matchesJellyfin(tv, jf) {
+  if (!tv || !jf) return false;
+  if (tv.state !== "playing" && tv.state !== "paused") return false;
+  const t = norm(tv.attributes?.media_title);
+  if (!t) return false;
+  return t === norm(jf.title) || t === norm(jf.episode_title);
+}
+
+// The episode line and the info chips under the title.
+export function jellyfinFacts(jf) {
+  const parts = [];
+  if (jf.season != null) parts.push(`S${jf.season}`);
+  if (jf.episode != null) parts.push(`E${jf.episode}`);
+  if (jf.episode_title) parts.push(jf.episode_title);
+  const chips = [];
+  if (jf.year) chips.push(String(jf.year));
+  if (jf.rating != null) chips.push(`★ ${jf.rating}`);
+  if (jf.runtime_min) chips.push(`${jf.runtime_min} min`);
+  if (jf.official_rating) chips.push(jf.official_rating);
+  if (Array.isArray(jf.genres) && jf.genres.length) chips.push(jf.genres.slice(0, 2).join(" · "));
+  return { line: parts.join(" · "), chips };
+}

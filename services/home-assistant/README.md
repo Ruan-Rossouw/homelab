@@ -345,7 +345,8 @@ sleep: { start: "22:30", end: "06:00" }
 morning: { start: "06:00", end: "10:00" }
 ```
 
-Optional keys: `brightness` (per-scene 0–1), `hold_ms` (per-scene),
+Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`, see Stage 6),
+`brightness` (per-scene 0–1), `hold_ms` (per-scene),
 `sleep_clock: true` (dim clock instead of pure black while sleeping).
 
 The card is `position: fixed` over the whole viewport so it covers HA's
@@ -353,6 +354,65 @@ header; the sidebar should also be hidden for that user (Profile → "Always
 hide the sidebar"). If the panel is used in the lounge, the backlight is
 driven through the kiosk app's `KioskBridge` — a no-op in any other
 browser.
+
+## Stage 6: Wall Panel — Jellyfin Descriptions and Posters
+
+The Apple TV tells Home Assistant only a title, an episode label, a progress
+position and a picture, and the Moonfin client sends a blank white image.
+Jellyfin has the real description, rating, genres and poster, so
+`packages/jellyfin_now_playing.yaml` asks Jellyfin what the Apple TV is
+playing and exposes it as `sensor.jellyfin_now_playing` (`idle`, `playing`
+or `paused`, with the details in a JSON `data` attribute). The wall panel
+card uses it, when configured, to show the portrait poster, episode line,
+chips (year, rating, runtime, genres) and the description on the `browsing`
+scene.
+
+How it works: a `rest_command` calls `http://localhost:8096/Sessions` (host
+networking, so `localhost` is the server) every 5 seconds from a
+trigger-based template sensor. Only the session whose `DeviceName` is
+`Apple TV` counts, so a browser or phone playing something is ignored. The
+card only borrows the description when the Apple TV's title equals
+Jellyfin's series or episode title, so a stale session can never put the
+wrong film's description under the right poster. If Jellyfin is down or
+nothing matches, the card falls back to what the Apple TV provides.
+
+The Jellyfin API key lives only in HA's own `secrets.yaml` on the server
+(`!secret jellyfin_api_key`), never in the dashboard, the card or on the
+panel. Jellyfin API keys cannot be scoped: this one has full access to
+Jellyfin, so label it `ha-wall-panel` and revoke it in Jellyfin if the
+panel is ever lost. Poster images are fetched by the panel from
+`https://jellyfin.home` (no login needed for images), through Caddy, whose
+mkcert certificate the kiosk app already trusts.
+
+**Deploy** (the first time):
+
+1. In Jellyfin: Dashboard → Advanced → API Keys → **+**, name it
+   `ha-wall-panel`.
+2. Add the key to HA's secrets, typed at a hidden prompt:
+
+   ```bash
+   printf "Jellyfin key: "; stty -echo; read K; stty echo; echo; printf '\njellyfin_api_key: %s\n' "$K" >> /DATA/AppData/home-assistant/config/secrets.yaml; unset K
+   ```
+
+3. Enable packages once, by adding this to `configuration.yaml`:
+
+   ```yaml
+   homeassistant:
+     packages: !include_dir_named packages
+   ```
+
+4. Copy the package and the rebuilt card:
+
+   ```bash
+   mkdir -p /DATA/AppData/home-assistant/config/packages
+   cp services/home-assistant/packages/jellyfin_now_playing.yaml /DATA/AppData/home-assistant/config/packages/
+   cp services/home-assistant/custom-cards/wall-panel-card.js /DATA/AppData/home-assistant/config/www/custom-cards/
+   ```
+
+5. Developer Tools → YAML → **Check configuration**, then restart Home
+   Assistant (needed this first time only).
+6. Bump the card's Lovelace resource (`?v=`) and add one line to the card
+   config: `jellyfin: sensor.jellyfin_now_playing`.
 
 ## Not Yet Built
 
