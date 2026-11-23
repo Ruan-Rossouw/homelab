@@ -9,7 +9,7 @@ dashboard panel. This is not a Docker service, so it lives under
 ## What It Is
 
 A ~17 KB native Android app (`app/`): one full-screen `WebView` that loads
-`https://home-assistant.home`, keeps the screen on, retries when HA is
+the `wall-panel` dashboard at `https://home-assistant.home/wall-panel/panel`, keeps the screen on, retries when HA is
 unreachable, and registers as a home app so it launches at boot. No third
 party kiosk app, no Play Store, no root, no flashing.
 
