@@ -14,6 +14,7 @@ homelab/
 ├── Makefile
 ├── docs/               # one file, one question — see Documentation below
 ├── scripts/            # standalone operational scripts (backup, bootstrap, etc.)
+├── devices/            # non-Docker devices and their software (e.g. wall panel)
 ├── services/           # one directory per deployed service
 └── templates/          # boilerplate for new services/docs
 ```
