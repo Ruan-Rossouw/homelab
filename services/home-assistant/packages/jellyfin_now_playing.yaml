@@ -1,0 +1,73 @@
+# Jellyfin "now playing" for the wall panel card (custom-cards/wall-panel-card).
+#
+# The Apple TV only tells Home Assistant a title, an episode label and a
+# picture (and the Moonfin client sends a blank white one). Jellyfin has the
+# real description, rating, genres and poster, so this asks Jellyfin what the
+# Apple TV is playing and exposes it as sensor.jellyfin_now_playing.
+#
+# Setup (see services/home-assistant/README.md, "Stage 6"):
+#   1. configuration.yaml needs, once:
+#        homeassistant:
+#          packages: !include_dir_named packages
+#   2. secrets.yaml needs:  jellyfin_api_key: <key>
+#      (Jellyfin > Dashboard > Advanced > API Keys, labelled ha-wall-panel)
+#   3. Copy this file to /DATA/AppData/home-assistant/config/packages/ and
+#      restart Home Assistant (a restart is needed the first time only).
+#
+# The key lives only in secrets.yaml on the server. It is never sent to the
+# wall panel or put in any dashboard.
+
+rest_command:
+  jellyfin_sessions:
+    url: http://localhost:8096/Sessions
+    method: get
+    headers:
+      X-Emby-Token: !secret jellyfin_api_key
+    timeout: 5
+
+template:
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/5"
+    actions:
+      - action: rest_command.jellyfin_sessions
+        response_variable: jf
+        continue_on_error: true
+    sensor:
+      - name: Jellyfin Now Playing
+        unique_id: jellyfin_now_playing
+        icon: mdi:movie-open-play
+        # idle | playing | paused, for the "Apple TV" session only. Other
+        # clients (a browser, a phone) are ignored.
+        state: >-
+          {% set sessions = jf.content if jf is defined and jf.content is list else [] %}
+          {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | selectattr('NowPlayingItem', 'defined') | list | first | default(none) %}
+          {{ 'idle' if s is none else ('paused' if s.PlayState.IsPaused | default(false) else 'playing') }}
+        attributes:
+          # One JSON string, parsed by the card. Episodes use the series
+          # poster (portrait); movies use their own.
+          data: >-
+            {% set sessions = jf.content if jf is defined and jf.content is list else [] %}
+            {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | selectattr('NowPlayingItem', 'defined') | list | first | default(none) %}
+            {% if s is none %}
+            {{ {} | to_json }}
+            {% else %}
+            {% set it = s.NowPlayingItem %}
+            {% set episode = it.Type == 'Episode' %}
+            {% set poster_id = it.SeriesId if episode and it.SeriesId is defined else it.Id %}
+            {% set poster_tag = it.SeriesPrimaryImageTag if episode and it.SeriesPrimaryImageTag is defined else (it.ImageTags.Primary | default('')) %}
+            {{ {
+              'title': (it.SeriesName if episode and it.SeriesName is defined else it.Name),
+              'episode_title': (it.Name if episode else ''),
+              'season': it.ParentIndexNumber | default(none),
+              'episode': it.IndexNumber | default(none),
+              'overview': it.Overview | default(''),
+              'year': it.ProductionYear | default(none),
+              'rating': ((it.CommunityRating | round(1)) if it.CommunityRating is defined else none),
+              'official_rating': it.OfficialRating | default(''),
+              'runtime_min': (((it.RunTimeTicks | default(0)) / 600000000) | round(0) | int),
+              'genres': (it.Genres | default([]))[:3],
+              'type': it.Type,
+              'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag
+            } | to_json }}
+            {% endif %}
