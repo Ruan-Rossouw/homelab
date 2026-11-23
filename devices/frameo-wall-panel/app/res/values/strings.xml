@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dashboard</string>
+    <!-- CHANGE ME: the Home Assistant dashboard URL the frame should show -->
+    <string name="kiosk_url">https://home-assistant.home</string>
+</resources>
