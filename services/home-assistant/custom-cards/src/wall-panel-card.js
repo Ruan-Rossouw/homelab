@@ -78,8 +78,10 @@ const STYLES = `
   .media { display: flex; align-items: center; gap: 72px; height: 100%; }
   .art { flex: none; border-radius: 26px; background-size: cover; background-position: center;
          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55); background-color: rgba(255,255,255,0.08); }
-  .art.square { width: 420px; height: 420px; }
-  .art.poster { width: 400px; height: 600px; }
+  .media.square .art { width: 420px; height: 420px; }
+  .media.poster .art { width: 400px; height: 600px; }
+  .media.wide .art { width: 560px; height: 315px; }
+  .media.wide .title { font-size: 56px; }
   .meta { min-width: 0; flex: 1; }
   .kicker { font-size: 24px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.65; }
   .title { font-size: 66px; font-weight: 300; line-height: 1.08; margin-top: 12px;
@@ -149,7 +151,7 @@ class WallPanelCard extends HTMLElement {
     }
     this._sceneState = { scene: null, candidate: null, candidateSince: 0 };
     this._renderedKey = null;
-    this._artKey = null;
+    this._shapes = {};
   }
 
   set hass(hass) {
@@ -225,6 +227,7 @@ class WallPanelCard extends HTMLElement {
     ].join("|");
     if (key === this._renderedKey) return;
     this._renderedKey = key;
+    this._currentArt = art;
     this._setBacklight(scene);
 
     const body = {
@@ -247,7 +250,27 @@ class WallPanelCard extends HTMLElement {
     if (layerFor === "bg-art") this._paintBackdrop(art);
     // Set via the DOM, not inline HTML, so quotes in a URL can't break the CSS.
     const artEl = this._stage.querySelector(".art");
-    if (artEl && art) artEl.style.backgroundImage = `url(${JSON.stringify(art)})`;
+    if (artEl && art) {
+      artEl.style.backgroundImage = `url(${JSON.stringify(art)})`;
+      if (!this._shapes[art]) this._learnShape(art);
+    }
+  }
+
+  // Artwork comes in any shape (portrait poster, square cover, landscape
+  // still), so size the frame from the real image, remembered per URL so the
+  // 15 s re-render doesn't flicker the box.
+  _learnShape(url) {
+    const probe = new Image();
+    probe.onload = () => {
+      const r = probe.naturalWidth / (probe.naturalHeight || 1);
+      this._shapes[url] = r > 1.25 ? "wide" : r < 0.8 ? "poster" : "square";
+      const media = this._stage.querySelector(".media");
+      if (media && this._currentArt === url) {
+        media.classList.remove("square", "poster", "wide");
+        media.classList.add(this._shapes[url]);
+      }
+    };
+    probe.src = url;
   }
 
   // Draw the artwork tiny; CSS scaling then does the blur.
@@ -323,12 +346,10 @@ class WallPanelCard extends HTMLElement {
     const isMusic = kind === "music";
     const title = a.media_title || (isMusic ? "Playing" : (a.app_name || "Apple TV"));
     const sub = isMusic
-      ? [a.media_artist].filter(Boolean).join("")
-      : (a.media_series_title || a.app_name || "");
+      ? (a.media_artist || "")
+      : (a.media_series_title || a.media_artist || a.app_name || "");
     const album = isMusic ? (a.media_album_name || "") : "";
-    const where = isMusic
-      ? (source?.attributes?.friendly_name || "")
-      : "";
+    const where = isMusic ? (source?.attributes?.friendly_name || "") : (a.app_name || "");
     const dur = Number(a.media_duration);
     let pos = Number(a.media_position);
     if (Number.isFinite(pos) && source?.state === "playing" && a.media_position_updated_at) {
@@ -337,10 +358,10 @@ class WallPanelCard extends HTMLElement {
     const showBar = Number.isFinite(dur) && dur > 0 && Number.isFinite(pos);
     const pct = showBar ? Math.max(0, Math.min(100, (pos / dur) * 100)) : 0;
     const kicker = isMusic ? "Now playing" : (source?.state === "paused" ? "Paused" : (a.app_name || "Apple TV"));
-    const artClass = isMusic ? "square" : "poster";
+    const shape = this._shapes[art] || (isMusic ? "square" : "poster");
     return `
-      <div class="media">
-        <div class="art ${artClass}"></div>
+      <div class="media ${shape}">
+        <div class="art"></div>
         <div class="meta">
           <div class="kicker">${esc(kicker)}</div>
           <div class="title">${esc(title)}</div>
