@@ -294,12 +294,18 @@ priority order from live entity state:
 | Scene | Triggered by | Shows | Backlight |
 |---|---|---|---|
 | `cinema` | a video is playing on the Apple TV | black | minimum |
-| `music` | the HomePod (or the TV) is playing music | album art, track, progress | 15% |
-| `browsing` | the Apple TV is paused or idle | poster/artwork, title, progress | 15% |
+| `music` | the HomePod (or the TV) is playing music | album art, track, progress | 30% |
+| `browsing` | the Apple TV is paused or idle | artwork (or text only), title, progress | 20% |
 | `sleep` | night window and the TV is off | black | minimum |
-| `away` | nobody is `home` | dim clock | 5% |
-| `morning` | morning window | greeting, clock, weather, power tiles | 17% |
-| `day` | otherwise | clock, weather, battery, grid, geyser | 17% |
+| `away` | nobody is `home` | dim clock | 12% |
+| `morning` | morning window | greeting, clock, weather, power tiles | 50% |
+| `day` | otherwise | clock, weather, battery, grid, geyser | 40% |
+
+Some players pass a placeholder instead of real artwork (the Moonfin
+Jellyfin client on the Apple TV sends a plain white image). The card
+measures the image's pixel variance and, if it has no detail, drops the art
+frame and backdrop for a text-only layout. Real artwork is sized from the
+actual image shape (portrait, square or landscape).
 
 Media always wins over the clock: starting a film at 01:00 goes to
 `cinema`, not back to `sleep`. Each scene has a hold time (cinema 5 s,

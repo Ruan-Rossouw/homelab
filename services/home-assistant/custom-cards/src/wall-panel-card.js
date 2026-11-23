@@ -29,7 +29,7 @@
 import { computeScene, stepScene, DEFAULT_HOLD_MS } from "./lib/panel-scene.js";
 
 const DEFAULT_BRIGHTNESS = {
-  cinema: 0, sleep: 0, away: 0.12, music: 0.35, browsing: 0.35, morning: 0.5, day: 0.4,
+  cinema: 0, sleep: 0, away: 0.12, music: 0.3, browsing: 0.2, morning: 0.5, day: 0.4,
 };
 
 const STYLES = `
@@ -82,6 +82,9 @@ const STYLES = `
   .media.poster .art { width: 400px; height: 600px; }
   .media.wide .art { width: 560px; height: 315px; }
   .media.wide .title { font-size: 56px; }
+  .media.none .art { display: none; }
+  .media.none .title { font-size: 76px; }
+  .media.none .meta { max-width: 980px; }
   .meta { min-width: 0; flex: 1; }
   .kicker { font-size: 24px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.65; }
   .title { font-size: 66px; font-weight: 300; line-height: 1.08; margin-top: 12px;
@@ -263,14 +266,48 @@ class WallPanelCard extends HTMLElement {
     const probe = new Image();
     probe.onload = () => {
       const r = probe.naturalWidth / (probe.naturalHeight || 1);
-      this._shapes[url] = r > 1.25 ? "wide" : r < 0.8 ? "poster" : "square";
+      this._shapes[url] = this._isBlank(probe)
+        ? "none"
+        : (r > 1.25 ? "wide" : r < 0.8 ? "poster" : "square");
       const media = this._stage.querySelector(".media");
       if (media && this._currentArt === url) {
-        media.classList.remove("square", "poster", "wide");
+        media.classList.remove("square", "poster", "wide", "none");
         media.classList.add(this._shapes[url]);
+        if (this._shapes[url] === "none") this._clearBackdrop();
       }
     };
     probe.src = url;
+  }
+
+  // Some players hand over a placeholder (e.g. a plain white image) instead of
+  // real artwork. Draw it tiny and measure the pixel variance: no detail means
+  // no art, so show the text-only layout instead of a blank rectangle.
+  _isBlank(img) {
+    try {
+      const c = document.createElement("canvas");
+      c.width = 24; c.height = 24;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, 24, 24);
+      const d = ctx.getImageData(0, 0, 24, 24).data;
+      let sum = 0, sumSq = 0;
+      const n = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) {
+        const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        sum += y; sumSq += y * y;
+      }
+      const mean = sum / n;
+      return Math.sqrt(Math.max(0, sumSq / n - mean * mean)) < 6;
+    } catch (e) {
+      return false; // cross-origin / unreadable: assume it is real artwork
+    }
+  }
+
+  _clearBackdrop() {
+    const canvas = this._stage.querySelector("canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#0b0e16";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
   // Draw the artwork tiny; CSS scaling then does the blur.
@@ -280,6 +317,7 @@ class WallPanelCard extends HTMLElement {
     const img = new Image();
     img.onload = () => {
       try {
+        if (this._shapes[url] === "none") return; // blank placeholder: keep it dark
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       } catch (e) { /* ignore */ }
@@ -358,7 +396,7 @@ class WallPanelCard extends HTMLElement {
     const showBar = Number.isFinite(dur) && dur > 0 && Number.isFinite(pos);
     const pct = showBar ? Math.max(0, Math.min(100, (pos / dur) * 100)) : 0;
     const kicker = isMusic ? "Now playing" : (source?.state === "paused" ? "Paused" : (a.app_name || "Apple TV"));
-    const shape = this._shapes[art] || (isMusic ? "square" : "poster");
+    const shape = !art ? "none" : (this._shapes[art] || (isMusic ? "square" : "poster"));
     return `
       <div class="media ${shape}">
         <div class="art"></div>
