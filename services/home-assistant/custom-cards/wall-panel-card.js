@@ -305,13 +305,27 @@
     }
     return v && typeof v === "object" ? v : null;
   }
-  function jellyfinForTv(sensor, tv) {
+  function jellyfinSource(sensor, tv) {
     if (!sensor || !tv || tv.state !== "paused") return null;
     const now = parseJellyfin(sensor);
-    if (now && matchesJellyfin(tv, now)) return now;
+    if (now && matchesJellyfin(tv, now)) return { data: now, from: "now" };
     const last = asObject(sensor.attributes?.last);
-    if (last && last.title && matchesJellyfin(tv, last)) return last;
+    if (last && last.title && matchesJellyfin(tv, last)) return { data: last, from: "last" };
     return null;
+  }
+  function jellyfinForTv(sensor, tv) {
+    const hit = jellyfinSource(sensor, tv);
+    return hit ? hit.data : null;
+  }
+  var DEFAULT_LAST_FILM_MS = 2 * 60 * 1e3;
+  function carouselWanted(sensor, tv, nowMs, lastFilmMs = DEFAULT_LAST_FILM_MS) {
+    if (!tv) return false;
+    if (tv.state === "idle") return true;
+    if (tv.state !== "paused") return false;
+    const hit = jellyfinSource(sensor, tv);
+    if (!hit || hit.from !== "last") return false;
+    const since = Date.parse(sensor.last_changed);
+    return Number.isFinite(since) && nowMs - since >= lastFilmMs;
   }
   function asList(v) {
     if (typeof v === "string") {
@@ -498,6 +512,7 @@
         browsing_timeout_min: 15,
         auto_update: true,
         auto_update_minutes: 5,
+        last_film_minutes: 2,
         ...config,
         brightness: { ...DEFAULT_BRIGHTNESS, ...config.brightness || {} },
         hold_ms: { ...DEFAULT_HOLD_MS, ...config.hold_ms || {} }
@@ -603,8 +618,10 @@
     }
     _render(scene, source, now) {
       const c = this._config;
-      const jf = scene === "browsing" ? this._matchedJellyfin(source) : null;
-      const car = scene === "browsing" && !jf && source?.state === "idle" ? this._carouselItem(now) : null;
+      const lastFilmMs = Number.isFinite(Number(this._config.last_film_minutes)) ? Number(this._config.last_film_minutes) * 6e4 : DEFAULT_LAST_FILM_MS;
+      const wantCar = scene === "browsing" && carouselWanted(this._entity(c.jellyfin), source, now.getTime(), lastFilmMs);
+      const car = wantCar ? this._carouselItem(now) : null;
+      const jf = scene === "browsing" && !car ? this._matchedJellyfin(source) : null;
       const art = car && car.poster || jf && jf.poster || this._artUrl(source);
       const progressBucket = Math.floor(now.getTime() / 15e3);
       const key = [

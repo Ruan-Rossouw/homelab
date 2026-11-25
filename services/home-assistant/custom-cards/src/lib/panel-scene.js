@@ -243,18 +243,42 @@ function asObject(v) {
   return v && typeof v === "object" ? v : null;
 }
 
-// The Jellyfin details to show for a *paused* TV: the item playing now if it
-// matches the TV's title, otherwise the last item the sensor remembered (when
-// Moonfin leaves playback Jellyfin drops the item but the Apple TV still says
-// "paused <title>"). Null when neither matches, so a stale item can never
-// appear under a different title.
-export function jellyfinForTv(sensor, tv) {
+// Where the Jellyfin details for a *paused* TV come from: the item playing now
+// if it matches the TV's title ("now"), otherwise the last item the sensor
+// remembered ("last": when Moonfin leaves playback Jellyfin drops the item but
+// the Apple TV still says "paused <title>"). Null when neither matches, so a
+// stale item can never appear under a different title.
+export function jellyfinSource(sensor, tv) {
   if (!sensor || !tv || tv.state !== "paused") return null;
   const now = parseJellyfin(sensor);
-  if (now && matchesJellyfin(tv, now)) return now;
+  if (now && matchesJellyfin(tv, now)) return { data: now, from: "now" };
   const last = asObject(sensor.attributes?.last);
-  if (last && last.title && matchesJellyfin(tv, last)) return last;
+  if (last && last.title && matchesJellyfin(tv, last)) return { data: last, from: "last" };
   return null;
+}
+
+export function jellyfinForTv(sensor, tv) {
+  const hit = jellyfinSource(sensor, tv);
+  return hit ? hit.data : null;
+}
+
+export const DEFAULT_LAST_FILM_MS = 2 * 60 * 1000;
+
+// Whether the info screen should give way to the idle carousel. With Moonfin
+// the Apple TV rarely reports "idle": leaving playback leaves it "paused" on
+// the film, so a plain idle check would almost never show the carousel. So the
+// carousel also takes over once Jellyfin has had no playing item for
+// `lastFilmMs` (the sensor has been idle that long): until then the screen
+// shows the film you were just watching, after that the carousel. A pause
+// *inside* a film keeps the item in Jellyfin, so it keeps its details.
+export function carouselWanted(sensor, tv, nowMs, lastFilmMs = DEFAULT_LAST_FILM_MS) {
+  if (!tv) return false;
+  if (tv.state === "idle") return true;
+  if (tv.state !== "paused") return false;
+  const hit = jellyfinSource(sensor, tv);
+  if (!hit || hit.from !== "last") return false;
+  const since = Date.parse(sensor.last_changed);
+  return Number.isFinite(since) && nowMs - since >= lastFilmMs;
 }
 
 function asList(v) {

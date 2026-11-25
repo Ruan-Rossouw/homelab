@@ -30,7 +30,7 @@ import { extractPalette, blobs, DEFAULT_PALETTE, paletteFromText } from "./lib/f
 import { signature, shouldReload, afterLoad } from "./lib/self-update.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, jellyfinFacts, sameText,
-  mediaControls, controlCall, jellyfinForTv, carouselItems, carouselPick,
+  mediaControls, controlCall, jellyfinForTv, carouselItems, carouselPick, carouselWanted, DEFAULT_LAST_FILM_MS,
 } from "./lib/panel-scene.js";
 
 const DEFAULT_BRIGHTNESS = {
@@ -176,6 +176,7 @@ class WallPanelCard extends HTMLElement {
       browsing_timeout_min: 15,
       auto_update: true,
       auto_update_minutes: 5,
+      last_film_minutes: 2,
       ...config,
       brightness: { ...DEFAULT_BRIGHTNESS, ...(config.brightness || {}) },
       hold_ms: { ...DEFAULT_HOLD_MS, ...(config.hold_ms || {}) },
@@ -289,8 +290,15 @@ class WallPanelCard extends HTMLElement {
 
   _render(scene, source, now) {
     const c = this._config;
-    const jf = scene === "browsing" ? this._matchedJellyfin(source) : null;
-    const car = scene === "browsing" && !jf && source?.state === "idle" ? this._carouselItem(now) : null;
+    // The carousel takes over when the Apple TV is idle, or once Jellyfin has had
+    // no playing item for `last_film_minutes` (see carouselWanted). With no
+    // library items to show, the film's details stay.
+    const lastFilmMs = Number.isFinite(Number(this._config.last_film_minutes))
+      ? Number(this._config.last_film_minutes) * 60000 : DEFAULT_LAST_FILM_MS;
+    const wantCar = scene === "browsing"
+      && carouselWanted(this._entity(c.jellyfin), source, now.getTime(), lastFilmMs);
+    const car = wantCar ? this._carouselItem(now) : null;
+    const jf = scene === "browsing" && !car ? this._matchedJellyfin(source) : null;
     const art = (car && car.poster) || (jf && jf.poster) || this._artUrl(source);
     const progressBucket = Math.floor(now.getTime() / 15000);
     const key = [

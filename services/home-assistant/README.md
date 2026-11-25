@@ -442,7 +442,7 @@ switch, point `tv_power` at any entity that really tracks the TV's power
 
 Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`) and `jellyfin_library`
 (a `sensor.jellyfin_library`, the idle carousel), both described in Stage 6,
-`browsing_timeout_min`, `tv_power`, `touch_controls`, `fluid` (`false` for a still music
+`browsing_timeout_min`, `last_film_minutes`, `tv_power`, `touch_controls`, `fluid` (`false` for a still music
 background), `auto_update` / `auto_update_minutes`,
 `brightness` (per-scene 0–1), `hold_ms` (per-scene),
 `sleep_clock: true` (dim clock instead of pure black while sleeping).
@@ -496,10 +496,20 @@ while you browse a movie's page. Two things cover the gap:
 - **An idle carousel.** `sensor.jellyfin_library` (refreshed every 30 minutes, and
   on demand by firing the `wall_panel_refresh_library` event) holds `resume`
   ("Continue watching", needs the user id above) and `recent` ("Recently added").
-  When the Apple TV is *idle* (nothing paused, nothing playing) the card steps
-  through them, 15 seconds each, with the same poster-and-details layout, a
-  "% watched" bar for partly watched items, and a fade between items. Enable it
-  with `jellyfin_library: sensor.jellyfin_library` in the card config.
+  The card steps through them, 15 seconds each, with the same poster-and-details
+  layout, a "% watched" bar for partly watched items and a fade between items.
+  Enable it with `jellyfin_library: sensor.jellyfin_library` in the card config.
+
+  When it shows: with Moonfin the Apple TV hardly ever reports `idle` (leaving
+  playback leaves it `paused` on the film; over 45 minutes of real history `idle`
+  appeared once, for under a second), so an idle check alone would almost never
+  show it. The carousel therefore takes over when the Apple TV is `idle`, **or**
+  once Jellyfin has had no playing item for `last_film_minutes` (default 2, `0` =
+  straight away) while the Apple TV is still paused on that film: for those two
+  minutes you see the film you just left, then the carousel, until the
+  `browsing_timeout_min` timeout (15) treats the TV as off and the panel returns
+  to the Day screen. A pause *inside* a film keeps its item in Jellyfin, so it
+  keeps its details however long it lasts.
 
 After copying a changed package, `template.reload` (Developer Tools → YAML →
 "Template entities") applies sensor changes without a restart; changes to the
