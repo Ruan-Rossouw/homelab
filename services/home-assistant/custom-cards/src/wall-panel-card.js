@@ -26,7 +26,7 @@
 // This file is compiled by esbuild (see ../package.json) — edit this
 // source, not the generated ../wall-panel-card.js.
 
-import { extractPalette, blobs, DEFAULT_PALETTE } from "./lib/fluid-palette.js";
+import { extractPalette, blobs, DEFAULT_PALETTE, paletteFromText } from "./lib/fluid-palette.js";
 import { signature, shouldReload, afterLoad } from "./lib/self-update.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, parseJellyfin, matchesJellyfin, jellyfinFacts, sameText,
@@ -287,9 +287,13 @@ class WallPanelCard extends HTMLElement {
     }[scene];
     this._stopFluid();
     // Music and the paused/browsing info screen share the Apple Music-style
-    // fluid gradient, built from the artwork's palette. Browsing without
-    // artwork stays plain dark.
-    const useFluid = scene === "music" || (scene === "browsing" && !!art);
+    // fluid gradient, built from the artwork's palette. With no usable artwork
+    // music uses a default palette and the info screen a calm one derived from
+    // the title, so it is never a flat black screen.
+    const useFluid = scene === "music" || scene === "browsing";
+    const fallback = scene === "music"
+      ? DEFAULT_PALETTE
+      : paletteFromText((jf && jf.title) || source?.attributes?.media_title || "");
     if (!useFluid) this._fluidT0 = null;
     const backdrop = useFluid
       ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>`
@@ -297,7 +301,7 @@ class WallPanelCard extends HTMLElement {
     this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
       <div class="content">${body}</div>`;
-    if (useFluid) this._startFluid(art, scene === "music");
+    if (useFluid) this._startFluid(art, fallback);
     // Set via the DOM, not inline HTML, so quotes in a URL can't break the CSS.
     const artEl = this._stage.querySelector(".art");
     if (artEl && art) {
@@ -401,7 +405,7 @@ class WallPanelCard extends HTMLElement {
   // Four soft colour blobs, taken from the artwork's own palette, drift slowly
   // on a tiny canvas (96x60) that CSS scales up, so the GPU does the smoothing
   // and the CPU only paints ~8 small frames a second.
-  _startFluid(url, useDefault = true) {
+  _startFluid(url, fallback) {
     const canvas = this._stage.querySelector("canvas.fluid");
     if (!canvas) return;
     if (this._fluidT0 == null) this._fluidT0 = performance.now();
@@ -415,28 +419,20 @@ class WallPanelCard extends HTMLElement {
         this._fluidTimer = setInterval(() => this._drawFluid(), 125);
       }
     };
-    if (!url) return begin(DEFAULT_PALETTE);
+    if (!url) return begin(fallback);
     if (this._palettes[url]) return begin(this._palettes[url]);
-    if (useDefault) this._drawFluidOnce(canvas, DEFAULT_PALETTE); // something pleasant until the art decodes
-    else this._fillDark(canvas);
+    this._drawFluidOnce(canvas, fallback); // something pleasant until the art decodes
     const img = new Image();
     img.onload = () => {
-      const palette = this._paletteOf(img);
-      if (!palette && !useDefault) { // blank poster: keep the info screen plain dark
-        this._stopFluid();
-        this._fillDark(canvas);
-        return;
-      }
-      this._palettes[url] = palette || DEFAULT_PALETTE;
+      const palette = this._paletteOf(img); // null for a blank placeholder
+      if (palette) this._palettes[url] = palette;
       this._stopFluid();
-      begin(this._palettes[url]);
+      begin(palette || fallback);
     };
-    img.onerror = () => (useDefault ? begin(DEFAULT_PALETTE) : this._fillDark(canvas));
+    img.onerror = () => begin(fallback);
     this._fetchArt(url).then((src) => {
-      if (src) { img.src = src; return; }
-      // Could not fetch it with CORS: no palette to read. Music keeps its default
-      // colours, the info screen stays plain dark.
-      if (useDefault) begin(DEFAULT_PALETTE); else this._fillDark(canvas);
+      if (src) img.src = src;
+      else begin(fallback); // could not fetch it with CORS: no palette to read
     });
   }
 
@@ -484,12 +480,6 @@ class WallPanelCard extends HTMLElement {
     } catch (e) {
       return null; // unreadable image: use the default palette
     }
-  }
-
-  _fillDark(canvas) {
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#0b0e16";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
   _stopFluid() {

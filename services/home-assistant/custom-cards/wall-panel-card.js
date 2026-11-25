@@ -100,6 +100,17 @@
       r: b.r
     }));
   }
+  function paletteFromText(text) {
+    const t = String(text ?? "").trim().toLowerCase();
+    if (!t) return DEFAULT_PALETTE;
+    let h = 2166136261;
+    for (let i = 0; i < t.length; i++) {
+      h ^= t.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    const hue = h % 360 / 360;
+    return [0, 0.11, -0.09, 0.22].map((o, i) => tuneColor(hslToRgb(hue + o, 0.55 + 0.08 * (i % 2), 0.34 - 0.03 * i)));
+  }
 
   // src/lib/self-update.js
   var MIN_GAP_MS = 10 * 60 * 1e3;
@@ -516,13 +527,14 @@
         browsing: "bg-art"
       }[scene];
       this._stopFluid();
-      const useFluid = scene === "music" || scene === "browsing" && !!art;
+      const useFluid = scene === "music" || scene === "browsing";
+      const fallback = scene === "music" ? DEFAULT_PALETTE : paletteFromText(jf && jf.title || source?.attributes?.media_title || "");
       if (!useFluid) this._fluidT0 = null;
       const backdrop = useFluid ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>` : "";
       this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
       <div class="content">${body}</div>`;
-      if (useFluid) this._startFluid(art, scene === "music");
+      if (useFluid) this._startFluid(art, fallback);
       const artEl = this._stage.querySelector(".art");
       if (artEl && art) {
         const known = this._artBlobs[art];
@@ -626,7 +638,7 @@
     // Four soft colour blobs, taken from the artwork's own palette, drift slowly
     // on a tiny canvas (96x60) that CSS scales up, so the GPU does the smoothing
     // and the CPU only paints ~8 small frames a second.
-    _startFluid(url, useDefault = true) {
+    _startFluid(url, fallback) {
       const canvas = this._stage.querySelector("canvas.fluid");
       if (!canvas) return;
       if (this._fluidT0 == null) this._fluidT0 = performance.now();
@@ -638,30 +650,20 @@
           this._fluidTimer = setInterval(() => this._drawFluid(), 125);
         }
       };
-      if (!url) return begin(DEFAULT_PALETTE);
+      if (!url) return begin(fallback);
       if (this._palettes[url]) return begin(this._palettes[url]);
-      if (useDefault) this._drawFluidOnce(canvas, DEFAULT_PALETTE);
-      else this._fillDark(canvas);
+      this._drawFluidOnce(canvas, fallback);
       const img = new Image();
       img.onload = () => {
         const palette = this._paletteOf(img);
-        if (!palette && !useDefault) {
-          this._stopFluid();
-          this._fillDark(canvas);
-          return;
-        }
-        this._palettes[url] = palette || DEFAULT_PALETTE;
+        if (palette) this._palettes[url] = palette;
         this._stopFluid();
-        begin(this._palettes[url]);
+        begin(palette || fallback);
       };
-      img.onerror = () => useDefault ? begin(DEFAULT_PALETTE) : this._fillDark(canvas);
+      img.onerror = () => begin(fallback);
       this._fetchArt(url).then((src) => {
-        if (src) {
-          img.src = src;
-          return;
-        }
-        if (useDefault) begin(DEFAULT_PALETTE);
-        else this._fillDark(canvas);
+        if (src) img.src = src;
+        else begin(fallback);
       });
     }
     // Fetch artwork once, in CORS mode, and keep a same-origin blob copy. Showing
@@ -713,11 +715,6 @@
       } catch (e) {
         return null;
       }
-    }
-    _fillDark(canvas) {
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#0b0e16";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
     _stopFluid() {
       clearInterval(this._fluidTimer);

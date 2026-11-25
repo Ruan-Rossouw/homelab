@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractPalette, tuneColor, blobs, DEFAULT_PALETTE } from "./fluid-palette.js";
+import { extractPalette, tuneColor, blobs, DEFAULT_PALETTE, paletteFromText } from "./fluid-palette.js";
 
 // Build RGBA pixel data from [rgb, count] runs.
 function pixels(runs) {
@@ -72,4 +72,28 @@ test("blobs drift slowly and stay on the canvas", () => {
   // slow: no blob jumps more than 3% of the width in a 0.2 s frame step
   const f0 = blobs(100), f1 = blobs(100.2);
   for (let i = 0; i < f0.length; i++) assert.ok(Math.hypot(f0[i].x - f1[i].x, f0[i].y - f1[i].y) < 0.03);
+});
+
+test("paletteFromText is stable per title and differs between titles", () => {
+  const a = paletteFromText("Clarkson's Farm");
+  assert.deepEqual(a, paletteFromText("  clarkson's farm  "));
+  assert.notDeepEqual(a, paletteFromText("Mutiny"));
+  assert.notDeepEqual(paletteFromText("Mutiny")[0], paletteFromText("How Lay's Potato Chips Are Made")[0]);
+});
+
+test("paletteFromText gives four dark, soft colours that suit white text", () => {
+  for (const title of ["Mutiny", "Heat", "How Lay's Potato Chips Are Made In Factory", "a", "Ünïcødé Tïtle"]) {
+    const p = paletteFromText(title);
+    assert.equal(p.length, 4);
+    for (const c of p) {
+      assert.ok(c.every((v) => Number.isInteger(v) && v >= 0 && v <= 255), `bad channel in ${c}`);
+      const l = lightness(c);
+      assert.ok(l >= 0.25 && l <= 0.53, `${title}: lightness ${l}`);
+    }
+  }
+});
+
+test("paletteFromText falls back to the default palette for no title", () => {
+  assert.deepEqual(paletteFromText(""), DEFAULT_PALETTE);
+  assert.deepEqual(paletteFromText(undefined), DEFAULT_PALETTE);
 });
