@@ -295,7 +295,7 @@ priority order from live entity state:
 |---|---|---|---|
 | `cinema` | a video is playing on the Apple TV | black | minimum |
 | `music` | the HomePod (or the TV) is playing music | album art, track, progress on a drifting colour background | 30% |
-| `browsing` | the Apple TV is paused or idle | poster or artwork, title, progress, on a drifting colour background (plain dark with no artwork) | 20% |
+| `browsing` | the Apple TV is paused or idle | poster or artwork, title, progress, on a drifting colour background | 20% |
 | `sleep` | night window and the TV is off | black | minimum |
 | `away` | nobody is `home` | dim clock | 12% |
 | `morning` | morning window | greeting, clock, weather, power tiles | 50% |
@@ -306,8 +306,11 @@ is an Apple Music-style fluid gradient: four soft colour blobs taken from the
 artwork's own palette drift slowly behind the cover (a darker veil on the info
 screen so text stays readable). It is drawn on a tiny 96x60 canvas that CSS
 scales up (no blur filters, which are too slow for the panel's Mali-400 GPU),
-repainted about 8 times a second. Music with no usable artwork falls back to a
-default palette; the info screen stays plain dark, which suits a film. If the
+repainted about 8 times a second. With no usable artwork (a video with no
+poster, or a blank placeholder image) music falls back to a default palette and
+the info screen to a calm, dark palette derived from a hash of the title, so a
+given title always gets the same colours and different titles differ, and it is
+never a flat black screen. If the
 panel ever struggles, `fluid: false` keeps the same palette as a still
 gradient. The palette and blob maths are pure and unit-tested
 (`src/lib/fluid-palette.js`).

@@ -110,3 +110,16 @@ export function blobs(t) {
     r: b.r,
   }));
 }
+
+// A calm palette for when there is no usable artwork (a video with no poster,
+// a blank placeholder image): hue taken from a hash of the title, so a given
+// title always gets the same colours and different titles differ. Kept dark
+// and soft so white text stays readable. Empty text gives the default palette.
+export function paletteFromText(text) {
+  const t = String(text ?? "").trim().toLowerCase();
+  if (!t) return DEFAULT_PALETTE;
+  let h = 2166136261; // FNV-1a
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  const hue = (h % 360) / 360;
+  return [0, 0.11, -0.09, 0.22].map((o, i) => tuneColor(hslToRgb(hue + o, 0.55 + 0.08 * (i % 2), 0.34 - 0.03 * i)));
+}
