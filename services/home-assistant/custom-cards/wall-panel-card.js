@@ -101,6 +101,26 @@
     }));
   }
 
+  // src/lib/self-update.js
+  var MIN_GAP_MS = 10 * 60 * 1e3;
+  var RELOAD_SCENES = /* @__PURE__ */ new Set(["day", "morning", "away"]);
+  function signature(text) {
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) h = (h << 5) + h + text.charCodeAt(i) | 0;
+    return `${text.length}:${(h >>> 0).toString(16)}`;
+  }
+  function shouldReload({ scene, loadedSig, serverSig, now, record }) {
+    if (!serverSig || !loadedSig || serverSig === loadedSig) return false;
+    if (!RELOAD_SCENES.has(scene)) return false;
+    if (record?.failedSig === serverSig) return false;
+    if (record?.t && now - record.t < MIN_GAP_MS) return false;
+    return true;
+  }
+  function afterLoad(record, loadedSig) {
+    if (record?.sig && record.sig !== loadedSig) return { ...record, failedSig: record.sig };
+    return record || null;
+  }
+
   // src/lib/panel-scene.js
   var VIDEO_TYPES = /* @__PURE__ */ new Set(["video", "movie", "tvshow", "episode", "tv_show"]);
   var MUSIC_TYPES = /* @__PURE__ */ new Set(["music", "track", "album", "playlist", "podcast"]);
@@ -368,6 +388,8 @@
         morning: { start: "06:00", end: "10:00" },
         sleep_clock: false,
         browsing_timeout_min: 15,
+        auto_update: true,
+        auto_update_minutes: 5,
         ...config,
         brightness: { ...DEFAULT_BRIGHTNESS, ...config.brightness || {} },
         hold_ms: { ...DEFAULT_HOLD_MS, ...config.hold_ms || {} }
@@ -384,14 +406,19 @@
     }
     set hass(hass) {
       this._hass = hass;
+      this._initSelfUpdate();
       this._tick();
     }
     connectedCallback() {
       this._timer = setInterval(() => this._tick(), 15e3);
+      this._initSelfUpdate();
     }
     disconnectedCallback() {
       clearInterval(this._timer);
       clearTimeout(this._holdTimer);
+      clearInterval(this._updateTimer);
+      this._updateTimer = null;
+      this._updateStarted = false;
       this._stopFluid();
     }
     getCardSize() {
@@ -560,6 +587,55 @@
         }
       };
       img.src = url;
+    }
+    // ---- Self-update ----------------------------------------------------------
+    // The kiosk never reloads its page and HA lets browsers cache this file for
+    // 31 days, so a new card on the server would never reach the panel. Compare
+    // the running copy with the server's every few minutes; if they differ (and
+    // the scene is calm, see lib/self-update.js) refresh the cached copy and
+    // reload. `auto_update: false` turns it off.
+    _initSelfUpdate() {
+      if (this._updateStarted || !this._config || this._config.auto_update === false) return;
+      const own = performance.getEntriesByType("resource").filter((e) => /wall-panel-card\.js/.test(e.name)).pop();
+      if (!own) return;
+      this._updateStarted = true;
+      this._selfUrl = own.name;
+      const base = own.name.split("?")[0];
+      fetch(own.name).then((r) => r.text()).then((text) => {
+        this._loadedSig = signature(text);
+        this._writeUpdateRecord(afterLoad(this._readUpdateRecord(), this._loadedSig));
+      }).catch(() => {
+      });
+      const ms = Math.max(5e3, Number(this._config.auto_update_minutes) * 6e4 || 3e5);
+      this._updateTimer = setInterval(() => this._checkForUpdate(base), ms);
+    }
+    _readUpdateRecord() {
+      try {
+        return JSON.parse(localStorage.getItem("wallPanelCard.update") || "null");
+      } catch (e) {
+        return null;
+      }
+    }
+    _writeUpdateRecord(record) {
+      try {
+        localStorage.setItem("wallPanelCard.update", JSON.stringify(record));
+      } catch (e) {
+      }
+    }
+    async _checkForUpdate(base) {
+      if (!this._loadedSig) return;
+      try {
+        const r = await fetch(`${base}?check=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const serverSig = signature(await r.text());
+        const record = this._readUpdateRecord();
+        const now = Date.now();
+        if (!shouldReload({ scene: this._sceneState.scene, loadedSig: this._loadedSig, serverSig, now, record })) return;
+        this._writeUpdateRecord({ ...record || {}, t: now, sig: serverSig });
+        await fetch(this._selfUrl, { cache: "reload" });
+        location.reload();
+      } catch (e) {
+      }
     }
     // ---- Music scene: Apple Music-style fluid background -------------------
     // Four soft colour blobs, taken from the artwork's own palette, drift slowly

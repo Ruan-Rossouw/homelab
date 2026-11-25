@@ -27,6 +27,7 @@
 // source, not the generated ../wall-panel-card.js.
 
 import { extractPalette, blobs, DEFAULT_PALETTE } from "./lib/fluid-palette.js";
+import { signature, shouldReload, afterLoad } from "./lib/self-update.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, parseJellyfin, matchesJellyfin, jellyfinFacts, sameText,
 } from "./lib/panel-scene.js";
@@ -155,6 +156,8 @@ class WallPanelCard extends HTMLElement {
       morning: { start: "06:00", end: "10:00" },
       sleep_clock: false,
       browsing_timeout_min: 15,
+      auto_update: true,
+      auto_update_minutes: 5,
       ...config,
       brightness: { ...DEFAULT_BRIGHTNESS, ...(config.brightness || {}) },
       hold_ms: { ...DEFAULT_HOLD_MS, ...(config.hold_ms || {}) },
@@ -172,16 +175,21 @@ class WallPanelCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._initSelfUpdate(); // idempotent; covers the config arriving after the element connects
     this._tick();
   }
 
   connectedCallback() {
     this._timer = setInterval(() => this._tick(), 15000);
+    this._initSelfUpdate();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
     clearTimeout(this._holdTimer);
+    clearInterval(this._updateTimer);
+    this._updateTimer = null;
+    this._updateStarted = false;
     this._stopFluid();
   }
 
@@ -355,6 +363,50 @@ class WallPanelCard extends HTMLElement {
       } catch (e) { /* ignore */ }
     };
     img.src = url;
+  }
+
+  // ---- Self-update ----------------------------------------------------------
+  // The kiosk never reloads its page and HA lets browsers cache this file for
+  // 31 days, so a new card on the server would never reach the panel. Compare
+  // the running copy with the server's every few minutes; if they differ (and
+  // the scene is calm, see lib/self-update.js) refresh the cached copy and
+  // reload. `auto_update: false` turns it off.
+  _initSelfUpdate() {
+    if (this._updateStarted || !this._config || this._config.auto_update === false) return;
+    const own = performance.getEntriesByType("resource").filter((e) => /wall-panel-card\.js/.test(e.name)).pop();
+    if (!own) return;
+    this._updateStarted = true;
+    this._selfUrl = own.name;
+    const base = own.name.split("?")[0];
+    fetch(own.name).then((r) => r.text()).then((text) => {
+      this._loadedSig = signature(text);
+      this._writeUpdateRecord(afterLoad(this._readUpdateRecord(), this._loadedSig));
+    }).catch(() => { /* try again on the next page load */ });
+    const ms = Math.max(5000, Number(this._config.auto_update_minutes) * 60000 || 300000);
+    this._updateTimer = setInterval(() => this._checkForUpdate(base), ms);
+  }
+
+  _readUpdateRecord() {
+    try { return JSON.parse(localStorage.getItem("wallPanelCard.update") || "null"); } catch (e) { return null; }
+  }
+
+  _writeUpdateRecord(record) {
+    try { localStorage.setItem("wallPanelCard.update", JSON.stringify(record)); } catch (e) { /* ignore */ }
+  }
+
+  async _checkForUpdate(base) {
+    if (!this._loadedSig) return;
+    try {
+      const r = await fetch(`${base}?check=${Date.now()}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const serverSig = signature(await r.text());
+      const record = this._readUpdateRecord();
+      const now = Date.now();
+      if (!shouldReload({ scene: this._sceneState.scene, loadedSig: this._loadedSig, serverSig, now, record })) return;
+      this._writeUpdateRecord({ ...(record || {}), t: now, sig: serverSig });
+      await fetch(this._selfUrl, { cache: "reload" }); // refresh the cached copy first
+      location.reload();
+    } catch (e) { /* offline or HA restarting: try again next time */ }
   }
 
   // ---- Music scene: Apple Music-style fluid background -------------------
