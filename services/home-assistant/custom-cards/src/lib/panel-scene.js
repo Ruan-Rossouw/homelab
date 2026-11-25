@@ -195,3 +195,43 @@ export function jellyfinFacts(jf) {
   if (Array.isArray(jf.genres) && jf.genres.length) chips.push(jf.genres.slice(0, 2).join(" · "));
   return { line: parts.join(" · "), chips };
 }
+
+// ---- Touch controls (music and the paused info screen) -----------------------
+
+// media_player supported_features bits (Home Assistant).
+const FEATURE = { PAUSE: 1, VOLUME_SET: 4, PREVIOUS: 16, NEXT: 32, VOLUME_STEP: 1024, PLAY: 16384 };
+
+// Which on-screen buttons a player can honour, from its supported_features, so
+// the panel never shows a button that would do nothing.
+export function mediaControls(entity) {
+  const f = Number(entity?.attributes?.supported_features) || 0;
+  const has = (bit) => (f & bit) !== 0;
+  const playPause = has(FEATURE.PAUSE) || has(FEATURE.PLAY);
+  return {
+    playPause,
+    previous: has(FEATURE.PREVIOUS),
+    next: has(FEATURE.NEXT),
+    volume: has(FEATURE.VOLUME_STEP) || has(FEATURE.VOLUME_SET),
+    any: playPause || has(FEATURE.PREVIOUS) || has(FEATURE.NEXT) || has(FEATURE.VOLUME_STEP) || has(FEATURE.VOLUME_SET),
+  };
+}
+
+// The Home Assistant service a button should call: [domain, service, data] or
+// null when the player cannot do it. Play/pause is explicit (pause while
+// playing, play otherwise) rather than a toggle, so a late state update cannot
+// make a tap do the opposite of what the screen shows.
+export function controlCall(action, entity) {
+  const id = entity?.entity_id;
+  if (!id) return null;
+  const c = mediaControls(entity);
+  switch (action) {
+    case "playpause":
+      if (!c.playPause) return null;
+      return ["media_player", entity.state === "playing" ? "media_pause" : "media_play", { entity_id: id }];
+    case "previous": return c.previous ? ["media_player", "media_previous_track", { entity_id: id }] : null;
+    case "next": return c.next ? ["media_player", "media_next_track", { entity_id: id }] : null;
+    case "volume_up": return c.volume ? ["media_player", "volume_up", { entity_id: id }] : null;
+    case "volume_down": return c.volume ? ["media_player", "volume_down", { entity_id: id }] : null;
+    default: return null;
+  }
+}
