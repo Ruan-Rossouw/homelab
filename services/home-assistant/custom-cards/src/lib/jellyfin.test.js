@@ -149,3 +149,46 @@ test("carouselPick steps through the list on a fixed clock", () => {
   assert.equal(carouselPick(items, 45000).title, "A"); // wraps
   assert.equal(carouselPick([], 123), null);
 });
+
+import { carouselWanted, jellyfinSource, DEFAULT_LAST_FILM_MS } from "./panel-scene.js";
+
+const NOW0 = 1_800_000_000_000;
+const sensorIdleSince = (minAgo, lastItem = mutiny) =>
+  ({ state: "idle", last_changed: new Date(NOW0 - minAgo * 60000).toISOString(), attributes: { data: {}, last: lastItem } });
+
+test("jellyfinSource says whether the details are the current item or the remembered one", () => {
+  assert.equal(jellyfinSource(sensorWith("paused", { data: mutiny, last: mutiny }), tvPaused("Mutiny")).from, "now");
+  assert.equal(jellyfinSource(sensorIdleSince(5), tvPaused("Mutiny")).from, "last");
+  assert.equal(jellyfinSource(sensorIdleSince(5), tvPaused("Heat")), null);
+});
+
+test("an idle Apple TV always gets the carousel", () => {
+  assert.equal(carouselWanted(undefined, { state: "idle", attributes: {} }, NOW0), true);
+});
+
+test("after leaving playback the film's details show for 2 minutes, then the carousel", () => {
+  assert.equal(carouselWanted(sensorIdleSince(1), tvPaused("Mutiny"), NOW0), false);
+  assert.equal(carouselWanted(sensorIdleSince(1.9), tvPaused("Mutiny"), NOW0), false);
+  assert.equal(carouselWanted(sensorIdleSince(2), tvPaused("Mutiny"), NOW0), true);
+  assert.equal(carouselWanted(sensorIdleSince(10), tvPaused("Mutiny"), NOW0), true);
+  assert.equal(DEFAULT_LAST_FILM_MS, 120000);
+});
+
+test("the wait is configurable, and 0 means straight away", () => {
+  assert.equal(carouselWanted(sensorIdleSince(1), tvPaused("Mutiny"), NOW0, 30000), true);
+  assert.equal(carouselWanted(sensorIdleSince(0.1), tvPaused("Mutiny"), NOW0, 0), true);
+  assert.equal(carouselWanted(sensorIdleSince(5), tvPaused("Mutiny"), NOW0, 10 * 60000), false);
+});
+
+test("a pause inside a film keeps its details, however long it lasts", () => {
+  const playingItem = { state: "paused", last_changed: new Date(NOW0 - 60 * 60000).toISOString(), attributes: { data: mutiny, last: mutiny } };
+  assert.equal(carouselWanted(playingItem, tvPaused("Mutiny"), NOW0), false);
+});
+
+test("no carousel for other apps, a playing TV, an unknown idle time, or a different title", () => {
+  assert.equal(carouselWanted(sensorIdleSince(10), tvPaused("YouTube video"), NOW0), false); // last film does not match
+  assert.equal(carouselWanted(sensorIdleSince(10), { state: "playing", attributes: { media_title: "Mutiny" } }, NOW0), false);
+  assert.equal(carouselWanted({ state: "idle", attributes: { data: {}, last: mutiny } }, tvPaused("Mutiny"), NOW0), false); // no last_changed
+  assert.equal(carouselWanted(undefined, tvPaused("Mutiny"), NOW0), false);
+  assert.equal(carouselWanted(sensorIdleSince(10), undefined, NOW0), false);
+});
