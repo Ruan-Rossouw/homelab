@@ -324,6 +324,19 @@ A plain load for display first would cache a copy without the CORS permission
 that a later CORS read cannot reuse. If an artwork cannot be fetched that way,
 it is still shown, just without a colour palette.
 
+**Touch controls.** The frame has a touchscreen, so the `music` scene has big
+round buttons under the progress bar (previous, play/pause, next, and a
+volume stepper showing the level) for whichever player is playing, and the
+paused info screen has a single **Resume** button for the Apple TV. Only what
+the player supports is shown (read from its `supported_features`: the HomePod
+and Apple TV both support pause, play, previous, next and volume), so a button
+never does nothing. Play/pause is explicit (pause while playing, play
+otherwise) rather than a toggle, so a late state update cannot make a tap do the
+opposite of what the screen shows; repeat taps within 350 ms are ignored.
+Taps are handled by one delegated listener on the card, so the 15 s re-render
+cannot drop them. `touch_controls: false` hides them. There are deliberately no
+controls on the cinema screen, which is black so as not to light the room.
+
 **The card updates itself.** The kiosk loads the dashboard once and never
 reloads it, and HA lets browsers cache each card URL for 31 days, so a new
 `wall-panel-card.js` on the server would otherwise never reach the panel. Every
@@ -428,7 +441,7 @@ switch, point `tv_power` at any entity that really tracks the TV's power
 `unavailable` or `unknown` counts as off immediately.
 
 Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`, see Stage 6),
-`browsing_timeout_min`, `tv_power`, `fluid` (`false` for a still music
+`browsing_timeout_min`, `tv_power`, `touch_controls`, `fluid` (`false` for a still music
 background), `auto_update` / `auto_update_minutes`,
 `brightness` (per-scene 0–1), `hold_ms` (per-scene),
 `sleep_clock: true` (dim clock instead of pure black while sleeping).
@@ -502,3 +515,7 @@ mkcert certificate the kiosk app already trusts.
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
   Assistant entities to Apple Home via the HomePod, if wanted later.
+- **Wall panel photo mode** — a slow cross-fading slideshow on the panel's
+  `day` scene after it has been idle for a while, so the frame is still a photo
+  frame. Needs a photo source first (Immich is on the Phase 6 roadmap); loading
+  only one image at a time would keep it light enough for the panel's 1 GB.
