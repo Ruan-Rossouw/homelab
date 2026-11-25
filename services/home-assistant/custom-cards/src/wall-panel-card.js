@@ -30,6 +30,7 @@ import { extractPalette, blobs, DEFAULT_PALETTE, paletteFromText } from "./lib/f
 import { signature, shouldReload, afterLoad } from "./lib/self-update.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, parseJellyfin, matchesJellyfin, jellyfinFacts, sameText,
+  mediaControls, controlCall,
 } from "./lib/panel-scene.js";
 
 const DEFAULT_BRIGHTNESS = {
@@ -107,6 +108,20 @@ const STYLES = `
   .chip { padding: 6px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.12); font-size: 22px; letter-spacing: 0.5px; }
   .overview { font-size: 26px; line-height: 1.35; opacity: 0.8; margin-top: 22px;
               display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .controls { display: flex; align-items: center; gap: 20px; margin-top: 28px; }
+  .ctl { width: 76px; height: 76px; border-radius: 50%; border: 0; padding: 0; color: #fff;
+         background: rgba(255, 255, 255, 0.14); display: flex; align-items: center; justify-content: center;
+         touch-action: manipulation; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .ctl svg { width: 34px; height: 34px; fill: currentColor; }
+  .ctl.big { width: 96px; height: 96px; background: rgba(255, 255, 255, 0.26); }
+  .ctl.big svg { width: 44px; height: 44px; }
+  .ctl.small { width: 62px; height: 62px; }
+  .ctl.small svg { width: 26px; height: 26px; }
+  .ctl.wide { width: auto; border-radius: 48px; padding: 0 34px 0 26px; gap: 14px; font: 500 28px Roboto, "Noto Sans", sans-serif; }
+  .ctl.pressed { transform: scale(0.92); background: rgba(255, 255, 255, 0.4); }
+  .vol { display: flex; align-items: center; gap: 12px; margin-left: 22px; padding-left: 28px;
+         border-left: 2px solid rgba(255, 255, 255, 0.16); font-size: 26px; opacity: 0.95; }
+  .vol span { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
   .badge { display: inline-block; margin-top: 26px; padding: 8px 20px; border-radius: 22px;
            background: rgba(255,255,255,0.14); font-size: 24px; letter-spacing: 1px; }
   .corner { position: absolute; right: 72px; bottom: 44px; }
@@ -167,6 +182,7 @@ class WallPanelCard extends HTMLElement {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="stage"></div>`;
       this._stage = this.shadowRoot.querySelector(".stage");
+      this._stage.addEventListener("click", (e) => this._onTap(e));
     }
     this._sceneState = { scene: null, candidate: null, candidateSince: 0 };
     this._renderedKey = null;
@@ -261,7 +277,7 @@ class WallPanelCard extends HTMLElement {
     const art = (jf && jf.poster) || this._artUrl(source);
     const progressBucket = Math.floor(now.getTime() / 15000);
     const key = [
-      scene, fmtTime(now), art, source?.state, source?.attributes?.media_title,
+      scene, fmtTime(now), art, source?.state, source?.attributes?.media_title, source?.attributes?.volume_level,
       scene === "music" || scene === "browsing" ? progressBucket : 0,
       jf ? `${jf.title}|${jf.episode}|${(jf.overview || "").length}` : "",
       this._summaryKey(),
@@ -599,10 +615,61 @@ class WallPanelCard extends HTMLElement {
           ${facts && facts.chips.length ? `<div class="chips">${facts.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
           ${jf && jf.overview ? `<div class="overview">${esc(jf.overview)}</div>` : ""}
           ${showBar ? `<div class="progress"><div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="times"><span>${fmtDuration(pos)}</span><span>${fmtDuration(dur)}</span></div></div>` : ""}
+          ${this._controlsHtml(source, isMusic)}
           ${where ? `<div class="badge">${esc(where)}</div>` : ""}
         </div>
       </div>
       <div class="corner clock small">${fmtTime(now)}</div>`;
+  }
+
+  // ---- Touch controls ------------------------------------------------------
+  // Big circular buttons on the music scene (previous / play-pause / next and
+  // volume) and a single Resume button on the paused info screen. Only what the
+  // player supports is shown (see mediaControls); taps are handled by one
+  // delegated listener on the stage, so the 15 s re-render cannot drop them.
+  _controlsHtml(source, isMusic) {
+    if (this._config.touch_controls === false || !source) return "";
+    const c = mediaControls(source);
+    const id = esc(source.entity_id || "");
+    const btn = (act, icon, cls = "", label = "") =>
+      `<button class="ctl ${cls}" data-act="${act}" data-ent="${id}" aria-label="${act}">${icon}${label}</button>`;
+    const ICON = {
+      play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+      pause: '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+      next: '<svg viewBox="0 0 24 24"><path d="M6 5l9 7-9 7zM17 5h2v14h-2z"/></svg>',
+      prev: '<svg viewBox="0 0 24 24"><path d="M18 5l-9 7 9 7zM5 5h2v14H5z"/></svg>',
+      minus: '<svg viewBox="0 0 24 24"><path d="M5 11h14v2H5z"/></svg>',
+      plus: '<svg viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>',
+    };
+    if (isMusic) {
+      if (!c.any) return "";
+      const playing = source.state === "playing";
+      const vol = Number(source.attributes?.volume_level);
+      return `<div class="controls">
+        ${c.previous ? btn("previous", ICON.prev) : ""}
+        ${c.playPause ? btn("playpause", playing ? ICON.pause : ICON.play, "big") : ""}
+        ${c.next ? btn("next", ICON.next) : ""}
+        ${c.volume ? `<div class="vol">${btn("volume_down", ICON.minus, "small")}<span>${Number.isFinite(vol) ? Math.round(vol * 100) + "%" : ""}</span>${btn("volume_up", ICON.plus, "small")}</div>` : ""}
+      </div>`;
+    }
+    // Paused info screen: one button to carry on watching.
+    if (source.state === "paused" && c.playPause) {
+      return `<div class="controls">${btn("playpause", ICON.play, "wide", "Resume")}</div>`;
+    }
+    return "";
+  }
+
+  _onTap(e) {
+    const el = e.target.closest && e.target.closest("[data-act]");
+    if (!el || !this._hass) return;
+    const now = Date.now();
+    if (now - (this._lastTap || 0) < 350) return; // ignore a double-tap / bounce
+    this._lastTap = now;
+    const entity = this._hass.states[el.dataset.ent];
+    const call = controlCall(el.dataset.act, entity);
+    if (!call) return;
+    el.classList.add("pressed");
+    this._hass.callService(call[0], call[1], call[2]);
   }
 }
 
