@@ -294,12 +294,21 @@ priority order from live entity state:
 | Scene | Triggered by | Shows | Backlight |
 |---|---|---|---|
 | `cinema` | a video is playing on the Apple TV | black | minimum |
-| `music` | the HomePod (or the TV) is playing music | album art, track, progress | 30% |
+| `music` | the HomePod (or the TV) is playing music | album art, track, progress on a drifting colour background | 30% |
 | `browsing` | the Apple TV is paused or idle | artwork (or text only), title, progress | 20% |
 | `sleep` | night window and the TV is off | black | minimum |
 | `away` | nobody is `home` | dim clock | 12% |
 | `morning` | morning window | greeting, clock, weather, power tiles | 50% |
 | `day` | otherwise | clock, weather, battery, grid, geyser | 40% |
+
+The `music` background is an Apple Music-style fluid gradient: four soft
+colour blobs taken from the album art's own palette drift slowly behind the
+cover. It is drawn on a tiny 96x60 canvas that CSS scales up (no blur
+filters, which are too slow for the panel's Mali-400 GPU), repainted about 8
+times a second. Artwork with no detail falls back to a default palette. If
+the panel ever struggles, `fluid: false` keeps the same palette as a still
+gradient. The palette and blob maths are pure and unit-tested
+(`src/lib/fluid-palette.js`).
 
 Some players pass a placeholder instead of real artwork (the Moonfin
 Jellyfin client on the Apple TV sends a plain white image). The card
@@ -357,7 +366,8 @@ switch, point `tv_power` at any entity that really tracks the TV's power
 `unavailable` or `unknown` counts as off immediately.
 
 Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`, see Stage 6),
-`browsing_timeout_min`, `tv_power`,
+`browsing_timeout_min`, `tv_power`, `fluid` (`false` for a still music
+background),
 `brightness` (per-scene 0–1), `hold_ms` (per-scene),
 `sleep_clock: true` (dim clock instead of pure black while sleeping).
 

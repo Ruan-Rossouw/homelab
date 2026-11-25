@@ -1,4 +1,106 @@
 (() => {
+  // src/lib/fluid-palette.js
+  var DEFAULT_PALETTE = [
+    [92, 52, 140],
+    [168, 62, 116],
+    [48, 86, 150],
+    [196, 110, 70]
+  ];
+  function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    return [h / 6, s, l];
+  }
+  function hslToRgb(h, s, l) {
+    if (s === 0) {
+      const v = Math.round(l * 255);
+      return [v, v, v];
+    }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const f = (t) => {
+      t = (t % 1 + 1) % 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    return [f(h + 1 / 3), f(h), f(h - 1 / 3)].map((v) => Math.round(v * 255));
+  }
+  function tuneColor([r, g, b]) {
+    const [h, s, l] = rgbToHsl(r, g, b);
+    return hslToRgb(h, s < 0.08 ? s : Math.max(s, 0.55), Math.min(0.52, Math.max(0.26, l)));
+  }
+  function dist(a, b) {
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  }
+  function lumaSpread(data) {
+    let sum = 0, sumSq = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue;
+      const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      sum += y;
+      sumSq += y * y;
+      n++;
+    }
+    if (!n) return 0;
+    const mean = sum / n;
+    return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+  }
+  function extractPalette(data, count = 4) {
+    if (lumaSpread(data) < 6) return null;
+    const buckets = /* @__PURE__ */ new Map();
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue;
+      const key = data[i] >> 5 << 6 | data[i + 1] >> 5 << 3 | data[i + 2] >> 5;
+      const e = buckets.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+      e.n++;
+      e.r += data[i];
+      e.g += data[i + 1];
+      e.b += data[i + 2];
+      buckets.set(key, e);
+    }
+    const ranked = [...buckets.values()].map((e) => {
+      const rgb = [e.r / e.n, e.g / e.n, e.b / e.n];
+      const [, s2, l2] = rgbToHsl(...rgb);
+      const extreme = l2 < 0.1 || l2 > 0.92 ? 0.15 : 1;
+      return { rgb, score: e.n * (0.25 + s2) * extreme };
+    }).sort((a, b) => b.score - a.score);
+    const picked = [];
+    for (const { rgb } of ranked) {
+      if (picked.every((p) => dist(p, rgb) > 70)) picked.push(rgb);
+      if (picked.length === count) break;
+    }
+    const [h, s, l] = rgbToHsl(...picked[0] || DEFAULT_PALETTE[0]);
+    for (let k = 1; picked.length < count; k++) {
+      picked.push(hslToRgb(h + 0.08 * k * (k % 2 ? 1 : -1), Math.max(s, 0.4), l));
+    }
+    return picked.map(tuneColor);
+  }
+  var BLOBS = [
+    { x: 0.22, y: 0.28, ax: 0.2, ay: 0.16, fx: 0.21, fy: 0.17, px: 0, py: 1.3, r: 0.6 },
+    { x: 0.8, y: 0.22, ax: 0.18, ay: 0.2, fx: 0.16, fy: 0.23, px: 2.1, py: 0.4, r: 0.55 },
+    { x: 0.3, y: 0.82, ax: 0.2, ay: 0.14, fx: 0.19, fy: 0.15, px: 4, py: 2.6, r: 0.58 },
+    { x: 0.82, y: 0.78, ax: 0.16, ay: 0.18, fx: 0.14, fy: 0.2, px: 1.1, py: 3.7, r: 0.52 }
+  ];
+  function blobs(t) {
+    return BLOBS.map((b) => ({
+      x: b.x + b.ax * Math.sin(t * b.fx + b.px),
+      y: b.y + b.ay * Math.cos(t * b.fy + b.py),
+      r: b.r
+    }));
+  }
+
   // src/lib/panel-scene.js
   var VIDEO_TYPES = /* @__PURE__ */ new Set(["video", "movie", "tvshow", "episode", "tv_show"]);
   var MUSIC_TYPES = /* @__PURE__ */ new Set(["music", "track", "album", "playlist", "podcast"]);
@@ -152,6 +254,8 @@
   .bg-art { background: #080a10; }
   .bg-art canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.85; }
   .bg-art .veil { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); }
+  .bg-art canvas.fluid { opacity: 1; }
+  .bg-art .veil.light { background: rgba(0, 0, 0, 0.14); }
   .content { position: absolute; inset: 0; padding: 56px 72px; display: flex; flex-direction: column; }
 
   .clock { font-weight: 200; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -272,6 +376,7 @@
       this._sceneState = { scene: null, candidate: null, candidateSince: 0 };
       this._renderedKey = null;
       this._shapes = {};
+      this._palettes = {};
     }
     set hass(hass) {
       this._hass = hass;
@@ -283,6 +388,7 @@
     disconnectedCallback() {
       clearInterval(this._timer);
       clearTimeout(this._holdTimer);
+      this._stopFluid();
     }
     getCardSize() {
       return 12;
@@ -374,10 +480,14 @@
         music: "bg-art",
         browsing: "bg-art"
       }[scene];
+      this._stopFluid();
+      if (scene !== "music") this._fluidT0 = null;
+      const backdrop = scene === "music" ? '<canvas class="fluid" width="96" height="60"></canvas><div class="veil light"></div>' : '<canvas width="48" height="30"></canvas><div class="veil"></div>';
       this._stage.innerHTML = `
-      <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? '<canvas width="48" height="30"></canvas><div class="veil"></div>' : ""}</div>
+      <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
       <div class="content">${body}</div>`;
-      if (layerFor === "bg-art") this._paintBackdrop(art);
+      if (scene === "music") this._startFluid(art);
+      else if (layerFor === "bg-art") this._paintBackdrop(art);
       const artEl = this._stage.querySelector(".art");
       if (artEl && art) {
         artEl.style.backgroundImage = `url(${JSON.stringify(art)})`;
@@ -426,7 +536,7 @@
       }
     }
     _clearBackdrop() {
-      const canvas = this._stage.querySelector("canvas");
+      const canvas = this._stage.querySelector("canvas:not(.fluid)");
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
       ctx.fillStyle = "#0b0e16";
@@ -446,6 +556,72 @@
         }
       };
       img.src = url;
+    }
+    // ---- Music scene: Apple Music-style fluid background -------------------
+    // Four soft colour blobs, taken from the artwork's own palette, drift slowly
+    // on a tiny canvas (96x60) that CSS scales up, so the GPU does the smoothing
+    // and the CPU only paints ~8 small frames a second.
+    _startFluid(url) {
+      const canvas = this._stage.querySelector("canvas.fluid");
+      if (!canvas) return;
+      if (this._fluidT0 == null) this._fluidT0 = performance.now();
+      const begin = (palette) => {
+        if (!this._stage.contains(canvas)) return;
+        this._fluid = { canvas, palette };
+        this._drawFluid();
+        if (this._config.fluid !== false) {
+          this._fluidTimer = setInterval(() => this._drawFluid(), 125);
+        }
+      };
+      if (!url) return begin(DEFAULT_PALETTE);
+      if (this._palettes[url]) return begin(this._palettes[url]);
+      this._drawFluidOnce(canvas, DEFAULT_PALETTE);
+      const img = new Image();
+      img.onload = () => {
+        this._palettes[url] = this._paletteOf(img) || DEFAULT_PALETTE;
+        this._stopFluid();
+        begin(this._palettes[url]);
+      };
+      img.onerror = () => begin(DEFAULT_PALETTE);
+      img.src = url;
+    }
+    _paletteOf(img) {
+      try {
+        const c = document.createElement("canvas");
+        c.width = 24;
+        c.height = 24;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, 24, 24);
+        return extractPalette(ctx.getImageData(0, 0, 24, 24).data, 4);
+      } catch (e) {
+        return null;
+      }
+    }
+    _stopFluid() {
+      clearInterval(this._fluidTimer);
+      this._fluidTimer = null;
+      this._fluid = null;
+    }
+    _drawFluid() {
+      if (!this._fluid) return;
+      this._drawFluidOnce(this._fluid.canvas, this._fluid.palette);
+    }
+    _drawFluidOnce(canvas, palette) {
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width, H = canvas.height;
+      const t = (performance.now() - (this._fluidT0 ?? performance.now())) / 1e3;
+      const base = palette[0].map((v) => Math.round(v * 0.3));
+      ctx.fillStyle = `rgb(${base.join(",")})`;
+      ctx.fillRect(0, 0, W, H);
+      blobs(t).forEach((b, i) => {
+        const c = palette[i % palette.length].join(",");
+        const x = b.x * W, y = b.y * H, r = b.r * W;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${c},0.95)`);
+        g.addColorStop(1, `rgba(${c},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      });
     }
     _clockOnly(now, small) {
       return `<div class="clock ${small ? "small" : "hero"}">${fmtTime(now)}</div>`;
