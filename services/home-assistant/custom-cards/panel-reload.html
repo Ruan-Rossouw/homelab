@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Panel reload</title>
+<!--
+  Forces the wall panel's page to reload itself. It is loaded inside a hidden
+  `iframe` card that is added to the Wall Panel dashboard for a moment: Home
+  Assistant pushes the dashboard change to every open screen, including the
+  frame, the frame creates the iframe, and this page reloads its parent.
+  See services/home-assistant/README.md, "Forcing a refresh remotely".
+
+  Safe by design: it does nothing unless opened as `?t=<token>` inside a
+  frame, and it reloads at most once per token (remembered in localStorage,
+  which the frame and its parent share), so leaving the card in place cannot
+  cause a reload loop. Home Assistant's iframe sandbox allows this reload.
+-->
+<script>
+(function () {
+  if (window.top === window) return; // opened directly, not as an iframe: do nothing
+  var token = new URLSearchParams(location.search).get("t");
+  if (!token) return;
+  try {
+    if (localStorage.getItem("wallPanelReload") === token) return; // already reloaded for this request
+    localStorage.setItem("wallPanelReload", token);
+  } catch (e) { return; }
+  try {
+    parent.location.reload();
+  } catch (e) {
+    try { parent.setTimeout("location.reload()", 50); } catch (e2) { /* nothing more to try */ }
+  }
+})();
+</script>
