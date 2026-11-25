@@ -295,20 +295,31 @@ priority order from live entity state:
 |---|---|---|---|
 | `cinema` | a video is playing on the Apple TV | black | minimum |
 | `music` | the HomePod (or the TV) is playing music | album art, track, progress on a drifting colour background | 30% |
-| `browsing` | the Apple TV is paused or idle | artwork (or text only), title, progress | 20% |
+| `browsing` | the Apple TV is paused or idle | poster or artwork, title, progress, on a drifting colour background (plain dark with no artwork) | 20% |
 | `sleep` | night window and the TV is off | black | minimum |
 | `away` | nobody is `home` | dim clock | 12% |
 | `morning` | morning window | greeting, clock, weather, power tiles | 50% |
 | `day` | otherwise | clock, weather, battery, grid, geyser | 40% |
 
-The `music` background is an Apple Music-style fluid gradient: four soft
-colour blobs taken from the album art's own palette drift slowly behind the
-cover. It is drawn on a tiny 96x60 canvas that CSS scales up (no blur
-filters, which are too slow for the panel's Mali-400 GPU), repainted about 8
-times a second. Artwork with no detail falls back to a default palette. If
-the panel ever struggles, `fluid: false` keeps the same palette as a still
+The `music` background, and the `browsing` background when there is artwork,
+is an Apple Music-style fluid gradient: four soft colour blobs taken from the
+artwork's own palette drift slowly behind the cover (a darker veil on the info
+screen so text stays readable). It is drawn on a tiny 96x60 canvas that CSS
+scales up (no blur filters, which are too slow for the panel's Mali-400 GPU),
+repainted about 8 times a second. Music with no usable artwork falls back to a
+default palette; the info screen stays plain dark, which suits a film. If the
+panel ever struggles, `fluid: false` keeps the same palette as a still
 gradient. The palette and blob maths are pure and unit-tested
 (`src/lib/fluid-palette.js`).
+
+Reading an image's colours needs its pixels, and a page may only read pixels
+of artwork from another origin (the Jellyfin posters on `jellyfin.home`) if the
+server allows it and the image was fetched with CORS. Jellyfin sends
+`Access-Control-Allow-Origin: *`, so the card fetches each artwork once in CORS
+mode and uses that one same-origin copy both to show it and to read its colours.
+A plain load for display first would cache a copy without the CORS permission
+that a later CORS read cannot reuse. If an artwork cannot be fetched that way,
+it is still shown, just without a colour palette.
 
 **The card updates itself.** The kiosk loads the dashboard once and never
 reloads it, and HA lets browsers cache each card URL for 31 days, so a new
