@@ -235,3 +235,55 @@ export function controlCall(action, entity) {
     default: return null;
   }
 }
+
+// ---- Last film and the idle carousel -----------------------------------------
+
+function asObject(v) {
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { return null; } }
+  return v && typeof v === "object" ? v : null;
+}
+
+// The Jellyfin details to show for a *paused* TV: the item playing now if it
+// matches the TV's title, otherwise the last item the sensor remembered (when
+// Moonfin leaves playback Jellyfin drops the item but the Apple TV still says
+// "paused <title>"). Null when neither matches, so a stale item can never
+// appear under a different title.
+export function jellyfinForTv(sensor, tv) {
+  if (!sensor || !tv || tv.state !== "paused") return null;
+  const now = parseJellyfin(sensor);
+  if (now && matchesJellyfin(tv, now)) return now;
+  const last = asObject(sensor.attributes?.last);
+  if (last && last.title && matchesJellyfin(tv, last)) return last;
+  return null;
+}
+
+function asList(v) {
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) { return []; } }
+  return Array.isArray(v) ? v.filter((i) => i && i.title && i.poster) : [];
+}
+
+// "Continue watching" first, then "Recently added", the same title only once
+// (a show you are halfway through is not also listed as new), capped so the
+// rotation stays short. Each item gets the label it is shown under.
+export function carouselItems(library, max = 14) {
+  const seen = new Set();
+  const out = [];
+  const add = (items, label) => {
+    for (const it of items) {
+      const key = `${String(it.title).toLowerCase()}|${it.type || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...it, label });
+    }
+  };
+  add(asList(library?.attributes?.resume), "Continue watching");
+  add(asList(library?.attributes?.recent), "Recently added");
+  return out.slice(0, max);
+}
+
+// Which item to show now: steps through the list on a fixed clock, so it
+// advances on its own with no state to keep.
+export function carouselPick(items, nowMs, stepMs = 15000) {
+  if (!items.length) return null;
+  return items[Math.floor(nowMs / stepMs) % items.length];
+}

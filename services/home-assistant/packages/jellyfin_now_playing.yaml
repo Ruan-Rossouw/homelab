@@ -1,9 +1,18 @@
-# Jellyfin "now playing" for the wall panel card (custom-cards/wall-panel-card).
+# Jellyfin data for the wall panel card (custom-cards/wall-panel-card).
 #
 # The Apple TV only tells Home Assistant a title, an episode label and a
 # picture (and the Moonfin client sends a blank white one). Jellyfin has the
-# real description, rating, genres and poster, so this asks Jellyfin what the
-# Apple TV is playing and exposes it as sensor.jellyfin_now_playing.
+# real description, rating, genres and poster, so this asks Jellyfin and
+# exposes two sensors:
+#
+#   sensor.jellyfin_now_playing  what the Apple TV is playing (polled every
+#                                5 s), plus the last item it played and the
+#                                Jellyfin user id, so the paused screen still
+#                                has the film's details after Moonfin leaves
+#                                playback and Jellyfin drops the item.
+#   sensor.jellyfin_library      "Continue watching" and "Recently added"
+#                                (refreshed every 30 min), for the carousel
+#                                shown while the TV is idle.
 #
 # Setup (see services/home-assistant/README.md, "Stage 6"):
 #   1. configuration.yaml needs, once:
@@ -12,7 +21,9 @@
 #   2. secrets.yaml needs:  jellyfin_api_key: <key>
 #      (Jellyfin > Dashboard > Advanced > API Keys, labelled ha-wall-panel)
 #   3. Copy this file to /DATA/AppData/home-assistant/config/packages/ and
-#      restart Home Assistant (a restart is needed the first time only).
+#      restart Home Assistant (a restart is needed the first time only; after
+#      later edits `template.reload` is enough, but rest_command changes need
+#      a restart).
 #
 # The key lives only in secrets.yaml on the server. It is never sent to the
 # wall panel or put in any dashboard.
@@ -24,6 +35,21 @@ rest_command:
     headers:
       X-Emby-Token: !secret jellyfin_api_key
     timeout: 5
+  # Newest movies and series. `user_id` is optional (it limits the result to
+  # that user's libraries when known).
+  jellyfin_recent:
+    url: "http://localhost:8096/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&IncludeItemTypes=Movie,Series&Limit=12&Fields=Overview,Genres,CommunityRating,OfficialRating,ProductionYear,RunTimeTicks&EnableImageTypes=Primary&ImageTypeLimit=1{{ '&userId=' ~ user_id if user_id else '' }}"
+    method: get
+    headers:
+      X-Emby-Token: !secret jellyfin_api_key
+    timeout: 15
+  # What that user has started and not finished.
+  jellyfin_resume:
+    url: "http://localhost:8096/UserItems/Resume?userId={{ user_id }}&Limit=8&MediaTypes=Video&Fields=Overview,Genres,CommunityRating,OfficialRating,ProductionYear,RunTimeTicks&EnableImageTypes=Primary&ImageTypeLimit=1"
+    method: get
+    headers:
+      X-Emby-Token: !secret jellyfin_api_key
+    timeout: 15
 
 template:
   - triggers:
@@ -71,16 +97,15 @@ template:
               'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag
             } | to_json }}
             {% endif %}
-          # What the Apple TV client is looking at (a movie's page) without
-          # playing it, from Jellyfin's NowViewingItem. Only filled in when the
-          # client reports it; {} otherwise. Same shape as `data`.
-          viewing: >-
+          # The last item that was playing, kept after Jellyfin drops it (when
+          # Moonfin leaves playback the Apple TV still says "paused <title>").
+          # Same shape as `data`; the card only uses it while the Apple TV's
+          # title still matches.
+          last: >-
             {% set sessions = jf.content if jf is defined and jf.content is list else [] %}
-            {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | list | first | default(none) %}
-            {% if s is none or s.NowViewingItem is not defined %}
-            {{ {} | to_json }}
-            {% else %}
-            {% set it = s.NowViewingItem %}
+            {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | selectattr('NowPlayingItem', 'defined') | list | first | default(none) %}
+            {% if s is not none %}
+            {% set it = s.NowPlayingItem %}
             {% set episode = it.Type == 'Episode' %}
             {% set poster_id = it.SeriesId if episode and it.SeriesId is defined else it.Id %}
             {% set poster_tag = it.SeriesPrimaryImageTag if episode and it.SeriesPrimaryImageTag is defined else (it.ImageTags.Primary | default('')) %}
@@ -98,10 +123,96 @@ template:
               'type': it.Type,
               'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag
             } | to_json }}
+            {% else %}
+            {% set prev = this.attributes.last if this is defined and this.attributes is defined and this.attributes.last is defined else {} %}
+            {{ prev if prev is string else (prev | to_json) }}
             {% endif %}
-          # Diagnostic: the field names Jellyfin returns for the Apple TV
-          # session, to see whether the client reports NowViewingItem at all.
-          session_fields: >-
+          # The Jellyfin user behind the Apple TV session (not a secret),
+          # remembered so the library sensor can ask for that user's
+          # "Continue watching" list.
+          user_id: >-
             {% set sessions = jf.content if jf is defined and jf.content is list else [] %}
             {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | list | first | default(none) %}
-            {{ ([] if s is none else (s.keys() | list)) | to_json }}
+            {{ s.UserId if s is not none and s.UserId is defined else (this.attributes.user_id if this is defined and this.attributes is defined and this.attributes.user_id is defined else '') }}
+
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+      # Fire this event to refresh straight away (e.g. after editing this file).
+      - trigger: event
+        event_type: wall_panel_refresh_library
+    actions:
+      - variables:
+          user_id: "{{ state_attr('sensor.jellyfin_now_playing', 'user_id') or '' }}"
+      - action: rest_command.jellyfin_recent
+        data:
+          user_id: "{{ user_id }}"
+        response_variable: recent
+        continue_on_error: true
+      - if: "{{ user_id != '' }}"
+        then:
+          - action: rest_command.jellyfin_resume
+            data:
+              user_id: "{{ user_id }}"
+            response_variable: resume
+            continue_on_error: true
+    sensor:
+      - name: Jellyfin Library
+        unique_id: jellyfin_library
+        icon: mdi:movie-roll
+        # How many "recently added" items were fetched; 0 means the call failed.
+        state: >-
+          {{ (recent.content.get('Items', []) | length) if recent is defined and recent.content is mapping else 0 }}
+        attributes:
+          # Two JSON lists of up to 12 and 8 items. Each item: title, episode
+          # line (for episodes), a short overview, year, rating, runtime,
+          # genres, type, poster URL and, for "continue watching", progress %.
+          recent: >-
+            {% set items = recent.content.get('Items', []) if recent is defined and recent.content is mapping else [] %}
+            {% set ns = namespace(out=[]) %}
+            {% for it in items[:12] %}
+            {% set episode = it.Type == 'Episode' %}
+            {% set poster_id = it.SeriesId if episode and it.SeriesId is defined else it.Id %}
+            {% set poster_tag = it.SeriesPrimaryImageTag if episode and it.SeriesPrimaryImageTag is defined else (it.ImageTags.Primary | default('')) %}
+            {% set ns.out = ns.out + [{
+              'title': (it.SeriesName if episode and it.SeriesName is defined else it.Name),
+              'episode_title': (it.Name if episode else ''),
+              'season': it.ParentIndexNumber | default(none),
+              'episode': it.IndexNumber | default(none),
+              'overview': (it.Overview | default(''))[:220],
+              'year': it.ProductionYear | default(none),
+              'rating': ((it.CommunityRating | round(1)) if it.CommunityRating is defined else none),
+              'official_rating': it.OfficialRating | default(''),
+              'runtime_min': (((it.RunTimeTicks | default(0)) / 600000000) | round(0) | int),
+              'genres': (it.Genres | default([]))[:2],
+              'type': it.Type,
+              'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag
+            }] %}
+            {% endfor %}
+            {{ ns.out | to_json }}
+          resume: >-
+            {% set items = resume.content.get('Items', []) if resume is defined and resume.content is mapping else [] %}
+            {% set ns = namespace(out=[]) %}
+            {% for it in items[:8] %}
+            {% set episode = it.Type == 'Episode' %}
+            {% set poster_id = it.SeriesId if episode and it.SeriesId is defined else it.Id %}
+            {% set poster_tag = it.SeriesPrimaryImageTag if episode and it.SeriesPrimaryImageTag is defined else (it.ImageTags.Primary | default('')) %}
+            {% set ns.out = ns.out + [{
+              'title': (it.SeriesName if episode and it.SeriesName is defined else it.Name),
+              'episode_title': (it.Name if episode else ''),
+              'season': it.ParentIndexNumber | default(none),
+              'episode': it.IndexNumber | default(none),
+              'overview': (it.Overview | default(''))[:220],
+              'year': it.ProductionYear | default(none),
+              'rating': ((it.CommunityRating | round(1)) if it.CommunityRating is defined else none),
+              'official_rating': it.OfficialRating | default(''),
+              'runtime_min': (((it.RunTimeTicks | default(0)) / 600000000) | round(0) | int),
+              'genres': (it.Genres | default([]))[:2],
+              'type': it.Type,
+              'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag,
+              'progress_pct': ((it.UserData.PlayedPercentage | round(0) | int) if it.UserData is defined and it.UserData.PlayedPercentage is defined else none)
+            }] %}
+            {% endfor %}
+            {{ ns.out | to_json }}
