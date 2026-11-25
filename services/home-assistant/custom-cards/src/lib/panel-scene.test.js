@@ -118,3 +118,50 @@ test("zero-hold scenes switch at once", () => {
   const s = stepScene({ scene: "day", candidate: null, candidateSince: 0 }, "sleep", 5000);
   assert.equal(s.scene, "sleep");
 });
+
+// ---- TV switched off (the Apple TV never reports it) ------------------------
+const MIN = 60000;
+const since = (min, now) => new Date(now.getTime() - min * MIN).toISOString();
+const tvAt = (state, min, now, attributes = {}) => ({ state, attributes, last_changed: since(min, now) });
+
+test("a paused TV shows browsing, then returns to the general screen once it has sat there too long", () => {
+  const now = at(15);
+  assert.equal(computeScene({ ...base, now, tv: tvAt("paused", 5, now) }).scene, "browsing");
+  assert.equal(computeScene({ ...base, now, tv: tvAt("paused", 16, now) }).scene, "day");
+  assert.equal(computeScene({ ...base, now, tv: tvAt("idle", 16, now) }).scene, "day");
+});
+
+test("a stale paused TV lets the panel sleep at night", () => {
+  const now = at(23, 30);
+  assert.equal(computeScene({ ...base, now, tv: tvAt("paused", 40, now) }).scene, "sleep");
+  assert.equal(computeScene({ ...base, now, tv: tvAt("paused", 2, now) }).scene, "browsing");
+});
+
+test("the browsing timeout is configurable and 0 disables it", () => {
+  const now = at(15);
+  const tv = tvAt("paused", 30, now);
+  assert.equal(computeScene({ ...base, now, tv, browsingTimeoutMs: 45 * MIN }).scene, "browsing");
+  assert.equal(computeScene({ ...base, now, tv, browsingTimeoutMs: 10 * MIN }).scene, "day");
+  assert.equal(computeScene({ ...base, now, tv, browsingTimeoutMs: 0 }).scene, "browsing");
+});
+
+test("a TV with no last_changed is never treated as stale", () => {
+  const now = at(15);
+  assert.equal(computeScene({ ...base, now, tv: { state: "paused", attributes: {} } }).scene, "browsing");
+});
+
+test("playing video is still cinema however long it has been playing", () => {
+  const now = at(21);
+  const tv = tvAt("playing", 120, now, { media_content_type: "movie" });
+  assert.equal(computeScene({ ...base, now, tv }).scene, "cinema");
+});
+
+test("a real power entity switches the panel off the info screen at once", () => {
+  const now = at(15);
+  const tv = tvAt("paused", 1, now);
+  assert.equal(computeScene({ ...base, now, tv, tvPower: { state: "on" } }).scene, "browsing");
+  assert.equal(computeScene({ ...base, now, tv, tvPower: { state: "off" } }).scene, "day");
+  assert.equal(computeScene({ ...base, now, tv, tvPower: { state: "standby" } }).scene, "day");
+  const playing = tvAt("playing", 1, now, { media_content_type: "movie" });
+  assert.equal(computeScene({ ...base, now, tv: playing, tvPower: { state: "off" } }).scene, "day");
+});
