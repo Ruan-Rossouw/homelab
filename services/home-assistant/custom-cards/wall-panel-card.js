@@ -280,6 +280,7 @@
   .bg-art .veil { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); }
   .bg-art canvas.fluid { opacity: 1; }
   .bg-art .veil.light { background: rgba(0, 0, 0, 0.14); }
+  .bg-art .veil.dim { background: rgba(0, 0, 0, 0.26); }
   .content { position: absolute; inset: 0; padding: 56px 72px; display: flex; flex-direction: column; }
 
   .clock { font-weight: 200; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -403,6 +404,9 @@
       this._renderedKey = null;
       this._shapes = {};
       this._palettes = {};
+      this._artBlobs = {};
+      this._artPending = {};
+      this._artOrder = [];
     }
     set hass(hass) {
       this._hass = hass;
@@ -512,16 +516,18 @@
         browsing: "bg-art"
       }[scene];
       this._stopFluid();
-      if (scene !== "music") this._fluidT0 = null;
-      const backdrop = scene === "music" ? '<canvas class="fluid" width="96" height="60"></canvas><div class="veil light"></div>' : '<canvas width="48" height="30"></canvas><div class="veil"></div>';
+      const useFluid = scene === "music" || scene === "browsing" && !!art;
+      if (!useFluid) this._fluidT0 = null;
+      const backdrop = useFluid ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>` : "";
       this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
       <div class="content">${body}</div>`;
-      if (scene === "music") this._startFluid(art);
-      else if (layerFor === "bg-art") this._paintBackdrop(art);
+      if (useFluid) this._startFluid(art, scene === "music");
       const artEl = this._stage.querySelector(".art");
       if (artEl && art) {
-        artEl.style.backgroundImage = `url(${JSON.stringify(art)})`;
+        const known = this._artBlobs[art];
+        if (known !== void 0) artEl.style.backgroundImage = `url(${JSON.stringify(known || art)})`;
+        this._fetchArt(art);
         if (!this._shapes[art]) this._learnShape(art);
       }
     }
@@ -537,10 +543,11 @@
         if (media && this._currentArt === url) {
           media.classList.remove("square", "poster", "wide", "none");
           media.classList.add(this._shapes[url]);
-          if (this._shapes[url] === "none") this._clearBackdrop();
         }
       };
-      probe.src = url;
+      this._fetchArt(url).then((src) => {
+        probe.src = src || url;
+      });
     }
     // Some players hand over a placeholder (e.g. a plain white image) instead of
     // real artwork. Draw it tiny and measure the pixel variance: no detail means
@@ -565,28 +572,6 @@
       } catch (e) {
         return false;
       }
-    }
-    _clearBackdrop() {
-      const canvas = this._stage.querySelector("canvas:not(.fluid)");
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#0b0e16";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    // Draw the artwork tiny; CSS scaling then does the blur.
-    _paintBackdrop(url) {
-      const canvas = this._stage.querySelector("canvas");
-      if (!canvas || !url) return;
-      const img = new Image();
-      img.onload = () => {
-        try {
-          if (this._shapes[url] === "none") return;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        } catch (e) {
-        }
-      };
-      img.src = url;
     }
     // ---- Self-update ----------------------------------------------------------
     // The kiosk never reloads its page and HA lets browsers cache this file for
@@ -641,7 +626,7 @@
     // Four soft colour blobs, taken from the artwork's own palette, drift slowly
     // on a tiny canvas (96x60) that CSS scales up, so the GPU does the smoothing
     // and the CPU only paints ~8 small frames a second.
-    _startFluid(url) {
+    _startFluid(url, useDefault = true) {
       const canvas = this._stage.querySelector("canvas.fluid");
       if (!canvas) return;
       if (this._fluidT0 == null) this._fluidT0 = performance.now();
@@ -655,15 +640,67 @@
       };
       if (!url) return begin(DEFAULT_PALETTE);
       if (this._palettes[url]) return begin(this._palettes[url]);
-      this._drawFluidOnce(canvas, DEFAULT_PALETTE);
+      if (useDefault) this._drawFluidOnce(canvas, DEFAULT_PALETTE);
+      else this._fillDark(canvas);
       const img = new Image();
       img.onload = () => {
-        this._palettes[url] = this._paletteOf(img) || DEFAULT_PALETTE;
+        const palette = this._paletteOf(img);
+        if (!palette && !useDefault) {
+          this._stopFluid();
+          this._fillDark(canvas);
+          return;
+        }
+        this._palettes[url] = palette || DEFAULT_PALETTE;
         this._stopFluid();
         begin(this._palettes[url]);
       };
-      img.onerror = () => begin(DEFAULT_PALETTE);
-      img.src = url;
+      img.onerror = () => useDefault ? begin(DEFAULT_PALETTE) : this._fillDark(canvas);
+      this._fetchArt(url).then((src) => {
+        if (src) {
+          img.src = src;
+          return;
+        }
+        if (useDefault) begin(DEFAULT_PALETTE);
+        else this._fillDark(canvas);
+      });
+    }
+    // Fetch artwork once, in CORS mode, and keep a same-origin blob copy. Showing
+    // it and reading its colours then use that one copy: the page may only read
+    // pixels of cross-origin art (Jellyfin posters) that was fetched with CORS,
+    // and a plain no-CORS load for display would cache a copy that later CORS
+    // reads cannot reuse. Resolves to the blob URL, or null if the fetch failed.
+    _fetchArt(url) {
+      if (this._artBlobs[url] !== void 0) return Promise.resolve(this._artBlobs[url]);
+      if (this._artPending[url]) return this._artPending[url];
+      this._artPending[url] = fetch(url, { mode: "cors" }).then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.blob();
+      }).then((b) => {
+        const blobUrl = URL.createObjectURL(b);
+        this._artBlobs[url] = blobUrl;
+        this._artOrder.push(url);
+        while (this._artOrder.length > 5) {
+          const old = this._artOrder.shift();
+          URL.revokeObjectURL(this._artBlobs[old]);
+          delete this._artBlobs[old];
+        }
+        this._showFetchedArt(url);
+        return blobUrl;
+      }).catch(() => {
+        this._artBlobs[url] = null;
+        this._showFetchedArt(url);
+        return null;
+      }).then((v) => {
+        delete this._artPending[url];
+        return v;
+      });
+      return this._artPending[url];
+    }
+    // Swap the on-screen artwork to its same-origin copy (looks identical).
+    _showFetchedArt(url) {
+      if (this._currentArt !== url || this._artBlobs[url] === void 0) return;
+      const artEl = this._stage && this._stage.querySelector(".art");
+      if (artEl) artEl.style.backgroundImage = `url(${JSON.stringify(this._artBlobs[url] || url)})`;
     }
     _paletteOf(img) {
       try {
@@ -676,6 +713,11 @@
       } catch (e) {
         return null;
       }
+    }
+    _fillDark(canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#0b0e16";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
     _stopFluid() {
       clearInterval(this._fluidTimer);
