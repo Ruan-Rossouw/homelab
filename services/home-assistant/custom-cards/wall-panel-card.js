@@ -295,6 +295,53 @@
         return null;
     }
   }
+  function asObject(v) {
+    if (typeof v === "string") {
+      try {
+        v = JSON.parse(v);
+      } catch (e) {
+        return null;
+      }
+    }
+    return v && typeof v === "object" ? v : null;
+  }
+  function jellyfinForTv(sensor, tv) {
+    if (!sensor || !tv || tv.state !== "paused") return null;
+    const now = parseJellyfin(sensor);
+    if (now && matchesJellyfin(tv, now)) return now;
+    const last = asObject(sensor.attributes?.last);
+    if (last && last.title && matchesJellyfin(tv, last)) return last;
+    return null;
+  }
+  function asList(v) {
+    if (typeof v === "string") {
+      try {
+        v = JSON.parse(v);
+      } catch (e) {
+        return [];
+      }
+    }
+    return Array.isArray(v) ? v.filter((i) => i && i.title && i.poster) : [];
+  }
+  function carouselItems(library, max = 14) {
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    const add = (items, label) => {
+      for (const it of items) {
+        const key = `${String(it.title).toLowerCase()}|${it.type || ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ ...it, label });
+      }
+    };
+    add(asList(library?.attributes?.resume), "Continue watching");
+    add(asList(library?.attributes?.recent), "Recently added");
+    return out.slice(0, max);
+  }
+  function carouselPick(items, nowMs, stepMs = 15e3) {
+    if (!items.length) return null;
+    return items[Math.floor(nowMs / stepMs) % items.length];
+  }
 
   // src/wall-panel-card.js
   var DEFAULT_BRIGHTNESS = {
@@ -377,6 +424,8 @@
   .chip { padding: 6px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.12); font-size: 22px; letter-spacing: 0.5px; }
   .overview { font-size: 26px; line-height: 1.35; opacity: 0.8; margin-top: 22px;
               display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .content.fade { animation: wpfade 0.9s ease; }
+  @keyframes wpfade { from { opacity: 0; } to { opacity: 1; } }
   .controls { display: flex; align-items: center; gap: 20px; margin-top: 28px; }
   .ctl { width: 76px; height: 76px; border-radius: 50%; border: 0; padding: 0; color: #fff;
          background: rgba(255, 255, 255, 0.14); display: flex; align-items: center; justify-content: center;
@@ -521,8 +570,21 @@
     _matchedJellyfin(tv) {
       const id = this._config.jellyfin;
       if (!id) return null;
-      const jf = parseJellyfin(this._entity(id));
-      return jf && matchesJellyfin(tv, jf) ? jf : null;
+      return jellyfinForTv(this._entity(id), tv);
+    }
+    // The idle carousel ("Continue watching", then "Recently added"): one item at
+    // a time, stepped on a fixed clock. Null when the library sensor is not
+    // configured or has nothing, so the screen falls back to the plain info layout.
+    _carouselItem(now) {
+      const id = this._config.jellyfin_library;
+      if (!id) return null;
+      const items = carouselItems(this._entity(id));
+      const item = carouselPick(items, now.getTime());
+      if (item && items.length > 1) {
+        const next = carouselPick(items, now.getTime() + 15e3);
+        if (next && next.poster) this._fetchArt(next.poster);
+      }
+      return item;
     }
     _artUrl(entity) {
       const pic = entity?.attributes?.entity_picture_local || entity?.attributes?.entity_picture;
@@ -542,7 +604,8 @@
     _render(scene, source, now) {
       const c = this._config;
       const jf = scene === "browsing" ? this._matchedJellyfin(source) : null;
-      const art = jf && jf.poster || this._artUrl(source);
+      const car = scene === "browsing" && !jf && source?.state === "idle" ? this._carouselItem(now) : null;
+      const art = car && car.poster || jf && jf.poster || this._artUrl(source);
       const progressBucket = Math.floor(now.getTime() / 15e3);
       const key = [
         scene,
@@ -553,6 +616,7 @@
         source?.attributes?.volume_level,
         scene === "music" || scene === "browsing" ? progressBucket : 0,
         jf ? `${jf.title}|${jf.episode}|${(jf.overview || "").length}` : "",
+        car ? `${car.label}|${car.title}` : "",
         this._summaryKey()
       ].join("|");
       if (key === this._renderedKey) return;
@@ -566,7 +630,7 @@
         day: () => this._summary(now, false),
         morning: () => this._summary(now, true),
         music: () => this._nowPlaying(source, now, "music"),
-        browsing: () => this._nowPlaying(source, now, "browsing", jf)
+        browsing: () => car ? this._carouselHtml(car, now) : this._nowPlaying(source, now, "browsing", jf)
       }[scene]();
       const layerFor = {
         day: "bg-day",
@@ -576,13 +640,22 @@
         browsing: "bg-art"
       }[scene];
       this._stopFluid();
+      const carKey = car ? `${car.label}|${car.title}` : "";
+      const fade = !!car && carKey !== this._lastCarKey;
+      this._lastCarKey = carKey;
       const useFluid = scene === "music" || scene === "browsing";
-      const fallback = scene === "music" ? DEFAULT_PALETTE : paletteFromText(jf && jf.title || source?.attributes?.media_title || "");
+      const fallback = scene === "music" ? DEFAULT_PALETTE : paletteFromText(car && car.title || jf && jf.title || source?.attributes?.media_title || "");
       if (!useFluid) this._fluidT0 = null;
       const backdrop = useFluid ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>` : "";
       this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
-      <div class="content">${body}</div>`;
+      <div class="content${fade ? " fade" : ""}">${body}</div>`;
+      if (fade) {
+        const content = this._stage.querySelector(".content");
+        setTimeout(() => {
+          if (content) content.classList.remove("fade");
+        }, 1200);
+      }
       if (useFluid) this._startFluid(art, fallback);
       const artEl = this._stage.querySelector(".art");
       if (artEl && art) {
@@ -867,6 +940,27 @@
           ${showBar ? `<div class="progress"><div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="times"><span>${fmtDuration(pos)}</span><span>${fmtDuration(dur)}</span></div></div>` : ""}
           ${this._controlsHtml(source, isMusic)}
           ${where ? `<div class="badge">${esc(where)}</div>` : ""}
+        </div>
+      </div>
+      <div class="corner clock small">${fmtTime(now)}</div>`;
+    }
+    // One carousel item: the same poster-and-details layout as the paused info
+    // screen, labelled "Continue watching" or "Recently added", with a progress
+    // bar for items that are partly watched.
+    _carouselHtml(item, now) {
+      const facts = jellyfinFacts(item);
+      const pct = Number(item.progress_pct);
+      const bar = Number.isFinite(pct) && pct > 0 ? `<div class="progress"><div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div><div class="times"><span>${Math.round(pct)}% watched</span></div></div>` : "";
+      return `
+      <div class="media poster desc">
+        <div class="art"></div>
+        <div class="meta">
+          <div class="kicker">${esc(item.label)}</div>
+          <div class="title">${esc(item.title)}</div>
+          ${facts.line ? `<div class="artist">${esc(facts.line)}</div>` : ""}
+          ${facts.chips.length ? `<div class="chips">${facts.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
+          ${item.overview ? `<div class="overview">${esc(item.overview)}</div>` : ""}
+          ${bar}
         </div>
       </div>
       <div class="corner clock small">${fmtTime(now)}</div>`;

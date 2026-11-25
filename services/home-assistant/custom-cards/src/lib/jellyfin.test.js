@@ -90,3 +90,62 @@ test("controlCall maps buttons to services and refuses unsupported ones", () => 
   assert.equal(controlCall("explode", hp), null);
   assert.equal(controlCall("next", { state: "playing", attributes: { supported_features: HOMEPOD } }), null); // no entity_id
 });
+
+import { jellyfinForTv, carouselItems, carouselPick } from "./panel-scene.js";
+
+const sensorWith = (state, attrs) => ({ state, attributes: attrs });
+const tvPaused = (title) => ({ state: "paused", attributes: { media_title: title } });
+const mutiny = { title: "Mutiny", year: 2026, poster: "https://x/m.jpg", overview: "o" };
+const farm = { title: "Clarkson's Farm", episode_title: "Reaping", poster: "https://x/f.jpg" };
+
+test("jellyfinForTv prefers the item playing now when it matches", () => {
+  const s = sensorWith("paused", { data: mutiny, last: farm });
+  assert.equal(jellyfinForTv(s, tvPaused("Mutiny")).title, "Mutiny");
+});
+
+test("jellyfinForTv falls back to the remembered last item when Jellyfin dropped it", () => {
+  // Moonfin left playback: the sensor is idle with no current data, but the Apple TV still says paused.
+  const s = sensorWith("idle", { data: "{}", last: JSON.stringify(mutiny) });
+  assert.equal(jellyfinForTv(s, tvPaused("Mutiny")).title, "Mutiny");
+  assert.equal(jellyfinForTv(s, tvPaused("mutiny")).title, "Mutiny"); // case-insensitive
+});
+
+test("jellyfinForTv never shows a remembered item under a different title", () => {
+  const s = sensorWith("idle", { data: {}, last: mutiny });
+  assert.equal(jellyfinForTv(s, tvPaused("Something else")), null);
+  assert.equal(jellyfinForTv(s, tvPaused("")), null);
+});
+
+test("jellyfinForTv is only for a paused TV and copes with junk", () => {
+  const s = sensorWith("idle", { data: {}, last: mutiny });
+  assert.equal(jellyfinForTv(s, { state: "idle", attributes: { media_title: "Mutiny" } }), null);
+  assert.equal(jellyfinForTv(s, { state: "playing", attributes: { media_title: "Mutiny" } }), null);
+  assert.equal(jellyfinForTv(sensorWith("idle", { last: "not json" }), tvPaused("Mutiny")), null);
+  assert.equal(jellyfinForTv(sensorWith("idle", { last: {} }), tvPaused("Mutiny")), null);
+  assert.equal(jellyfinForTv(undefined, tvPaused("Mutiny")), null);
+});
+
+const lib = (resume, recent) => ({ attributes: { resume, recent } });
+const it = (title, extra = {}) => ({ title, poster: `https://x/${title}.jpg`, ...extra });
+
+test("carouselItems puts continue-watching first and labels each item", () => {
+  const items = carouselItems(lib([it("A", { type: "Episode" })], [it("B", { type: "Movie" }), it("C", { type: "Movie" })]));
+  assert.deepEqual(items.map((i) => [i.title, i.label]), [["A", "Continue watching"], ["B", "Recently added"], ["C", "Recently added"]]);
+});
+
+test("carouselItems lists a title once, accepts JSON strings, drops items without a poster, and caps the list", () => {
+  const items = carouselItems(lib(JSON.stringify([it("Show", { type: "Series" })]), [it("show", { type: "Series" }), { title: "No poster" }, it("Show", { type: "Movie" })]));
+  assert.deepEqual(items.map((i) => i.title), ["Show", "Show"]); // same title, different type, is kept
+  assert.equal(carouselItems(lib([], Array.from({ length: 30 }, (_, n) => it("T" + n)))).length, 14);
+  assert.deepEqual(carouselItems(undefined), []);
+  assert.deepEqual(carouselItems(lib("garbage", null)), []);
+});
+
+test("carouselPick steps through the list on a fixed clock", () => {
+  const items = [it("A"), it("B"), it("C")];
+  assert.equal(carouselPick(items, 0).title, "A");
+  assert.equal(carouselPick(items, 14999).title, "A");
+  assert.equal(carouselPick(items, 15000).title, "B");
+  assert.equal(carouselPick(items, 45000).title, "A"); // wraps
+  assert.equal(carouselPick([], 123), null);
+});

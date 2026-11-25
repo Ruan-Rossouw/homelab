@@ -440,7 +440,8 @@ switch, point `tv_power` at any entity that really tracks the TV's power
 (the TV's own integration, or a smart plug): `off`, `standby`,
 `unavailable` or `unknown` counts as off immediately.
 
-Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`, see Stage 6),
+Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`) and `jellyfin_library`
+(a `sensor.jellyfin_library`, the idle carousel), both described in Stage 6,
 `browsing_timeout_min`, `tv_power`, `touch_controls`, `fluid` (`false` for a still music
 background), `auto_update` / `auto_update_minutes`,
 `brightness` (per-scene 0–1), `hold_ms` (per-scene),
@@ -481,15 +482,28 @@ panel is ever lost. Poster images are fetched by the panel from
 `https://jellyfin.home` (no login needed for images), through Caddy, whose
 mkcert certificate the kiosk app already trusts.
 
-Two further attributes support showing a movie's details while you only *look*
-at it, before playing it: `viewing` (the same shape as `data`, from Jellyfin's
-`NowViewingItem`, or `{}`) and `session_fields` (the field names Jellyfin returns
-for the Apple TV session). A client has to report what it is viewing for
-`viewing` to fill in, and whether Moonfin does is what `session_fields` shows: if
-`NowViewingItem` appears in it while a movie's page is open in Moonfin, the
-panel can show those details; if it never does, this cannot work with Moonfin.
+Jellyfin only reports an item to Home Assistant while it is *playing*, and the
+Moonfin client does not report which item it is merely *viewing* (checked against
+the session's fields: there is no `NowViewingItem`), so details cannot be shown
+while you browse a movie's page. Two things cover the gap:
+
+- **The last film is remembered.** `sensor.jellyfin_now_playing` keeps a `last`
+  attribute (and the Jellyfin `user_id`). When Moonfin leaves playback Jellyfin
+  drops the item but the Apple TV still says it is paused on that title; the paused screen
+  then still shows that film's poster and details, but only while the Apple TV's
+  title matches (case and punctuation ignored), so a stale item never appears
+  under a different title.
+- **An idle carousel.** `sensor.jellyfin_library` (refreshed every 30 minutes, and
+  on demand by firing the `wall_panel_refresh_library` event) holds `resume`
+  ("Continue watching", needs the user id above) and `recent` ("Recently added").
+  When the Apple TV is *idle* (nothing paused, nothing playing) the card steps
+  through them, 15 seconds each, with the same poster-and-details layout, a
+  "% watched" bar for partly watched items, and a fade between items. Enable it
+  with `jellyfin_library: sensor.jellyfin_library` in the card config.
+
 After copying a changed package, `template.reload` (Developer Tools → YAML →
-"Template entities") applies it without a restart.
+"Template entities") applies sensor changes without a restart; changes to the
+`rest_command` section need `rest_command.reload` or a restart.
 
 **Deploy** (the first time):
 
