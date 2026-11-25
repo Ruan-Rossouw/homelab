@@ -26,6 +26,7 @@
 // This file is compiled by esbuild (see ../package.json) — edit this
 // source, not the generated ../wall-panel-card.js.
 
+import { extractPalette, blobs, DEFAULT_PALETTE } from "./lib/fluid-palette.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, parseJellyfin, matchesJellyfin, jellyfinFacts,
 } from "./lib/panel-scene.js";
@@ -50,6 +51,8 @@ const STYLES = `
   .bg-art { background: #080a10; }
   .bg-art canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.85; }
   .bg-art .veil { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); }
+  .bg-art canvas.fluid { opacity: 1; }
+  .bg-art .veil.light { background: rgba(0, 0, 0, 0.14); }
   .content { position: absolute; inset: 0; padding: 56px 72px; display: flex; flex-direction: column; }
 
   .clock { font-weight: 200; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -164,6 +167,7 @@ class WallPanelCard extends HTMLElement {
     this._sceneState = { scene: null, candidate: null, candidateSince: 0 };
     this._renderedKey = null;
     this._shapes = {};
+    this._palettes = {};
   }
 
   set hass(hass) {
@@ -178,6 +182,7 @@ class WallPanelCard extends HTMLElement {
   disconnectedCallback() {
     clearInterval(this._timer);
     clearTimeout(this._holdTimer);
+    this._stopFluid();
   }
 
   getCardSize() { return 12; }
@@ -268,10 +273,16 @@ class WallPanelCard extends HTMLElement {
       day: "bg-day", morning: "bg-morning", away: "bg-away",
       music: "bg-art", browsing: "bg-art",
     }[scene];
+    this._stopFluid();
+    if (scene !== "music") this._fluidT0 = null;
+    const backdrop = scene === "music"
+      ? '<canvas class="fluid" width="96" height="60"></canvas><div class="veil light"></div>'
+      : '<canvas width="48" height="30"></canvas><div class="veil"></div>';
     this._stage.innerHTML = `
-      <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? '<canvas width="48" height="30"></canvas><div class="veil"></div>' : ""}</div>
+      <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
       <div class="content">${body}</div>`;
-    if (layerFor === "bg-art") this._paintBackdrop(art);
+    if (scene === "music") this._startFluid(art);
+    else if (layerFor === "bg-art") this._paintBackdrop(art);
     // Set via the DOM, not inline HTML, so quotes in a URL can't break the CSS.
     const artEl = this._stage.querySelector(".art");
     if (artEl && art) {
@@ -324,7 +335,7 @@ class WallPanelCard extends HTMLElement {
   }
 
   _clearBackdrop() {
-    const canvas = this._stage.querySelector("canvas");
+    const canvas = this._stage.querySelector("canvas:not(.fluid)");
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#0b0e16";
@@ -344,6 +355,78 @@ class WallPanelCard extends HTMLElement {
       } catch (e) { /* ignore */ }
     };
     img.src = url;
+  }
+
+  // ---- Music scene: Apple Music-style fluid background -------------------
+  // Four soft colour blobs, taken from the artwork's own palette, drift slowly
+  // on a tiny canvas (96x60) that CSS scales up, so the GPU does the smoothing
+  // and the CPU only paints ~8 small frames a second.
+  _startFluid(url) {
+    const canvas = this._stage.querySelector("canvas.fluid");
+    if (!canvas) return;
+    if (this._fluidT0 == null) this._fluidT0 = performance.now();
+    const begin = (palette) => {
+      if (!this._stage.contains(canvas)) return; // a newer render replaced it
+      this._fluid = { canvas, palette };
+      this._drawFluid();
+      // `fluid: false` keeps the same palette but as a still gradient, for a
+      // slow display where even ~8 tiny frames a second is too much.
+      if (this._config.fluid !== false) {
+        this._fluidTimer = setInterval(() => this._drawFluid(), 125);
+      }
+    };
+    if (!url) return begin(DEFAULT_PALETTE);
+    if (this._palettes[url]) return begin(this._palettes[url]);
+    this._drawFluidOnce(canvas, DEFAULT_PALETTE); // something pleasant until the art decodes
+    const img = new Image();
+    img.onload = () => {
+      this._palettes[url] = this._paletteOf(img) || DEFAULT_PALETTE;
+      this._stopFluid();
+      begin(this._palettes[url]);
+    };
+    img.onerror = () => begin(DEFAULT_PALETTE);
+    img.src = url;
+  }
+
+  _paletteOf(img) {
+    try {
+      const c = document.createElement("canvas");
+      c.width = 24; c.height = 24;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, 24, 24);
+      return extractPalette(ctx.getImageData(0, 0, 24, 24).data, 4);
+    } catch (e) {
+      return null; // unreadable image: use the default palette
+    }
+  }
+
+  _stopFluid() {
+    clearInterval(this._fluidTimer);
+    this._fluidTimer = null;
+    this._fluid = null;
+  }
+
+  _drawFluid() {
+    if (!this._fluid) return;
+    this._drawFluidOnce(this._fluid.canvas, this._fluid.palette);
+  }
+
+  _drawFluidOnce(canvas, palette) {
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    const t = ((performance.now() - (this._fluidT0 ?? performance.now())) / 1000);
+    const base = palette[0].map((v) => Math.round(v * 0.3));
+    ctx.fillStyle = `rgb(${base.join(",")})`;
+    ctx.fillRect(0, 0, W, H);
+    blobs(t).forEach((b, i) => {
+      const c = palette[i % palette.length].join(",");
+      const x = b.x * W, y = b.y * H, r = b.r * W;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${c},0.95)`);
+      g.addColorStop(1, `rgba(${c},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    });
   }
 
   _clockOnly(now, small) {
