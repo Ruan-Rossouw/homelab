@@ -340,6 +340,38 @@ once (power-cycle it), because the old card has no updater. Chrome on a
 desktop only gets the new card after a hard refresh or a `?v=` bump of the
 Lovelace resource.
 
+**Forcing a refresh remotely.** The updater above only exists in card versions
+that already contain it, so a panel still running an older card cannot update
+itself, and the kiosk has no way to be reloaded by hand. `custom-cards/panel-reload.html`
+reloads it from the server instead. Home Assistant pushes a dashboard change to
+every open screen, so a hidden `iframe` card pointing at that page makes the panel
+reload itself once:
+
+1. Copy `panel-reload.html` to `www/custom-cards/` (same folder as the card).
+2. In the Wall Panel dashboard config, wrap the card in a `vertical-stack` with the
+   iframe next to it (a panel-mode view only shows its first card):
+
+   ```yaml
+   type: vertical-stack
+   cards:
+     - type: custom:wall-panel-card
+       # ... the existing card config ...
+     - type: iframe
+       url: /local/custom-cards/panel-reload.html?t=<any new value, e.g. a timestamp>
+       aspect_ratio: 1%
+   ```
+
+3. Give it a minute (the panel reloads, which takes 10-20 s on its CPU), then restore
+   the original single-card config.
+
+It cannot loop: the page does nothing unless it is inside a frame and given a `?t=`
+token it has not seen, and it reloads at most once per token (remembered in
+localStorage, shared with the parent), so a card left in place is harmless. Use a
+new `t` value for each refresh. If the Lovelace resource version (`?v=`) was bumped
+first, the reloaded page also loads the new card file. Tested in an iframe with the
+same `sandbox` attributes Home Assistant's iframe card uses: a new token reloaded the
+parent exactly once, a repeat of the same token and opening the page directly did nothing.
+
 Some players pass a placeholder instead of real artwork (the Moonfin
 Jellyfin client on the Apple TV sends a plain white image). The card
 measures the image's pixel variance and, if it has no detail, drops the art
