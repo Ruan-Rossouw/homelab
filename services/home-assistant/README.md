@@ -481,6 +481,16 @@ panel is ever lost. Poster images are fetched by the panel from
 `https://jellyfin.home` (no login needed for images), through Caddy, whose
 mkcert certificate the kiosk app already trusts.
 
+Two further attributes support showing a movie's details while you only *look*
+at it, before playing it: `viewing` (the same shape as `data`, from Jellyfin's
+`NowViewingItem`, or `{}`) and `session_fields` (the field names Jellyfin returns
+for the Apple TV session). A client has to report what it is viewing for
+`viewing` to fill in, and whether Moonfin does is what `session_fields` shows: if
+`NowViewingItem` appears in it while a movie's page is open in Moonfin, the
+panel can show those details; if it never does, this cannot work with Moonfin.
+After copying a changed package, `template.reload` (Developer Tools → YAML →
+"Template entities") applies it without a restart.
+
 **Deploy** (the first time):
 
 1. In Jellyfin: Dashboard → Advanced → API Keys → **+**, name it

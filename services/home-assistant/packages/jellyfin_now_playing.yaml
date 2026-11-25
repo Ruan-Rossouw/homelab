@@ -71,3 +71,37 @@ template:
               'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag
             } | to_json }}
             {% endif %}
+          # What the Apple TV client is looking at (a movie's page) without
+          # playing it, from Jellyfin's NowViewingItem. Only filled in when the
+          # client reports it; {} otherwise. Same shape as `data`.
+          viewing: >-
+            {% set sessions = jf.content if jf is defined and jf.content is list else [] %}
+            {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | list | first | default(none) %}
+            {% if s is none or s.NowViewingItem is not defined %}
+            {{ {} | to_json }}
+            {% else %}
+            {% set it = s.NowViewingItem %}
+            {% set episode = it.Type == 'Episode' %}
+            {% set poster_id = it.SeriesId if episode and it.SeriesId is defined else it.Id %}
+            {% set poster_tag = it.SeriesPrimaryImageTag if episode and it.SeriesPrimaryImageTag is defined else (it.ImageTags.Primary | default('')) %}
+            {{ {
+              'title': (it.SeriesName if episode and it.SeriesName is defined else it.Name),
+              'episode_title': (it.Name if episode else ''),
+              'season': it.ParentIndexNumber | default(none),
+              'episode': it.IndexNumber | default(none),
+              'overview': it.Overview | default(''),
+              'year': it.ProductionYear | default(none),
+              'rating': ((it.CommunityRating | round(1)) if it.CommunityRating is defined else none),
+              'official_rating': it.OfficialRating | default(''),
+              'runtime_min': (((it.RunTimeTicks | default(0)) / 600000000) | round(0) | int),
+              'genres': (it.Genres | default([]))[:3],
+              'type': it.Type,
+              'poster': 'https://jellyfin.home/Items/' ~ poster_id ~ '/Images/Primary?maxHeight=600&quality=80&tag=' ~ poster_tag
+            } | to_json }}
+            {% endif %}
+          # Diagnostic: the field names Jellyfin returns for the Apple TV
+          # session, to see whether the client reports NowViewingItem at all.
+          session_fields: >-
+            {% set sessions = jf.content if jf is defined and jf.content is list else [] %}
+            {% set s = sessions | selectattr('DeviceName', 'eq', 'Apple TV') | list | first | default(none) %}
+            {{ ([] if s is none else (s.keys() | list)) | to_json }}
