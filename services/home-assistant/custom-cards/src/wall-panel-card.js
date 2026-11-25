@@ -28,7 +28,7 @@
 
 import { extractPalette, blobs, DEFAULT_PALETTE } from "./lib/fluid-palette.js";
 import {
-  computeScene, stepScene, DEFAULT_HOLD_MS, parseJellyfin, matchesJellyfin, jellyfinFacts,
+  computeScene, stepScene, DEFAULT_HOLD_MS, parseJellyfin, matchesJellyfin, jellyfinFacts, sameText,
 } from "./lib/panel-scene.js";
 
 const DEFAULT_BRIGHTNESS = {
@@ -493,7 +493,9 @@ class WallPanelCard extends HTMLElement {
       : (isMusic
         ? (a.media_artist || "")
         : (a.media_series_title || a.media_artist || a.app_name || ""));
-    const album = isMusic ? (a.media_album_name || "") : "";
+    // Skip the album line when it only repeats the artist or the title.
+    const album = isMusic && !sameText(a.media_album_name, a.media_artist) && !sameText(a.media_album_name, a.media_title)
+      ? (a.media_album_name || "") : "";
     const where = isMusic ? (source?.attributes?.friendly_name || "") : (a.app_name || "");
     const dur = Number(a.media_duration);
     let pos = Number(a.media_position);

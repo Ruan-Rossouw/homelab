@@ -173,6 +173,14 @@ export function matchesJellyfin(tv, jf) {
   return t === norm(jf.title) || t === norm(jf.episode_title);
 }
 
+// True when two labels are the same apart from case and punctuation, e.g. an
+// album that is just the artist's name ("Francois van Coke" / "Francois Van
+// Coke"), so the card can skip the repeated line.
+export function sameText(a, b) {
+  const x = norm(a);
+  return x !== "" && x === norm(b);
+}
+
 // The episode line and the info chips under the title.
 export function jellyfinFacts(jf) {
   const parts = [];
