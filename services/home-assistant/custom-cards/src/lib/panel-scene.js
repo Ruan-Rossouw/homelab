@@ -53,6 +53,23 @@ export function mediaKind(entity) {
 }
 
 const ACTIVE_TV_STATES = new Set(["playing", "paused", "idle", "buffering"]);
+const POWER_OFF_STATES = new Set(["off", "standby", "unavailable", "unknown"]);
+
+// The Apple TV's media entity never reports that the TV was switched off: in
+// practice it only flips between idle, paused and playing, and its remote
+// entity stays "on". So a paused or idle TV that has not changed for a while
+// is treated as off, otherwise the info screen would stay up forever. A real
+// power signal (`tvPower`, e.g. the TV's own integration or a smart plug)
+// wins immediately when there is one.
+export function tvIsOff(tv, tvPower, now, timeoutMs) {
+  if (tvPower && POWER_OFF_STATES.has(tvPower.state)) return true;
+  if (!tv || !(timeoutMs > 0)) return false;
+  if (tv.state !== "paused" && tv.state !== "idle") return false;
+  const since = Date.parse(tv.last_changed);
+  return Number.isFinite(since) && now.getTime() - since > timeoutMs;
+}
+
+export const DEFAULT_BROWSING_TIMEOUT_MS = 15 * 60 * 1000;
 
 // `input`:
 //   now          Date
@@ -62,19 +79,26 @@ const ACTIVE_TV_STATES = new Set(["playing", "paused", "idle", "buffering"]);
 //   sleep        { start, end }   e.g. { start: "22:30", end: "06:00" }
 //   morning      { start, end }   e.g. { start: "06:00", end: "10:00" }
 export function computeScene(input) {
-  const { now, tv, music = [], people = [], sleep, morning } = input;
+  const {
+    now, tv, music = [], people = [], sleep, morning, tvPower,
+    browsingTimeoutMs = DEFAULT_BROWSING_TIMEOUT_MS,
+  } = input;
+
+  const off = tvIsOff(tv, tvPower, now, browsingTimeoutMs);
 
   const tvKind = mediaKind(tv);
-  if (tvKind === "video") return { scene: "cinema", source: tv };
+  if (tvKind === "video" && !(tvPower && POWER_OFF_STATES.has(tvPower.state))) {
+    return { scene: "cinema", source: tv };
+  }
 
   const musicSource = [tv, ...music].find((e) => mediaKind(e) === "music");
   if (musicSource) return { scene: "music", source: musicSource };
 
-  if (tv && (tv.state === "paused" || tv.state === "idle")) {
+  if (tv && (tv.state === "paused" || tv.state === "idle") && !off) {
     return { scene: "browsing", source: tv };
   }
 
-  const tvActive = !!tv && ACTIVE_TV_STATES.has(tv.state);
+  const tvActive = !!tv && ACTIVE_TV_STATES.has(tv.state) && !off;
   if (!tvActive && sleep && inWindow(now, sleep.start, sleep.end)) {
     return { scene: "sleep", source: null };
   }

@@ -27,16 +27,37 @@
     return "video";
   }
   var ACTIVE_TV_STATES = /* @__PURE__ */ new Set(["playing", "paused", "idle", "buffering"]);
+  var POWER_OFF_STATES = /* @__PURE__ */ new Set(["off", "standby", "unavailable", "unknown"]);
+  function tvIsOff(tv, tvPower, now, timeoutMs) {
+    if (tvPower && POWER_OFF_STATES.has(tvPower.state)) return true;
+    if (!tv || !(timeoutMs > 0)) return false;
+    if (tv.state !== "paused" && tv.state !== "idle") return false;
+    const since = Date.parse(tv.last_changed);
+    return Number.isFinite(since) && now.getTime() - since > timeoutMs;
+  }
+  var DEFAULT_BROWSING_TIMEOUT_MS = 15 * 60 * 1e3;
   function computeScene(input) {
-    const { now, tv, music = [], people = [], sleep, morning } = input;
+    const {
+      now,
+      tv,
+      music = [],
+      people = [],
+      sleep,
+      morning,
+      tvPower,
+      browsingTimeoutMs = DEFAULT_BROWSING_TIMEOUT_MS
+    } = input;
+    const off = tvIsOff(tv, tvPower, now, browsingTimeoutMs);
     const tvKind = mediaKind(tv);
-    if (tvKind === "video") return { scene: "cinema", source: tv };
+    if (tvKind === "video" && !(tvPower && POWER_OFF_STATES.has(tvPower.state))) {
+      return { scene: "cinema", source: tv };
+    }
     const musicSource = [tv, ...music].find((e) => mediaKind(e) === "music");
     if (musicSource) return { scene: "music", source: musicSource };
-    if (tv && (tv.state === "paused" || tv.state === "idle")) {
+    if (tv && (tv.state === "paused" || tv.state === "idle") && !off) {
       return { scene: "browsing", source: tv };
     }
-    const tvActive = !!tv && ACTIVE_TV_STATES.has(tv.state);
+    const tvActive = !!tv && ACTIVE_TV_STATES.has(tv.state) && !off;
     if (!tvActive && sleep && inWindow(now, sleep.start, sleep.end)) {
       return { scene: "sleep", source: null };
     }
@@ -238,6 +259,7 @@
         sleep: { start: "22:30", end: "06:00" },
         morning: { start: "06:00", end: "10:00" },
         sleep_clock: false,
+        browsing_timeout_min: 15,
         ...config,
         brightness: { ...DEFAULT_BRIGHTNESS, ...config.brightness || {} },
         hold_ms: { ...DEFAULT_HOLD_MS, ...config.hold_ms || {} }
@@ -278,7 +300,9 @@
         music: (c.music || []).map((id) => this._entity(id)).filter(Boolean),
         people: (c.people || []).map((id) => this._entity(id)).filter(Boolean),
         sleep: c.sleep,
-        morning: c.morning
+        morning: c.morning,
+        tvPower: this._entity(c.tv_power),
+        browsingTimeoutMs: Number(c.browsing_timeout_min) * 6e4
       });
       const nowMs = Date.now();
       this._sceneState = stepScene(this._sceneState, scene, nowMs, c.hold_ms);

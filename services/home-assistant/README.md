@@ -345,7 +345,19 @@ sleep: { start: "22:30", end: "06:00" }
 morning: { start: "06:00", end: "10:00" }
 ```
 
+**The TV switching off is not visible to HA.** Checked against 36 hours of
+history: the Apple TV's media entity only ever reports `idle`, `paused` and
+`playing` (never `standby` or `off`), and its remote entity stays `on`. So a
+film paused halfway and a TV switched off look identical. The card therefore
+treats a TV that has sat in `paused` or `idle` for `browsing_timeout_min`
+minutes (default 15, `0` disables) as off and returns to the general
+screen; a pause shorter than that keeps the info screen. For an instant
+switch, point `tv_power` at any entity that really tracks the TV's power
+(the TV's own integration, or a smart plug): `off`, `standby`,
+`unavailable` or `unknown` counts as off immediately.
+
 Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`, see Stage 6),
+`browsing_timeout_min`, `tv_power`,
 `brightness` (per-scene 0–1), `hold_ms` (per-scene),
 `sleep_clock: true` (dim clock instead of pure black while sleeping).
 

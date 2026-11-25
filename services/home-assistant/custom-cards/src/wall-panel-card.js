@@ -151,6 +151,7 @@ class WallPanelCard extends HTMLElement {
       sleep: { start: "22:30", end: "06:00" },
       morning: { start: "06:00", end: "10:00" },
       sleep_clock: false,
+      browsing_timeout_min: 15,
       ...config,
       brightness: { ...DEFAULT_BRIGHTNESS, ...(config.brightness || {}) },
       hold_ms: { ...DEFAULT_HOLD_MS, ...(config.hold_ms || {}) },
@@ -194,6 +195,8 @@ class WallPanelCard extends HTMLElement {
       people: (c.people || []).map((id) => this._entity(id)).filter(Boolean),
       sleep: c.sleep,
       morning: c.morning,
+      tvPower: this._entity(c.tv_power),
+      browsingTimeoutMs: Number(c.browsing_timeout_min) * 60000,
     });
     const nowMs = Date.now();
     this._sceneState = stepScene(this._sceneState, scene, nowMs, c.hold_ms);
