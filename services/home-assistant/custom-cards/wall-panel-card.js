@@ -214,6 +214,10 @@
     if (!t) return false;
     return t === norm(jf.title) || t === norm(jf.episode_title);
   }
+  function sameText(a, b) {
+    const x = norm(a);
+    return x !== "" && x === norm(b);
+  }
   function jellyfinFacts(jf) {
     const parts = [];
     if (jf.season != null) parts.push(`S${jf.season}`);
@@ -675,7 +679,7 @@
       const facts = jf ? jellyfinFacts(jf) : null;
       const title = jf ? jf.title : a.media_title || (isMusic ? "Playing" : a.app_name || "Apple TV");
       const sub = facts ? facts.line : isMusic ? a.media_artist || "" : a.media_series_title || a.media_artist || a.app_name || "";
-      const album = isMusic ? a.media_album_name || "" : "";
+      const album = isMusic && !sameText(a.media_album_name, a.media_artist) && !sameText(a.media_album_name, a.media_title) ? a.media_album_name || "" : "";
       const where = isMusic ? source?.attributes?.friendly_name || "" : a.app_name || "";
       const dur = Number(a.media_duration);
       let pos = Number(a.media_position);

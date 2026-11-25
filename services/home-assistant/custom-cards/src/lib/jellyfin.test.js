@@ -45,3 +45,13 @@ test("jellyfinFacts copes with a movie with sparse data", () => {
   assert.equal(f.line, "");
   assert.deepEqual(f.chips, ["1995", "170 min", "R"]);
 });
+
+import { sameText } from "./panel-scene.js";
+
+test("sameText ignores case and punctuation but never matches empty labels", () => {
+  assert.equal(sameText("Francois van Coke", "Francois Van Coke"), true);
+  assert.equal(sameText("Hurry Up, We're Dreaming", "hurry up we re dreaming"), true);
+  assert.equal(sameText("Hurry Up, We're Dreaming", "M83"), false);
+  assert.equal(sameText("", ""), false);
+  assert.equal(sameText(undefined, "x"), false);
+});
