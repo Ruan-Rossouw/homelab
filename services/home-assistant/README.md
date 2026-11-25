@@ -310,6 +310,22 @@ the panel ever struggles, `fluid: false` keeps the same palette as a still
 gradient. The palette and blob maths are pure and unit-tested
 (`src/lib/fluid-palette.js`).
 
+**The card updates itself.** The kiosk loads the dashboard once and never
+reloads it, and HA lets browsers cache each card URL for 31 days, so a new
+`wall-panel-card.js` on the server would otherwise never reach the panel. Every
+`auto_update_minutes` (default 5) the card fetches the server's current copy
+and compares its fingerprint with the copy it is running. If they differ it
+refreshes its cached copy and reloads the page, so deploying a card is just
+the `cp` to `www/custom-cards/`: no `?v=` bump and nothing to do on the panel.
+Safeguards: it only reloads in the `day`, `morning` and `away` scenes (a reload
+shows HA's bright loading screen for ~10-20 s, so never during cinema, music,
+browsing or sleep), at most once per 10 minutes, and it stops retrying a
+version that a reload failed to deliver. `auto_update: false` turns it off.
+The first deploy of a version with this feature still needs the panel reloaded
+once (power-cycle it), because the old card has no updater. Chrome on a
+desktop only gets the new card after a hard refresh or a `?v=` bump of the
+Lovelace resource.
+
 Some players pass a placeholder instead of real artwork (the Moonfin
 Jellyfin client on the Apple TV sends a plain white image). The card
 measures the image's pixel variance and, if it has no detail, drops the art
@@ -367,7 +383,7 @@ switch, point `tv_power` at any entity that really tracks the TV's power
 
 Optional keys: `jellyfin` (a `sensor.jellyfin_now_playing`, see Stage 6),
 `browsing_timeout_min`, `tv_power`, `fluid` (`false` for a still music
-background),
+background), `auto_update` / `auto_update_minutes`,
 `brightness` (per-scene 0–1), `hold_ms` (per-scene),
 `sleep_clock: true` (dim clock instead of pure black while sleeping).
 
