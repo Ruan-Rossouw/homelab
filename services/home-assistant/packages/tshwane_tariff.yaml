@@ -30,10 +30,14 @@ template:
     variables:
       # `upto` is the cumulative monthly kWh at which the block ends (null = no limit).
       blocks:
-        - { upto: 100, rate: 3.7274 }
-        - { upto: 400, rate: 4.3622 }
-        - { upto: 650, rate: 4.7525 }
-        - { upto: null, rate: 5.1234 }
+        - upto: 100
+          rate: 3.7274
+        - upto: 400
+          rate: 4.3622
+        - upto: 650
+          rate: 4.7525
+        - upto: null
+          rate: 5.1234
       kwh: "{{ states('sensor.total_grid_import_monthly') | float(0) }}"
       # number of finite block limits already passed, plus one
       idx: "{{ (blocks | rejectattr('upto', 'none') | selectattr('upto', 'lt', kwh) | list | length) + 1 }}"
