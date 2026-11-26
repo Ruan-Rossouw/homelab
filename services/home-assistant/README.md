@@ -586,6 +586,15 @@ and energy, and the geyser. Extra card keys: `grid_from`, `grid_to`,
 battery discharge + solar, so it is approximate. Tap outside to close; it
 closes by itself after 30 seconds.
 
+Tapping Battery, Home or Grid inside that sheet opens a detail view with a
+graph (6 h or 24 h) and a few figures for that item: battery (lowest and
+highest, energy charged and discharged today), home (peak, average, lowest)
+and grid (import, export, cost, peak). The graph uses Home Assistant's
+5-minute statistics (`recorder/statistics_during_period`), about 288 points a
+day, so it is cheap to load; "Home" is worked out from grid, battery and solar
+like the sheet's own figure. Extra keys: `battery_charge_today` and
+`battery_discharge_today` (kWh).
+
 ### Power cut screen
 
 When the inverter's grid sensor (`grid`) reads off, the panel shows the battery

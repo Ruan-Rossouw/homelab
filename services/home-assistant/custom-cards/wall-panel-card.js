@@ -553,6 +553,24 @@
   .sheet.wide .pt .sub { font-size: 22px; opacity: 0.7; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sheet.wide .pt .bar { margin-top: 12px; height: 8px; }
   .sheet.wide .pfoot { margin-top: 22px; font-size: 22px; opacity: 0.55; text-align: center; }
+  .sheet.wide .pt.tap { cursor: pointer; position: relative; -webkit-tap-highlight-color: transparent; }
+  .sheet.wide .pt.tap::after { content: "\u203A"; position: absolute; right: 20px; top: 12px; font-size: 34px; opacity: 0.35; }
+  .sheet .dhead { display: flex; align-items: center; gap: 24px; }
+  .sheet .dhead h2 { flex: 1; }
+  .sheet .back { border: 0; background: rgba(255,255,255,0.1); color: #fff; font: 400 24px Roboto, "Noto Sans", sans-serif;
+                 padding: 10px 22px; border-radius: 22px; touch-action: manipulation; }
+  .sheet .rng { display: flex; gap: 8px; }
+  .sheet .rng button { border: 0; background: rgba(255,255,255,0.08); color: #fff; font: 400 22px Roboto, "Noto Sans", sans-serif;
+                       padding: 8px 20px; border-radius: 20px; touch-action: manipulation; }
+  .sheet .rng button.sel { background: rgba(127,214,194,0.35); }
+  .sheet .dbig { font-size: 78px; font-weight: 300; margin-top: 18px; }
+  .sheet .dbig small { font-size: 26px; opacity: 0.65; margin-left: 12px; }
+  .sheet svg.graph { width: 100%; height: 250px; margin-top: 10px; display: block; }
+  .sheet .gx { display: flex; justify-content: space-between; font-size: 20px; opacity: 0.5; margin-top: 4px; }
+  .sheet .gload { height: 250px; display: flex; align-items: center; justify-content: center; font-size: 26px; opacity: 0.5; }
+  .sheet .sgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
+  .sheet .sgrid .pt { padding: 14px 18px; }
+  .sheet .sgrid .pt .value { font-size: 38px; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 `;
   var WX_TEXT = {
@@ -1190,6 +1208,7 @@
       return `${g.on}|${g.heating}|${g.left}|${g.timerActive}`;
     }
     _sheetHtml() {
+      if (typeof this._sheet === "string" && this._sheet.indexOf("power:") === 0) return this._powerDetailHtml(this._sheet.slice(6));
       return this._sheet === "power" ? this._powerSheetHtml() : this._geyserSheetHtml();
     }
     _kw(w) {
@@ -1228,7 +1247,7 @@
       const money = Number.isFinite(Number(cost?.state)) ? `${unit === "ZAR" ? "R" : unit ? unit + " " : ""}${Number(cost.state).toFixed(2)}` : "";
       const inK = num(c.grid_today_kwh), outK = num(c.grid_export_today_kwh), pvK = num(c.pv_today_kwh);
       const accent = soc == null ? "#7fd6c2" : soc < 25 ? "#ff7a59" : soc < 50 ? "#ffc857" : "#7fd6c2";
-      const tile = (label, value, sub, extra = "") => `<div class="pt"${extra}><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${esc(sub)}</div></div>`;
+      const tile = (label, value, sub, act = "") => `<div class="pt${act ? " tap" : ""}"${act ? ` data-act="${act}"` : ""}><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${esc(sub)}</div></div>`;
       const foot = [
         volts != null ? `Battery ${volts.toFixed(1)} V` : "",
         num(c.battery_temp) != null ? `${Math.round(num(c.battery_temp))}\xB0C` : "",
@@ -1237,15 +1256,156 @@
       return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
       <div class="phead"><h2>Power</h2><div class="sstate">${gridOn ? "Grid on" : "Power cut, running on battery"}</div></div>
       <div class="pgrid">
-        <div class="pt" style="--accent:${accent}"><div class="label">Battery</div><div class="value">${soc != null ? Math.round(soc) : "\u2013"}<small>%</small></div><div class="bar"><i style="width:${soc ?? 0}%"></i></div><div class="sub" style="margin-top:10px">${esc(batLine)}</div></div>
-        ${tile("Home using", home != null ? this._kw(home) : "\u2013", "right now")}
-        ${tile("Grid", this._kw(gridNet), gridNet > 30 ? "importing" : gridNet < -30 ? "exporting" : "idle")}
+        <div class="pt tap" data-act="pd_battery" style="--accent:${accent}"><div class="label">Battery</div><div class="value">${soc != null ? Math.round(soc) : "\u2013"}<small>%</small></div><div class="bar"><i style="width:${soc ?? 0}%"></i></div><div class="sub" style="margin-top:10px">${esc(batLine)}</div></div>
+        ${tile("Home using", home != null ? this._kw(home) : "\u2013", "right now", "pd_home")}
+        ${tile("Grid", this._kw(gridNet), gridNet > 30 ? "importing" : gridNet < -30 ? "exporting" : "idle", "pd_grid")}
         ${tile("Solar", this._kw(pv), pvK != null ? `${pvK.toFixed(1)} kWh today` : pv > 30 ? "generating" : "not generating")}
         ${tile("Grid today", money ? esc(money) : inK != null ? inK.toFixed(1) + "<small>kWh</small>" : "\u2013", `${inK != null ? inK.toFixed(1) + " kWh in" : ""}${outK != null && outK > 0 ? " \xB7 " + outK.toFixed(1) + " out" : ""}`)}
         ${tile("Geyser", g.heating ? this._kw(g.watts) : g.on ? "On" : "Off", g.left || (g.heating ? "heating" : g.on ? "not heating" : "off"))}
       </div>
       ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}
       <div class="sclose">tap outside to close</div></div></div>`;
+    }
+    // ---- Power detail graphs --------------------------------------------------
+    // Home Assistant keeps 5-minute averages, so a day is ~288 points: cheap to
+    // fetch and draw even on this tablet. Cached for two minutes.
+    _loadStats(hours) {
+      const c = this._config;
+      const ids = [c.battery, c.battery_power, c.grid_from, c.grid_to, c.pv_power].filter(Boolean);
+      const cur = this._statsCache && this._statsCache[hours];
+      if (cur && Date.now() - cur.t < 12e4) return cur.data;
+      if (this._statsLoading || !ids.length) return cur ? cur.data : null;
+      this._statsLoading = true;
+      const now = Date.now();
+      this._hass.callWS({
+        type: "recorder/statistics_during_period",
+        start_time: new Date(now - hours * 36e5).toISOString(),
+        end_time: new Date(now).toISOString(),
+        statistic_ids: ids,
+        period: "5minute",
+        types: ["mean"]
+      }).then((r) => r, () => ({})).then((r) => {
+        this._statsCache = this._statsCache || {};
+        this._statsCache[hours] = { t: Date.now(), data: r, t0: now - hours * 36e5, n: hours * 12 };
+        this._statsLoading = false;
+        this._syncSheet();
+      });
+      return cur ? cur.data : null;
+    }
+    // One value per 5 minutes for the chosen graph, gaps filled with the last value.
+    _graphSeries(kind, hours) {
+      const entry = this._statsCache && this._statsCache[hours];
+      if (!entry) return null;
+      const c = this._config, d = entry.data || {};
+      const col = (id) => {
+        const out = new Array(entry.n).fill(null);
+        (d[id] || []).forEach((p) => {
+          const i = Math.round((p.start - entry.t0) / 3e5);
+          if (i >= 0 && i < entry.n && Number.isFinite(p.mean)) out[i] = p.mean;
+        });
+        let last = null;
+        for (let i = 0; i < out.length; i++) {
+          if (out[i] == null) out[i] = last;
+          else last = out[i];
+        }
+        return out;
+      };
+      const soc = col(c.battery), flow = col(c.battery_power), gin = col(c.grid_from), gout = col(c.grid_to), pv = col(c.pv_power);
+      const v = [];
+      for (let i = 0; i < entry.n; i++) {
+        if (kind === "battery") v.push(soc[i]);
+        else if (kind === "grid") v.push(gin[i] == null ? null : gin[i] - (gout[i] || 0));
+        else v.push(gin[i] == null || flow[i] == null ? null : Math.max(0, gin[i] - (gout[i] || 0) + flow[i] + (pv[i] || 0)));
+      }
+      return { values: v, t0: entry.t0, hours };
+    }
+    _graphHtml(series, opt) {
+      const vals = series.values;
+      const ok = vals.filter((x) => x != null);
+      if (ok.length < 3) return '<div class="gload">No history yet</div>';
+      let lo = opt.min != null ? opt.min : Math.min(0, ...ok);
+      let hi = opt.max != null ? opt.max : Math.max(1, ...ok) * 1.1;
+      if (hi - lo < 1) hi = lo + 1;
+      const W = 960, H = 240, n = vals.length;
+      const X = (i) => i / (n - 1) * W, Y = (x) => H - (x - lo) / (hi - lo) * (H - 8) - 4;
+      let line = "", first = -1, lastI = -1;
+      vals.forEach((x, i) => {
+        if (x == null) return;
+        if (first < 0) first = i;
+        lastI = i;
+        line += `${line ? "L" : "M"}${X(i).toFixed(1)},${Y(x).toFixed(1)}`;
+      });
+      const area = `${line}L${X(lastI).toFixed(1)},${Y(lo)}L${X(first).toFixed(1)},${Y(lo)}Z`;
+      const grid = [0.25, 0.5, 0.75].map((f) => `<line x1="0" x2="${W}" y1="${(H * f).toFixed(0)}" y2="${(H * f).toFixed(0)}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>`).join("");
+      const zero = lo < 0 ? `<line x1="0" x2="${W}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-dasharray="6 6"/>` : "";
+      const lastV = vals[lastI];
+      const ticks = [0, 1, 2, 3, 4].map((f) => fmtTime(new Date(series.t0 + series.hours * 36e5 * f / 4)));
+      return `<svg class="graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs><linearGradient id="gfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${opt.color}" stop-opacity="0.45"/><stop offset="1" stop-color="${opt.color}" stop-opacity="0.02"/></linearGradient></defs>
+      ${grid}${zero}<path d="${area}" fill="url(#gfill)"/><path d="${line}" fill="none" stroke="${opt.color}" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="${X(lastI).toFixed(1)}" cy="${Y(lastV).toFixed(1)}" r="6" fill="${opt.color}"/></svg>
+      <div class="gx">${ticks.map((t) => `<span>${t}</span>`).join("")}</div>`;
+    }
+    _powerDetailHtml(kind) {
+      const c = this._config;
+      const hours = this._range || 24;
+      this._loadStats(hours);
+      const ser = this._graphSeries(kind, hours);
+      const num = (id) => {
+        const v = Number(this._entity(id)?.state);
+        return Number.isFinite(v) ? v : null;
+      };
+      const stat = (vals, t0) => {
+        const ok = vals.map((x, i) => [x, i]).filter((p) => p[0] != null);
+        if (!ok.length) return null;
+        let mx = ok[0], mn = ok[0], sum = 0;
+        ok.forEach((p) => {
+          if (p[0] > mx[0]) mx = p;
+          if (p[0] < mn[0]) mn = p;
+          sum += p[0];
+        });
+        const at = (p) => fmtTime(new Date(t0 + p[1] * 3e5));
+        return { max: mx[0], maxAt: at(mx), min: mn[0], minAt: at(mn), avg: sum / ok.length };
+      };
+      const st = ser ? stat(ser.values, ser.t0) : null;
+      const tile = (label, value, sub2) => `<div class="pt"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${esc(sub2 || "")}</div></div>`;
+      const kwh = (id) => {
+        const v = num(id);
+        return v == null ? "\u2013" : `${v.toFixed(1)}<small>kWh</small>`;
+      };
+      const w = (x) => x == null ? "\u2013" : this._kw(x);
+      let title = "", big = "", sub = "", tiles = "", opt = {};
+      if (kind === "battery") {
+        const soc = num(c.battery), flow = num(c.battery_power);
+        title = "Battery";
+        opt = { min: 0, max: 100, color: "#7fd6c2" };
+        big = `${soc != null ? Math.round(soc) : "\u2013"}<small>%</small>`;
+        sub = flow != null && flow < -30 ? `charging at ${Math.abs(Math.round(flow))} W` : flow != null && flow > 30 ? `discharging at ${Math.round(flow)} W` : "resting";
+        tiles = tile("Lowest", st ? `${Math.round(st.min)}<small>%</small>` : "\u2013", st ? "at " + st.minAt : "") + tile("Highest", st ? `${Math.round(st.max)}<small>%</small>` : "\u2013", st ? "at " + st.maxAt : "") + tile("Charged today", kwh(c.battery_charge_today), "into the battery") + tile("Discharged today", kwh(c.battery_discharge_today), "out of the battery");
+      } else if (kind === "grid") {
+        const net = (num(c.grid_from) ?? 0) - (num(c.grid_to) ?? 0);
+        title = "Grid";
+        opt = { color: "#8ab4ff" };
+        big = this._kw(net);
+        sub = net > 30 ? "importing now" : net < -30 ? "exporting now" : "idle";
+        const cost = this._entity(c.grid_cost), unit = cost?.attributes?.unit_of_measurement;
+        const money = Number.isFinite(Number(cost?.state)) ? `${unit === "ZAR" ? "R" : ""}${Number(cost.state).toFixed(2)}` : "\u2013";
+        tiles = tile("Imported today", kwh(c.grid_today_kwh), "from the grid") + tile("Exported today", kwh(c.grid_export_today_kwh), "to the grid") + tile("Cost today", esc(money), "so far") + tile("Peak", st ? w(Math.max(0, st.max)) : "\u2013", st ? "at " + st.maxAt : "");
+      } else {
+        const flow = num(c.battery_power);
+        const home = flow == null ? null : Math.max(0, (num(c.grid_from) ?? 0) - (num(c.grid_to) ?? 0) + flow + (num(c.pv_power) ?? 0));
+        title = "Home";
+        opt = { color: "#ffc857" };
+        big = home != null ? this._kw(home) : "\u2013";
+        sub = "using right now";
+        tiles = tile("Peak", st ? w(st.max) : "\u2013", st ? "at " + st.maxAt : "") + tile("Average", st ? w(st.avg) : "\u2013", `over ${hours} h`) + tile("Lowest", st ? w(st.min) : "\u2013", st ? "at " + st.minAt : "") + tile("Geyser", this._geyserState().heating ? this._kw(this._geyserState().watts) : "Off", "right now");
+      }
+      return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
+      <div class="dhead"><button class="back" data-act="pd_back">\u2039 Power</button><h2>${title}</h2>
+        <div class="rng"><button class="${hours === 6 ? "sel" : ""}" data-act="pr_6">6 h</button><button class="${hours === 24 ? "sel" : ""}" data-act="pr_24">24 h</button></div></div>
+      <div class="dbig">${big}<small>${esc(sub)}</small></div>
+      ${ser ? this._graphHtml(ser, opt) : '<div class="gload">Loading history\u2026</div>'}
+      <div class="sgrid">${tiles}</div></div></div>`;
     }
     _geyserSheetHtml() {
       const g = this._geyserState();
@@ -1410,6 +1570,16 @@
       if (act === "noop") return;
       if (act === "geyser") return this._openSheet("geyser");
       if (act === "power") return this._openSheet("power");
+      if (act.indexOf("pd_") === 0) {
+        this._sheet = act === "pd_back" ? "power" : "power:" + act.slice(3);
+        this._armSheet(6e4);
+        return this._syncSheet();
+      }
+      if (act.indexOf("pr_") === 0) {
+        this._range = Number(act.slice(3));
+        this._armSheet(6e4);
+        return this._syncSheet();
+      }
       if (act === "g_close") return this._closeSheet();
       if (act.startsWith("g_")) return this._geyserAction(act);
       if (act === "open_music") {
@@ -1432,6 +1602,10 @@
       clearTimeout(this._sheetTimer);
       this._sheetTimer = setTimeout(() => this._closeSheet(), 3e4);
       this._syncSheet();
+    }
+    _armSheet(ms) {
+      clearTimeout(this._sheetTimer);
+      this._sheetTimer = setTimeout(() => this._closeSheet(), ms);
     }
     _closeSheet() {
       this._sheet = null;
