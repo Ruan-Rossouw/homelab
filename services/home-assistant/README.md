@@ -576,6 +576,16 @@ the packages into the config directory within about five minutes. Reload
 the changed package afterwards (or restart HA). The wall panel picks up a
 new card by itself.
 
+### Power details screen
+
+Tapping the Power tile opens a wide sheet: battery (with time to full or time
+left), what the home is using, grid import or export, solar, today's grid cost
+and energy, and the geyser. Extra card keys: `grid_from`, `grid_to`,
+`pv_power` (W), `grid_today_kwh`, `grid_export_today_kwh`, `pv_today_kwh`,
+`battery_temp` and `grid_volts`. "Home using" is worked out as grid net +
+battery discharge + solar, so it is approximate. Tap outside to close; it
+closes by itself after 30 seconds.
+
 ### Power cut screen
 
 When the inverter's grid sensor (`grid`) reads off, the panel shows the battery
