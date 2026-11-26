@@ -568,6 +568,14 @@ After copying a changed package, `template.reload` (Developer Tools → YAML →
   the timer's duration". It reuses `script.toggle_geyser` and the existing
   `timer.geaser_timer` (config keys `geyser_switch`, `geyser_timer`).
 
+### Deploying cards and packages
+
+Merging to `main` is enough: the auto-deploy poller (`docs/zimaos.md`) runs
+`services/home-assistant/deploy-hook.sh`, which copies the built cards and
+the packages into the config directory within about five minutes. Reload
+the changed package afterwards (or restart HA). The wall panel picks up a
+new card by itself.
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
