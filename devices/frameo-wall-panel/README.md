@@ -106,6 +106,24 @@ After saving, toggle Wi-Fi once (`svc wifi disable; svc wifi enable` as root)
 if the default route is missing. The Home Assistant ADB integration connects
 to that address.
 
+## Updaters and Egress Firewall
+
+Disabled (reversible with `pm enable`): `com.adups.fota`,
+`com.adups.fota.sysoper` and `android.rockchip.update.service`; Android's
+captive-portal check is off (`captive_portal_detection_enabled 0`), as the
+frame can no longer reach the internet.
+
+The router (a TP-Link Deco) cannot restrict one device's outbound traffic, so
+the frame does it itself: `firewall.sh` (stored on the frame at
+`/data/local/wp-firewall.sh`) allows over Wi-Fi only the homelab server
+(`192.168.68.110`: Home Assistant, Jellyfin, AdGuard DNS), the router, DHCP
+and NTP, and drops everything else, IPv6 included. The rules vanish on
+reboot; the `wall_panel_firewall` automation in
+`services/home-assistant/packages/wall_panel_power.yaml` re-applies them when
+the frame reconnects. To change the rules, edit `firewall.sh` and push it to
+the frame (`adb push` to `/sdcard`, then `su -c cp` to
+`/data/local/wp-firewall.sh`).
+
 ## Revert
 
 ```bash

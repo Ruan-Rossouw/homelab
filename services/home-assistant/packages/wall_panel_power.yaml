@@ -171,3 +171,27 @@ automation:
         state: "off"
     actions:
       - action: script.wall_panel_wake
+
+  # The frame restricts its own outbound traffic (devices/frameo-wall-panel/
+  # firewall.sh, stored on the frame at /data/local/wp-firewall.sh). The rules
+  # vanish on reboot, so re-apply them whenever the frame (re)appears, and now
+  # and then in case a reboot went unnoticed. The script is idempotent.
+  - id: wall_panel_firewall
+    alias: Wall panel firewall
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: media_player.wall_panel_adb
+        from: unavailable
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/10"
+    actions:
+      - delay: "00:00:20"
+      - action: androidtv.adb_command
+        target:
+          entity_id: media_player.wall_panel_adb
+        data:
+          command: "su -c 'sh /data/local/wp-firewall.sh'"
+        continue_on_error: true
