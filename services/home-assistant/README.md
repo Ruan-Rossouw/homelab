@@ -616,6 +616,49 @@ output power in W), `battery_ah`, `battery_volts`, `battery_reserve_pct`
 depends on the Ah value matching the whole battery bank. The geyser is never
 on the battery. Sleep, music and nobody-home screens still take priority.
 
+## Stage 8: Alerts and Tariff Block
+
+**Alerts** (`packages/alerts.yaml`, sent through the shared
+`script.alert_notify` in `packages/alerts_notify.yaml`):
+
+| Alert | When | Level |
+|---|---|---|
+| Battery did not top up | 09:00, grid on, battery below 95% | warning |
+| Power cut | mains off for 1 min; says battery % and an estimate of time left | critical |
+| Power restored | mains back for 1 min; says how long it was out | info |
+| Battery low in a power cut | below 30% with the mains off | critical |
+| Inverter fault | any fault other than "No Faults" for 1 min | critical |
+| Battery too hot | above 45 °C for 5 min | warning |
+| Grid voltage out of range | outside 200-260 V for 2 min (grid on) | warning |
+| Inverter offline | no data for 15 min | warning |
+| Wall panel unreachable | tablet ADB link down for 10 min | warning |
+| Geyser on too long | on 3 h with no schedule block and no timer | warning |
+
+Conventions, so alerts stay easy to extend:
+
+- One notification path. Recipients, quiet hours (22:00-06:00) and iOS
+  interruption levels (info = passive, warning = active outside quiet hours,
+  critical = time-sensitive) live only in `alerts_notify.yaml`.
+- Thresholds sit in `trigger_variables:` / `variables:` at the top of each
+  automation (also usable in the message), never buried in a template.
+  Triggers debounce with `for:`; each alert has a stable `tag`, so a repeat
+  replaces the previous notification instead of stacking.
+- To add an alert: copy one, change the trigger and variables, and call
+  `script.alert_notify` with a title, message, level and tag.
+- Deliberately absent: geyser on the battery (separate circuit, cannot
+  happen), integration breakage, and a wall-panel firewall check (the ADB
+  integration returns `1` for every command, so output cannot be read back;
+  the firewall is simply re-applied every 10 minutes).
+
+**Tariff block** (`packages/tshwane_tariff.yaml`): the inclining-block table
+lives ONLY in that file. It produces `sensor.tshwane_tariff_block` (block 1-4,
+with rate, kWh used and left in the block, next rate), `sensor.tshwane_kwh_to_next_block`
+and `sensor.tshwane_block_progress`. The Energy price helper
+`sensor.tshwane_marginal_rate` now just reads the rate from it, so changing the
+table changes the Energy dashboard cost, the Energy Overview card and the wall
+panel together. The wall panel shows it on the Power screen (`tariff_block` card
+key).
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home

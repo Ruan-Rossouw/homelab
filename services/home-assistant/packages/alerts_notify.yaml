@@ -1,0 +1,80 @@
+# Shared notification script for every alert in this setup.
+#
+# All alert automations (alerts.yaml) call script.alert_notify instead of a
+# notify.* service directly, so who gets notified, the quiet hours and the iOS
+# interruption levels live in ONE place. To add a recipient (e.g. a second
+# phone) or change quiet hours, edit `targets` / `quiet_*` below.
+#
+# Levels:
+#   info      passive: delivered silently, no sound or lock-screen wake
+#   warning   active: normal notification (silent during quiet hours)
+#   critical  time-sensitive: breaks through Focus modes, any hour
+#
+# Notifications with the same `tag` replace each other, so a flapping alert
+# updates one notification instead of stacking.
+
+script:
+  alert_notify:
+    alias: "Alert: send notification"
+    description: >-
+      Send one alert to the household phones. Fields: title, message, level
+      (info | warning | critical, default warning), tag, group.
+    icon: mdi:bell-ring
+    mode: parallel
+    max: 10
+    fields:
+      title:
+        description: Notification title (an emoji at the front helps scanning).
+        example: "🔋 Battery did not top up"
+        required: true
+        selector:
+          text:
+      message:
+        description: Notification body.
+        required: true
+        selector:
+          text:
+            multiline: true
+      level:
+        description: info, warning or critical.
+        default: warning
+        selector:
+          select:
+            options: [info, warning, critical]
+      tag:
+        description: Notifications with the same tag replace each other.
+        default: alert
+        selector:
+          text:
+      group:
+        description: Groups notifications together in the iOS notification list.
+        default: alerts
+        selector:
+          text:
+    variables:
+      # ---- change these in one place ----
+      targets:
+        - notify.mobile_app_ruan_s_iphone
+      quiet_start: 22
+      quiet_end: 6
+      # -----------------------------------
+      lvl: "{{ level | default('warning') }}"
+      quiet: "{{ now().hour >= quiet_start or now().hour < quiet_end }}"
+      interruption: >-
+        {% if lvl == 'critical' %}time-sensitive
+        {%- elif lvl == 'warning' and not quiet %}active
+        {%- else %}passive{% endif %}
+    sequence:
+      - repeat:
+          for_each: "{{ targets }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ title }}"
+                message: "{{ message }}"
+                data:
+                  tag: "{{ tag | default('alert') }}"
+                  group: "{{ group | default('alerts') }}"
+                  push:
+                    interruption-level: "{{ interruption }}"
