@@ -210,6 +210,20 @@ const STYLES = `
   .sheet .sgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
   .sheet .sgrid .pt { padding: 14px 18px; }
   .sheet .sgrid .pt .value { font-size: 38px; }
+  .sheet-bg.full { background: linear-gradient(160deg, #0b1f3a 0%, #123a5e 55%, #1b5a73 100%); align-items: stretch; justify-content: stretch; animation: wpfade 0.35s ease; }
+  .sheet-bg.full .sheet { width: auto; flex: 1; border-radius: 0; background: transparent; box-shadow: none; padding: 44px 72px 40px; display: flex; flex-direction: column; }
+  .sheet-bg.full .sheet.wide { width: auto; padding: 44px 72px 40px; }
+  .sheet-bg.full .pgrid { margin-top: 30px; gap: 22px; }
+  .sheet-bg.full .pt { background: rgba(255,255,255,0.09); }
+  .sheet-bg.full .sheet.wide .pt .value { font-size: 60px; }
+  .sheet-bg.full svg.graph { height: 300px; }
+  .sheet-bg.full .dbig { font-size: 92px; }
+  .homebtn { position: absolute; left: 26px; top: 22px; z-index: 4; border: 0; padding: 0; color: #fff; background: rgba(255,255,255,0.1);
+             width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0.55;
+             touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .homebtn svg { width: 28px; height: 28px; fill: currentColor; }
+  .homebtn.pill { width: auto; height: 48px; border-radius: 24px; padding: 0 22px 0 16px; gap: 10px; font: 400 22px Roboto, "Noto Sans", sans-serif; }
+  .homebtn.pill svg { width: 24px; height: 24px; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 `;
 
@@ -393,7 +407,7 @@ class WallPanelCard extends HTMLElement {
   }
 
   _navigate(dir) {
-    if (!this._hass || this._config.navigation === false) return;
+    if (!this._hass || this._config.navigation === false || this._sheet) return;
     const shown = this._sceneState.scene;
     if (!["day", "morning", "away", "music", "browsing"].includes(shown)) return;
     const cur = this._manual ? this._pageOf(this._manual.scene) : this._pageOf(shown);
@@ -507,7 +521,7 @@ class WallPanelCard extends HTMLElement {
       : "";
     this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
-      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}`;
+      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}${this._homeBtnHtml(scene)}`;
     this._sheetHtmlLast = null; // the rebuild dropped the sheet element
     this._syncSheet();
     if (fade || entering) {
@@ -894,8 +908,8 @@ class WallPanelCard extends HTMLElement {
     const tile = (label, value, sub, act = "") => `<div class="pt${act ? " tap" : ""}"${act ? ` data-act="${act}"` : ""}><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${esc(sub)}</div></div>`;
     const foot = [volts != null ? `Battery ${volts.toFixed(1)} V` : "", num(c.battery_temp) != null ? `${Math.round(num(c.battery_temp))}°C` : "",
       num(c.grid_volts) != null ? `Grid ${Math.round(num(c.grid_volts))} V` : ""].filter(Boolean).join("  ·  ");
-    return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
-      <div class="phead"><h2>Power</h2><div class="sstate">${gridOn ? "Grid on" : "Power cut, running on battery"}</div></div>
+    return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
+      <div class="dhead"><button class="back" data-act="g_close">\u2039 Home</button><h2>Power</h2><div class="sstate">${gridOn ? "Grid on" : "Power cut, running on battery"}</div></div>
       <div class="pgrid">
         <div class="pt tap" data-act="pd_battery" style="--accent:${accent}"><div class="label">Battery</div><div class="value">${soc != null ? Math.round(soc) : "–"}<small>%</small></div><div class="bar"><i style="width:${soc ?? 0}%"></i></div><div class="sub" style="margin-top:10px">${esc(batLine)}</div></div>
         ${tile("Home using", home != null ? this._kw(home) : "–", "right now", "pd_home")}
@@ -904,8 +918,7 @@ class WallPanelCard extends HTMLElement {
         ${tile("Grid today", money ? esc(money) : (inK != null ? inK.toFixed(1) + "<small>kWh</small>" : "–"), `${inK != null ? inK.toFixed(1) + " kWh in" : ""}${outK != null && outK > 0 ? " · " + outK.toFixed(1) + " out" : ""}`)}
         ${tile("Geyser", g.heating ? this._kw(g.watts) : g.on ? "On" : "Off", g.left || (g.heating ? "heating" : g.on ? "not heating" : "off"))}
       </div>
-      ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}
-      <div class="sclose">tap outside to close</div></div></div>`;
+      ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}</div></div>`;
   }
 
   // ---- Power detail graphs --------------------------------------------------
@@ -1031,7 +1044,7 @@ class WallPanelCard extends HTMLElement {
         + tile("Lowest", st ? w(st.min) : "–", st ? "at " + st.minAt : "")
         + tile("Geyser", this._geyserState().heating ? this._kw(this._geyserState().watts) : "Off", "right now");
     }
-    return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
+    return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
       <div class="dhead"><button class="back" data-act="pd_back">\u2039 Power</button><h2>${title}</h2>
         <div class="rng"><button class="${hours === 6 ? "sel" : ""}" data-act="pr_6">6 h</button><button class="${hours === 24 ? "sel" : ""}" data-act="pr_24">24 h</button></div></div>
       <div class="dbig">${big}<small>${esc(sub)}</small></div>
@@ -1056,6 +1069,16 @@ class WallPanelCard extends HTMLElement {
         ? `<button class="sbtn" data-act="g_cancel">Cancel timer</button>`
         : `<button class="sbtn" data-act="g_timer">Heat for ${esc(durText)}</button>`}</div>` : ""}
       <div class="sclose">tap outside to close</div></div></div>`;
+  }
+
+  // A faint way back to the home page from the music and movies screens.
+  _homeBtnHtml(scene) {
+    const style = this._config.home_button;
+    if (style === false || style === "off" || !["music", "browsing"].includes(scene)) return "";
+    const house = '<svg viewBox="0 0 24 24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg>';
+    return style === "pill"
+      ? `<button class="homebtn pill" data-act="nav_home" aria-label="Home">${house}Home</button>`
+      : `<button class="homebtn" data-act="nav_home" aria-label="Home">${house}</button>`;
   }
 
   _dotsHtml(scene) {
@@ -1230,6 +1253,13 @@ class WallPanelCard extends HTMLElement {
     if (act.indexOf("pr_") === 0) { this._range = Number(act.slice(3)); this._armSheet(60000); return this._syncSheet(); }
     if (act === "g_close") return this._closeSheet();
     if (act.startsWith("g_")) return this._geyserAction(act);
+    if (act === "nav_home") {
+      const base = this._sceneState.scene;
+      this._manual = base === "day" || base === "morning" || base === "away" ? null
+        : { scene: "day", base, until: Date.now() + Number(this._config.nav_return_minutes) * 60000 };
+      this._renderedKey = null;
+      return this._tick();
+    }
     if (act === "open_music") {
       this._manual = { scene: "music", base: this._sceneState.scene,
         until: Date.now() + Number(this._config.nav_return_minutes) * 60000 };
@@ -1246,7 +1276,7 @@ class WallPanelCard extends HTMLElement {
   _openSheet(name = "geyser") {
     this._sheet = name;
     clearTimeout(this._sheetTimer);
-    this._sheetTimer = setTimeout(() => this._closeSheet(), 30000);
+    this._sheetTimer = setTimeout(() => this._closeSheet(), name === "power" ? 60000 : 30000);
     this._syncSheet();
   }
 

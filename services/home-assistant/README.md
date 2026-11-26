@@ -578,15 +578,16 @@ new card by itself.
 
 ### Power details screen
 
-Tapping the Power tile opens a wide sheet: battery (with time to full or time
+Tapping the Power tile opens a full screen (with a "Home" back button): battery (with time to full or time
 left), what the home is using, grid import or export, solar, today's grid cost
 and energy, and the geyser. Extra card keys: `grid_from`, `grid_to`,
 `pv_power` (W), `grid_today_kwh`, `grid_export_today_kwh`, `pv_today_kwh`,
 `battery_temp` and `grid_volts`. "Home using" is worked out as grid net +
-battery discharge + solar, so it is approximate. Tap outside to close; it
-closes by itself after 30 seconds.
+battery discharge + solar, so it is approximate. It closes by itself after a minute without
+touch. The music and movies screens have a faint home button in the corner
+(`home_button`: `icon` (default), `pill` or `off`).
 
-Tapping Battery, Home or Grid inside that sheet opens a detail view with a
+Tapping Battery, Home or Grid there opens a detail screen with a
 graph (6 h or 24 h) and a few figures for that item: battery (lowest and
 highest, energy charged and discharged today), home (peak, average, lowest)
 and grid (import, export, cost, peak). The graph uses Home Assistant's
