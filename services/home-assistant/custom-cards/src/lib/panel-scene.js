@@ -16,7 +16,7 @@
 // Sleep is checked *after* media on purpose: starting a film at 01:00 must
 // still go to Cinema, not stay asleep.
 
-export const SCENES = ["cinema", "music", "browsing", "sleep", "away", "morning", "day"];
+export const SCENES = ["cinema", "music", "browsing", "sleep", "away", "outage", "morning", "day"];
 
 const VIDEO_TYPES = new Set(["video", "movie", "tvshow", "episode", "tv_show"]);
 const MUSIC_TYPES = new Set(["music", "track", "album", "playlist", "podcast"]);
@@ -100,6 +100,7 @@ export function computeScene(input) {
     now, tv, music = [], people = [], sleep, morning, tvPower,
     browsingTimeoutMs = DEFAULT_BROWSING_TIMEOUT_MS,
     musicLingerMs = DEFAULT_MUSIC_LINGER_MS,
+    grid,
   } = input;
 
   const off = tvIsOff(tv, tvPower, now, browsingTimeoutMs);
@@ -127,6 +128,11 @@ export function computeScene(input) {
     return { scene: "away", source: null };
   }
 
+  // Mains is down (the inverter's grid sensor reads off): show the power-cut screen.
+  if (grid && grid.state === "off") {
+    return { scene: "outage", source: null };
+  }
+
   if (morning && inWindow(now, morning.start, morning.end)) {
     return { scene: "morning", source: null };
   }
@@ -144,6 +150,7 @@ export const DEFAULT_HOLD_MS = {
   browsing: 8000,
   sleep: 0,
   away: 30000,
+  outage: 5000,
   morning: 0,
   day: 3000,
 };
@@ -330,4 +337,21 @@ export function carouselItems(library, max = 14) {
 export function carouselPick(items, nowMs, stepMs = 15000) {
   if (!items.length) return null;
   return items[Math.floor(nowMs / stepMs) % items.length];
+}
+
+// Rough time the battery can carry the load: usable energy (capacity x volts x
+// charge above the reserve) over the load. Null when something is unknown or
+// the load is negligible. `ah` and `volts` come from the inverter; the real
+// usable capacity depends on the battery bank, so treat the result as approximate.
+export function outageRuntimeMin({ soc, ah, volts, loadW, reservePct = 10 }) {
+  const n = [soc, ah, volts, loadW].map(Number);
+  if (n.some((v) => !Number.isFinite(v)) || n[3] < 20) return null;
+  const usableWh = n[1] * n[2] * Math.max(0, n[0] - reservePct) / 100;
+  return Math.round((usableWh / n[3]) * 60);
+}
+
+export function fmtMinutes(min) {
+  if (!Number.isFinite(min) || min < 0) return "";
+  const h = Math.floor(min / 60), m = min % 60;
+  return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`;
 }
