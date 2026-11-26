@@ -182,6 +182,16 @@ const STYLES = `
                  background: rgba(255,255,255,0.12); touch-action: manipulation; }
   .sheet .sbtn.on { background: #e8833a; }
   .sheet .sbtn.sel { background: rgba(127,214,194,0.35); }
+  .sheet.wide { width: 1080px; padding: 36px 44px; }
+  .sheet.wide .phead { display: flex; justify-content: space-between; align-items: baseline; }
+  .sheet.wide .pgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 26px; }
+  .sheet.wide .pt { background: rgba(255,255,255,0.08); border-radius: 24px; padding: 20px 24px; min-width: 0; }
+  .sheet.wide .pt .label { font-size: 20px; opacity: 0.6; text-transform: uppercase; letter-spacing: 2px; }
+  .sheet.wide .pt .value { font-size: 52px; font-weight: 300; margin-top: 4px; white-space: nowrap; }
+  .sheet.wide .pt .value small { font-size: 24px; opacity: 0.7; margin-left: 6px; }
+  .sheet.wide .pt .sub { font-size: 22px; opacity: 0.7; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sheet.wide .pt .bar { margin-top: 12px; height: 8px; }
+  .sheet.wide .pfoot { margin-top: 22px; font-size: 22px; opacity: 0.55; text-align: center; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 `;
 
@@ -742,7 +752,7 @@ class WallPanelCard extends HTMLElement {
 
   _summaryKey() {
     const c = this._config;
-    return [c.weather, c.battery, c.battery_power, c.load_power, c.grid_cost, c.battery_ah, c.battery_volts, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...(c.music || []), ...(c.people || [])]
+    return [c.weather, c.battery, c.battery_power, c.grid_from, c.grid_to, c.pv_power, c.load_power, c.grid_cost, c.battery_ah, c.battery_volts, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...(c.music || []), ...(c.people || [])]
       .map((id) => { const e = this._entity(id); return e ? `${e.state}/${e.attributes?.temperature ?? ""}/${e.attributes?.media_title ?? ""}/${e.attributes?.finishes_at ?? ""}` : ""; })
       .join(",");
   }
@@ -773,7 +783,7 @@ class WallPanelCard extends HTMLElement {
       const flow = Number.isFinite(w) ? (w > 30 ? "Discharging" : w < -30 ? "Charging" : "Idle") : "";
       const flowW = Number.isFinite(w) && Math.abs(w) > 30 ? ` ${Math.abs(Math.round(w))} W` : "";
       const gridOn = grid ? grid.state === "on" : null;
-      tiles.push(`<div class="tile power" style="--accent:${accent}"><div class="label">Power</div>
+      tiles.push(`<div class="tile power tap" data-act="power" style="--accent:${accent}"><div class="label">Power</div>
         <div class="pwr-line"><div class="value">${Math.round(pct)}<small>%</small></div>${flow ? `<div class="pwr-state">${flow}${flowW}</div>` : ""}</div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         ${gridOn === null ? "" : `<div class="pwr-meta"><span><span class="dot ${gridOn ? "" : "warn"}"></span>${gridOn ? "Grid on" : "Running on battery"}</span></div>`}</div>`);
@@ -825,6 +835,61 @@ class WallPanelCard extends HTMLElement {
   }
 
   _sheetHtml() {
+    return this._sheet === "power" ? this._powerSheetHtml() : this._geyserSheetHtml();
+  }
+
+  _kw(w) {
+    const n = Math.abs(Math.round(w));
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}<small>kW</small>` : `${n}<small>W</small>`;
+  }
+
+  // The wide Power screen: where the electricity is coming from and going to.
+  _powerSheetHtml() {
+    const c = this._config;
+    const num = (id) => { const v = Number(this._entity(id)?.state); return Number.isFinite(v) ? v : null; };
+    const soc = num(c.battery);
+    const flow = num(c.battery_power);           // + discharging, - charging
+    const gridIn = num(c.grid_from) ?? 0;
+    const gridOut = num(c.grid_to) ?? 0;
+    const pv = num(c.pv_power) ?? 0;
+    const gridNet = gridIn - gridOut;
+    const home = flow == null ? null : Math.max(0, gridNet + flow + pv);
+    const volts = num(c.battery_volts), ah = num(c.battery_ah);
+    const reserve = Number.isFinite(Number(c.battery_reserve_pct)) ? Number(c.battery_reserve_pct) : 10;
+    let batLine = "Idle";
+    if (flow != null && flow < -30) {
+      const whLeft = ah != null && volts != null && soc != null ? ah * volts * (100 - soc) / 100 : null;
+      const mins = whLeft != null ? Math.round(whLeft / Math.abs(flow) * 60) : null;
+      batLine = mins != null && mins < 600 ? `Charging · full in ${fmtMinutes(mins)}` : `Charging ${Math.abs(Math.round(flow))} W`;
+    } else if (flow != null && flow > 30) {
+      const mins = outageRuntimeMin({ soc, ah, volts, loadW: flow, reservePct: reserve });
+      batLine = mins != null && mins < 6000 ? `Discharging · ${fmtMinutes(mins)} left` : `Discharging ${Math.round(flow)} W`;
+    }
+    const gridOn = this._entity(c.grid)?.state !== "off";
+    const g = this._geyserState();
+    const cost = this._entity(c.grid_cost);
+    const unit = cost?.attributes?.unit_of_measurement;
+    const money = Number.isFinite(Number(cost?.state)) ? `${unit === "ZAR" ? "R" : (unit ? unit + " " : "")}${Number(cost.state).toFixed(2)}` : "";
+    const inK = num(c.grid_today_kwh), outK = num(c.grid_export_today_kwh), pvK = num(c.pv_today_kwh);
+    const accent = soc == null ? "#7fd6c2" : soc < 25 ? "#ff7a59" : soc < 50 ? "#ffc857" : "#7fd6c2";
+    const tile = (label, value, sub, extra = "") => `<div class="pt"${extra}><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${esc(sub)}</div></div>`;
+    const foot = [volts != null ? `Battery ${volts.toFixed(1)} V` : "", num(c.battery_temp) != null ? `${Math.round(num(c.battery_temp))}°C` : "",
+      num(c.grid_volts) != null ? `Grid ${Math.round(num(c.grid_volts))} V` : ""].filter(Boolean).join("  ·  ");
+    return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
+      <div class="phead"><h2>Power</h2><div class="sstate">${gridOn ? "Grid on" : "Power cut, running on battery"}</div></div>
+      <div class="pgrid">
+        <div class="pt" style="--accent:${accent}"><div class="label">Battery</div><div class="value">${soc != null ? Math.round(soc) : "–"}<small>%</small></div><div class="bar"><i style="width:${soc ?? 0}%"></i></div><div class="sub" style="margin-top:10px">${esc(batLine)}</div></div>
+        ${tile("Home using", home != null ? this._kw(home) : "–", "right now")}
+        ${tile("Grid", this._kw(gridNet), gridNet > 30 ? "importing" : gridNet < -30 ? "exporting" : "idle")}
+        ${tile("Solar", this._kw(pv), pvK != null ? `${pvK.toFixed(1)} kWh today` : (pv > 30 ? "generating" : "not generating"))}
+        ${tile("Grid today", money ? esc(money) : (inK != null ? inK.toFixed(1) + "<small>kWh</small>" : "–"), `${inK != null ? inK.toFixed(1) + " kWh in" : ""}${outK != null && outK > 0 ? " · " + outK.toFixed(1) + " out" : ""}`)}
+        ${tile("Geyser", g.heating ? this._kw(g.watts) : g.on ? "On" : "Off", g.left || (g.heating ? "heating" : g.on ? "not heating" : "off"))}
+      </div>
+      ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}
+      <div class="sclose">tap outside to close</div></div></div>`;
+  }
+
+  _geyserSheetHtml() {
     const g = this._geyserState();
     const timer = this._entity(this._config.geyser_timer);
     const dur = String(timer?.attributes?.duration || "1:00:00").split(":");
@@ -1005,7 +1070,8 @@ class WallPanelCard extends HTMLElement {
     this._touchNav();
     const act = el.dataset.act;
     if (act === "noop") return;
-    if (act === "geyser") return this._openSheet();
+    if (act === "geyser") return this._openSheet("geyser");
+    if (act === "power") return this._openSheet("power");
     if (act === "g_close") return this._closeSheet();
     if (act.startsWith("g_")) return this._geyserAction(act);
     if (act === "open_music") {
@@ -1021,8 +1087,8 @@ class WallPanelCard extends HTMLElement {
     this._hass.callService(call[0], call[1], call[2]);
   }
 
-  _openSheet() {
-    this._sheet = true;
+  _openSheet(name = "geyser") {
+    this._sheet = name;
     clearTimeout(this._sheetTimer);
     this._sheetTimer = setTimeout(() => this._closeSheet(), 30000);
     this._syncSheet();
