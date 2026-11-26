@@ -26,7 +26,8 @@
 
 template:
   - binary_sensor:
-      # Bedtime: late, TV idle, every phone that is home is on charge.
+      # Bedtime: late, TV idle, every phone that is home is on charge (a phone
+      # that reports nothing is not held against it).
       - name: Wall Panel Bedtime
         unique_id: wall_panel_bedtime
         state: >-
@@ -43,7 +44,8 @@ template:
           {% for person, battery in phones.items() %}
           {% if is_state(person, 'home') %}
           {% set ns.home = ns.home + 1 %}
-          {% if states(battery) in ['Charging', 'Full'] %}
+          {# A phone that reports nothing (unavailable) does not block bedtime. #}
+          {% if states(battery) in ['Charging', 'Full', 'unavailable', 'unknown'] %}
           {% set ns.charging = ns.charging + 1 %}
           {% endif %}
           {% endif %}
