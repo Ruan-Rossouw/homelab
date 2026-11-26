@@ -214,9 +214,16 @@ const STYLES = `
   .sheet-bg.full { background: linear-gradient(160deg, #0b1f3a 0%, #123a5e 55%, #1b5a73 100%); align-items: stretch; justify-content: stretch; animation: wpfade 0.35s ease; }
   .sheet-bg.full .sheet { width: auto; flex: 1; border-radius: 0; background: transparent; box-shadow: none; padding: 44px 72px 40px; display: flex; flex-direction: column; }
   .sheet-bg.full .sheet.wide { width: auto; padding: 44px 72px 40px; }
-  .sheet-bg.full .pgrid { margin-top: 30px; gap: 22px; }
+  .sheet-bg.full .pgrid { margin-top: 24px; gap: 18px; }
+  .sheet-bg.full .pt { padding: 16px 22px; }
+  .sheet-bg.full .pt.tariff { grid-column: 1 / -1; display: flex; align-items: center; gap: 36px; padding: 16px 26px; }
+  .pt.tariff .tl { flex: none; }
+  .pt.tariff .tl .value { font-size: 46px; }
+  .pt.tariff .tr { flex: 1; min-width: 0; }
+  .pt.tariff .tr .sub { font-size: 24px; opacity: 0.85; white-space: normal; }
+  .pt.tariff .bar { margin-top: 12px; height: 10px; }
   .sheet-bg.full .pt { background: rgba(255,255,255,0.09); }
-  .sheet-bg.full .sheet.wide .pt .value { font-size: 60px; }
+  .sheet-bg.full .sheet.wide .pt .value { font-size: 54px; }
   .sheet-bg.full svg.graph { height: 300px; }
   .sheet-bg.full .dbig { font-size: 92px; }
   .homebtn { position: absolute; left: 26px; top: 22px; z-index: 4; border: 0; padding: 0; color: #fff; background: rgba(255,255,255,0.1);
@@ -806,7 +813,7 @@ class WallPanelCard extends HTMLElement {
 
   _summaryKey() {
     const c = this._config;
-    return [c.weather, c.battery, c.battery_power, c.grid_from, c.grid_to, c.pv_power, c.load_power, c.grid_cost, c.battery_ah, c.battery_volts, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...(c.music || []), ...(c.people || [])]
+    return [c.weather, c.battery, c.battery_power, c.tariff_block, c.grid_from, c.grid_to, c.pv_power, c.load_power, c.grid_cost, c.battery_ah, c.battery_volts, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...(c.music || []), ...(c.people || [])]
       .map((id) => { const e = this._entity(id); return e ? `${e.state}/${e.attributes?.temperature ?? ""}/${e.attributes?.media_title ?? ""}/${e.attributes?.finishes_at ?? ""}` : ""; })
       .join(",");
   }
@@ -928,6 +935,18 @@ class WallPanelCard extends HTMLElement {
     const inK = num(c.grid_today_kwh), outK = num(c.grid_export_today_kwh), pvK = num(c.pv_today_kwh);
     const accent = soc == null ? "#7fd6c2" : soc < 25 ? "#ff7a59" : soc < 50 ? "#ffc857" : "#7fd6c2";
     const tile = (label, value, sub, act = "") => `<div class="pt${act ? " tap" : ""}"${act ? ` data-act="${act}"` : ""}><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${esc(sub)}</div></div>`;
+    // Tariff block: which inclining-block step this month's import has reached.
+    const tb = this._entity(c.tariff_block);
+    let tariffHtml = "";
+    if (tb && tb.state !== "unavailable" && tb.state !== "unknown") {
+      const a = tb.attributes || {};
+      const left = Number(a.left_in_block_kwh), pct = Number(a.progress_pct);
+      const rate = Number(a.rate), next = Number(a.next_rate);
+      const hasNext = Number.isFinite(left) && Number.isFinite(next);
+      const bar = Number.isFinite(pct) ? `<div class="bar" style="--accent:${pct >= 90 ? "#ff7a59" : pct >= 70 ? "#ffc857" : "#7fd6c2"}"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>` : "";
+      tariffHtml = `<div class="pt tariff"><div class="tl"><div class="label">Tariff block</div><div class="value">${esc(tb.state)}<small>R${rate.toFixed(2)}/kWh</small></div></div>
+        <div class="tr"><div class="sub">${hasNext ? `<b>${left.toFixed(0)} kWh</b> until block ${Number(tb.state) + 1} (R${next.toFixed(2)}/kWh) · ${Number(a.monthly_kwh).toFixed(0)} kWh used this month` : `Top block: every extra kWh costs R${rate.toFixed(2)} · ${Number(a.monthly_kwh).toFixed(0)} kWh this month`}</div>${bar}</div></div>`;
+    }
     const foot = [volts != null ? `Battery ${volts.toFixed(1)} V` : "", num(c.battery_temp) != null ? `${Math.round(num(c.battery_temp))}°C` : "",
       num(c.grid_volts) != null ? `Grid ${Math.round(num(c.grid_volts))} V` : ""].filter(Boolean).join("  ·  ");
     return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
@@ -939,6 +958,7 @@ class WallPanelCard extends HTMLElement {
         ${tile("Solar", this._kw(pv), pvK != null ? `${pvK.toFixed(1)} kWh today` : (pv > 30 ? "generating" : "not generating"))}
         ${tile("Grid today", money ? esc(money) : (inK != null ? inK.toFixed(1) + "<small>kWh</small>" : "–"), `${inK != null ? inK.toFixed(1) + " kWh in" : ""}${outK != null && outK > 0 ? " · " + outK.toFixed(1) + " out" : ""}`)}
         ${tile("Geyser", g.heating ? this._kw(g.watts) : g.on ? "On" : "Off", g.left || (g.heating ? "heating" : g.on ? "not heating" : "off"))}
+        ${tariffHtml}
       </div>
       ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}</div></div>`;
   }

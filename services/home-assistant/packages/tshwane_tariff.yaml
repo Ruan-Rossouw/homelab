@@ -1,0 +1,74 @@
+# City of Tshwane inclining-block electricity tariff: which block you are in
+# this month, how far through it you are and how much is left before the next.
+#
+# THE TARIFF TABLE LIVES ONLY HERE (the `blocks` variable). The marginal-rate
+# helper that the Energy dashboard uses for cost (sensor.tshwane_marginal_rate)
+# reads its rate from this sensor, so changing a threshold or rate here changes
+# everything: the Energy cost, the dashboard card and the wall panel.
+#
+# Input: sensor.total_grid_import_monthly (kWh imported this calendar month,
+# inverter + geyser; a Group helper over two Utility Meters).
+#
+# Outputs:
+#   sensor.tshwane_tariff_block        state = block number (1..4); attributes
+#                                      carry rate, progress and what is left
+#   sensor.tshwane_kwh_to_next_block   kWh until the next block (unknown in the last)
+#   sensor.tshwane_block_progress      % of the current block used
+
+template:
+  - triggers:
+      - trigger: state
+        entity_id: sensor.total_grid_import_monthly
+      - trigger: homeassistant
+        event: start
+      # Trigger-based sensors only exist after their first trigger: fill them
+      # in straight after a template reload, and refresh now and then.
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: time_pattern
+        minutes: "/5"
+    variables:
+      # `upto` is the cumulative monthly kWh at which the block ends (null = no limit).
+      blocks:
+        - { upto: 100, rate: 3.7274 }
+        - { upto: 400, rate: 4.3622 }
+        - { upto: 650, rate: 4.7525 }
+        - { upto: null, rate: 5.1234 }
+      kwh: "{{ states('sensor.total_grid_import_monthly') | float(0) }}"
+      # number of finite block limits already passed, plus one
+      idx: "{{ (blocks | rejectattr('upto', 'none') | selectattr('upto', 'lt', kwh) | list | length) + 1 }}"
+      block: "{{ blocks[idx - 1] }}"
+      start: "{{ blocks[idx - 2].upto if idx > 1 else 0 }}"
+      end: "{{ block.upto }}"
+      used: "{{ (kwh - start) | round(1) }}"
+      left: "{{ ((end - kwh) | round(1)) if end is not none else none }}"
+      size: "{{ (end - start) if end is not none else none }}"
+      progress: "{{ ((used / size * 100) | round(0)) if size else none }}"
+      next_rate: "{{ blocks[idx].rate if idx < (blocks | length) else none }}"
+    sensor:
+      - name: Tshwane Tariff Block
+        unique_id: tshwane_tariff_block
+        icon: mdi:stairs
+        state: "{{ idx }}"
+        attributes:
+          rate: "{{ block.rate }}"
+          monthly_kwh: "{{ kwh | round(1) }}"
+          block_start_kwh: "{{ start }}"
+          block_end_kwh: "{{ end }}"
+          used_in_block_kwh: "{{ used }}"
+          left_in_block_kwh: "{{ left }}"
+          progress_pct: "{{ progress }}"
+          next_rate: "{{ next_rate }}"
+          rate_step: "{{ ((next_rate - block.rate) | round(4)) if next_rate is not none else none }}"
+      - name: Tshwane kWh To Next Block
+        unique_id: tshwane_kwh_to_next_block
+        icon: mdi:stairs-up
+        unit_of_measurement: kWh
+        state_class: measurement
+        state: "{{ left }}"
+      - name: Tshwane Block Progress
+        unique_id: tshwane_block_progress
+        icon: mdi:progress-helper
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: "{{ progress }}"

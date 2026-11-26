@@ -1,0 +1,262 @@
+# Household alerts: battery, power cut, inverter and wall panel health, geyser.
+#
+# Conventions (so they stay easy to extend):
+#   * Every alert sends through script.alert_notify (alerts_notify.yaml): one
+#     place for recipients, quiet hours and iOS interruption levels.
+#   * Entities and thresholds sit in a `variables:` block at the top of each
+#     automation; change them there, not in the middle of a template.
+#   * Triggers debounce with `for:` so a blip does not notify, and each alert
+#     uses a stable `tag` so a repeat replaces the previous notification.
+#   * Not covered on purpose: the geyser running on the battery (it is on a
+#     separate circuit and cannot), integration breakage (Jellyfin, Apple TV),
+#     and the wall panel's firewall (the ADB integration cannot read command
+#     output back, so it cannot be checked; the firewall is simply re-applied
+#     every 10 minutes by the "Wall panel firewall" automation instead).
+#
+# Entities used: the LuxPower inverter integration, switch.geyser_switch_1,
+# schedule.geyser_schedule, timer.geyser_timer and media_player.wall_panel_adb.
+
+automation:
+  # ---- Battery ---------------------------------------------------------------
+  - id: alert_battery_morning_topup
+    alias: "Alert: battery did not top up"
+    description: >-
+      By 09:00 the inverter's morning grid charge should have filled the
+      battery. If it is still below the threshold, say so.
+    mode: single
+    variables:
+      soc: sensor.luxpower_inverter_battery_battery_soc
+      grid: binary_sensor.luxpower_inverter_grid_grid_connected
+      min_soc: 95
+    triggers:
+      - trigger: time
+        at: "09:00:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.luxpower_inverter_grid_grid_connected
+        state: "on"
+      - condition: template
+        value_template: "{{ states(soc) | float(100) < min_soc }}"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "🔋 Battery did not top up"
+          message: "Only {{ states(soc) | float(0) | round(0) | int }}% at 09:00 (expected {{ min_soc }}%+). The morning grid charge may not have run."
+          level: warning
+          tag: battery-topup
+          group: battery
+
+  # ---- Power cut -------------------------------------------------------------
+  - id: alert_grid_lost
+    alias: "Alert: power cut"
+    description: Mains lost for a minute. Reports battery level and an estimate of how long it lasts.
+    mode: single
+    variables:
+      soc_sensor: sensor.luxpower_inverter_battery_battery_soc
+      load_sensor: sensor.luxpower_inverter_eps_eps_power
+      flow_sensor: sensor.luxpower_inverter_battery_battery_flow
+      battery_kwh: 3.6        # usable pack size (Energy dashboard battery capacity)
+      reserve_pct: 10         # the inverter keeps this much back
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.luxpower_inverter_grid_grid_connected
+        to: "off"
+        for: "00:01:00"
+    actions:
+      - variables:
+          soc: "{{ states(soc_sensor) | float(0) }}"
+          load: "{{ [states(load_sensor) | float(0), states(flow_sensor) | float(0)] | max }}"
+          mins: >-
+            {{ (battery_kwh * 1000 * ((soc - reserve_pct) / 100) / load * 60) | round(0) | int
+               if load > 20 and soc > reserve_pct else none }}
+      - action: script.alert_notify
+        data:
+          title: "⚡ Power cut"
+          message: >-
+            Running on the battery at {{ soc | round(0) | int }}%.
+            {%- if mins is not none %} About {{ mins // 60 }} h {{ '%02d' % (mins % 60) }} min left at {{ load | round(0) | int }} W.{% endif %}
+          level: critical
+          tag: grid-status
+          group: grid-status
+
+  - id: alert_grid_restored
+    alias: "Alert: power restored"
+    description: Mains back for a minute after a cut. Says how long it was out.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.luxpower_inverter_grid_grid_connected
+        from: "off"
+        to: "on"
+        for: "00:01:00"
+    actions:
+      - variables:
+          out_min: "{{ ((now() - trigger.from_state.last_changed).total_seconds() / 60) | round(0) | int }}"
+      - action: script.alert_notify
+        data:
+          title: "✅ Power restored"
+          message: >-
+            Back on mains after {{ out_min // 60 }} h {{ '%02d' % (out_min % 60) }} min.
+            Battery {{ states('sensor.luxpower_inverter_battery_battery_soc') | float(0) | round(0) | int }}%.
+          level: info
+          tag: grid-status
+          group: grid-status
+
+  - id: alert_battery_low_in_outage
+    alias: "Alert: battery low during a power cut"
+    description: The battery dropped below the threshold while the mains is off.
+    mode: single
+    trigger_variables:
+      low_pct: 30
+    triggers:
+      - trigger: template
+        value_template: "{{ states('sensor.luxpower_inverter_battery_battery_soc') | float(100) < low_pct }}"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.luxpower_inverter_grid_grid_connected
+        state: "off"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "🪫 Battery low"
+          message: "Battery is at {{ states('sensor.luxpower_inverter_battery_battery_soc') | float(0) | round(0) | int }}% and the power is still out."
+          level: critical
+          tag: battery-low
+          group: grid-status
+
+  # ---- Inverter / battery trouble -------------------------------------------
+  - id: alert_inverter_fault
+    alias: "Alert: inverter fault"
+    description: The inverter reports an active fault (anything other than "No Faults").
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: >-
+          {{ states('sensor.luxpower_inverter_active_fault_text') not in
+             ['No Faults', 'unknown', 'unavailable', 'none', ''] }}
+        for: "00:01:00"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "🚨 Inverter fault"
+          message: "{{ states('sensor.luxpower_inverter_active_fault_text') }}"
+          level: critical
+          tag: inverter-fault
+          group: inverter
+
+  - id: alert_battery_hot
+    alias: "Alert: battery too hot"
+    description: Battery temperature above the threshold for five minutes.
+    mode: single
+    trigger_variables:
+      max_c: 45
+    triggers:
+      - trigger: template
+        value_template: "{{ states('sensor.luxpower_inverter_battery_battery_temperature') | float(0) > max_c }}"
+        for: "00:05:00"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "🌡️ Battery is hot"
+          message: "{{ states('sensor.luxpower_inverter_battery_battery_temperature') | float(0) | round(0) | int }}°C (limit {{ max_c }}°C)."
+          level: warning
+          tag: battery-hot
+          group: inverter
+
+  - id: alert_grid_voltage
+    alias: "Alert: grid voltage out of range"
+    description: >-
+      Mains voltage outside 200-260 V for two minutes while the grid is on
+      (damages appliances). Readings under 100 V are treated as a power cut.
+    mode: single
+    trigger_variables:
+      low_v: 200
+      high_v: 260
+    triggers:
+      - trigger: template
+        value_template: >-
+          {% set v = states('sensor.luxpower_inverter_grid_grid_voltage') | float(0) %}
+          {{ v > 100 and (v < low_v or v > high_v) }}
+        for: "00:02:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.luxpower_inverter_grid_grid_connected
+        state: "on"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "⚠️ Grid voltage out of range"
+          message: "{{ states('sensor.luxpower_inverter_grid_grid_voltage') | float(0) | round(0) | int }} V (normal {{ low_v }}-{{ high_v }} V)."
+          level: warning
+          tag: grid-voltage
+          group: inverter
+
+  - id: alert_inverter_offline
+    alias: "Alert: inverter offline"
+    description: The inverter has not reported data for 15 minutes.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.luxpower_inverter_inverter_state
+        to: unavailable
+        for: "00:15:00"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "📡 Inverter offline"
+          message: "No data from the inverter for 15 minutes (the integration or its network link may be down)."
+          level: warning
+          tag: inverter-offline
+          group: inverter
+
+  # ---- Wall panel health ------------------------------------------------------
+  - id: alert_wall_panel_unreachable
+    alias: "Alert: wall panel unreachable"
+    description: >-
+      The tablet's ADB link has been down for ten minutes: screen control and
+      the firewall refresh cannot reach it.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: media_player.wall_panel_adb
+        to: unavailable
+        for: "00:10:00"
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "📟 Wall panel unreachable"
+          message: "The tablet has not answered for 10 minutes (powered off, Wi-Fi, or ADB)."
+          level: warning
+          tag: wall-panel
+          group: wall-panel
+
+  # ---- Geyser ------------------------------------------------------------------
+  - id: alert_geyser_stuck_on
+    alias: "Alert: geyser on too long"
+    description: >-
+      The geyser has been on for hours with no schedule block and no timer
+      running, so nothing intended it to be on.
+    mode: single
+    trigger_variables:
+      max_hours: 3
+    triggers:
+      - trigger: state
+        entity_id: switch.geyser_switch_1
+        to: "on"
+        for:
+          hours: "{{ max_hours }}"
+    conditions:
+      - condition: state
+        entity_id: schedule.geyser_schedule
+        state: "off"
+      - condition: state
+        entity_id: timer.geyser_timer
+        state: idle
+    actions:
+      - action: script.alert_notify
+        data:
+          title: "🚿 Geyser has been on a long time"
+          message: "On for over {{ max_hours }} h outside its schedule and timer. Switch it off from the panel if it should not be."
+          level: warning
+          tag: geyser-stuck
+          group: geyser
