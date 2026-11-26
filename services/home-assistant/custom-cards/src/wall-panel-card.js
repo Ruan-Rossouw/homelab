@@ -750,7 +750,7 @@ class WallPanelCard extends HTMLElement {
         left = m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m left` : `${m} min left`;
       }
     }
-    const sub = left || (heating ? "Heating" : on ? "On, not heating" : "Off");
+    const sub = left || (heating ? "Heating" : on ? "On, not heating" : "Tap to control");
     return { watts, on, heating, timerActive: timer?.state === "active", left, sub, hasTimer: !!timer, hasSwitch: !!sw };
   }
 
