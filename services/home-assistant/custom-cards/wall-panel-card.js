@@ -1177,15 +1177,15 @@
       const facts = jf ? jellyfinFacts(jf) : null;
       const idleMusic = isMusic && source && source.state !== "playing" && source.state !== "paused";
       const title = jf ? jf.title : idleMusic ? "Nothing playing" : a.media_title || (isMusic ? "Playing" : a.app_name || "Apple TV");
-      const sub = facts ? facts.line : isMusic ? a.media_artist || "" : a.media_series_title || a.media_artist || a.app_name || "";
-      const album = isMusic && !sameText(a.media_album_name, a.media_artist) && !sameText(a.media_album_name, a.media_title) ? a.media_album_name || "" : "";
+      const sub = idleMusic ? "" : facts ? facts.line : isMusic ? a.media_artist || "" : a.media_series_title || a.media_artist || a.app_name || "";
+      const album = isMusic && !idleMusic && !sameText(a.media_album_name, a.media_artist) && !sameText(a.media_album_name, a.media_title) ? a.media_album_name || "" : "";
       const where = isMusic ? source?.attributes?.friendly_name || "" : a.app_name || "";
       const dur = Number(a.media_duration);
       let pos = Number(a.media_position);
       if (Number.isFinite(pos) && source?.state === "playing" && a.media_position_updated_at) {
         pos += (now.getTime() - new Date(a.media_position_updated_at).getTime()) / 1e3;
       }
-      const showBar = Number.isFinite(dur) && dur > 0 && Number.isFinite(pos);
+      const showBar = !idleMusic && Number.isFinite(dur) && dur > 0 && Number.isFinite(pos);
       const pct = showBar ? Math.max(0, Math.min(100, pos / dur * 100)) : 0;
       const kicker = isMusic ? source?.state === "paused" ? "Paused" : source?.state === "playing" ? "Now playing" : "Music" : source?.state === "paused" ? "Paused" : a.app_name || "Apple TV";
       const shape = !art ? "none" : this._shapes[art] || (isMusic ? "square" : "poster");
