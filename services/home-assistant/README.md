@@ -545,6 +545,29 @@ After copying a changed package, `template.reload` (Developer Tools → YAML →
 6. Bump the card's Lovelace resource (`?v=`) and add one line to the card
    config: `jellyfin: sensor.jellyfin_now_playing`.
 
+## Stage 7: Wall Panel — Real Screen Off, Navigation, Mini-Player, Geyser
+
+- **Screen off/on.** `packages/wall_panel_power.yaml` switches the panel's
+  display off and on through the Android Debug Bridge integration
+  (`KEYCODE_SLEEP` 223 / `KEYCODE_WAKEUP` 224). Android keeps running, so
+  there is no boot screen. Off: a film is playing, bedtime (after 20:00, Apple
+  TV idle, every home person's phone charging), or nobody home for 10 minutes.
+  On: 06:00, first arrival while the sun is up (same rule as "Play music when
+  anyone arrives"), or a film stopping. The integration entity must be named
+  `media_player.wall_panel_adb`; its key lives in the HA config directory
+  (`wall_panel_adbkey`, never committed). The frame needs a DHCP reservation,
+  as the integration connects by IP.
+- **Navigation.** Swipe left/right between home, music and movies; three dots
+  show the page. A manual page returns to the automatic one after
+  `nav_return_minutes` (5) or when the automatic scene changes.
+- **Mini-player and power tile.** The home screen shows a music tile
+  (`mini_style`: `tile`, `bar` or `orb`) and one Power tile (battery %,
+  charging/discharging via `battery_power`, grid state). Music stays on screen
+  `music_linger_seconds` (30) after a pause.
+- **Geyser.** Tapping the geyser tile opens a sheet: On, Off and "heat for
+  <timer duration>". It reuses `script.toggle_geyser` and the existing
+  `timer.geaser_timer` (config keys `geyser_switch`, `geyser_timer`).
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home

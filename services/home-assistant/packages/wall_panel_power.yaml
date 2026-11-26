@@ -1,0 +1,171 @@
+# Real screen off / on for the wall panel (devices/frameo-wall-panel).
+#
+# The panel's own "sleep" scene only dims the backlight to its floor, which is
+# still visible at night. This package switches the display off and on with the
+# Android Debug Bridge (Settings > Devices > Android Debug Bridge), using
+# KEYCODE_SLEEP (223) and KEYCODE_WAKEUP (224). Android keeps running, so there
+# is no boot screen and the wake is instant.
+#
+# The panel goes off when ANY of these is true:
+#   * a film is playing (the screen is only a distraction in a dark room)
+#   * it is between 20:00 and 06:00, the Apple TV is idle, and the phone of
+#     everyone who is home is charging (bedtime)
+#   * nobody has been home for 10 minutes
+#
+# It comes on:
+#   * at 06:00 if somebody is home
+#   * when the first person arrives, while the sun is up (the same rule as
+#     "Play music when anyone arrives"); at night it stays off
+#   * when a film stops or is paused (so the info screen shows)
+#   * on demand: script.wall_panel_wake
+#
+# Setup (see services/home-assistant/README.md, "Stage 7"): the ADB
+# integration entity must be called media_player.wall_panel_adb.
+# Adjust the `phones` map below to your people and their phone battery-state
+# sensors from the companion app.
+
+template:
+  - binary_sensor:
+      # Bedtime: late, TV idle, every phone that is home is on charge.
+      - name: Wall Panel Bedtime
+        unique_id: wall_panel_bedtime
+        state: >-
+          {% set phones = {
+            'person.ruan': 'sensor.ruan_s_iphone_battery_state',
+            'person.mieks': 'sensor.miekes_iphone_battery_state'
+          } %}
+          {% set tv = states('media_player.living_room_4_living_room_4') %}
+          {% set tv_obj = states.media_player.living_room_4_living_room_4 %}
+          {% set stale = tv_obj is not none and (now() - tv_obj.last_changed).total_seconds() > 900 %}
+          {% set tv_idle = tv in ['idle', 'standby', 'off', 'unavailable', 'unknown'] or (tv == 'paused' and stale) %}
+          {% set night = now().hour >= 20 or now().hour < 6 %}
+          {% set ns = namespace(home=0, charging=0) %}
+          {% for person, battery in phones.items() %}
+          {% if is_state(person, 'home') %}
+          {% set ns.home = ns.home + 1 %}
+          {% if states(battery) in ['Charging', 'Full'] %}
+          {% set ns.charging = ns.charging + 1 %}
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+          {{ night and tv_idle and ns.home > 0 and ns.charging == ns.home }}
+
+      # Nobody home for 10 minutes (so a quick trip out does not flip the panel).
+      - name: Wall Panel Nobody Home
+        unique_id: wall_panel_nobody_home
+        delay_on: "00:10:00"
+        state: >-
+          {{ not (['person.ruan', 'person.mieks'] | select('is_state', 'home') | list | length) }}
+
+      # A film (not music) is playing on the Apple TV.
+      - name: Wall Panel Film Playing
+        unique_id: wall_panel_film_playing
+        state: >-
+          {% set tv = states.media_player.living_room_4_living_room_4 %}
+          {% set kind = (tv.attributes.media_content_type | default('') | lower) if tv is not none else '' %}
+          {{ tv is not none and tv.state == 'playing' and kind not in ['music', 'track', 'album', 'playlist', 'podcast'] }}
+
+script:
+  wall_panel_sleep:
+    alias: Wall panel screen off
+    icon: mdi:monitor-off
+    sequence:
+      - action: androidtv.adb_command
+        target:
+          entity_id: media_player.wall_panel_adb
+        data:
+          command: input keyevent 223
+        continue_on_error: true
+  wall_panel_wake:
+    alias: Wall panel screen on
+    icon: mdi:monitor
+    sequence:
+      - action: androidtv.adb_command
+        target:
+          entity_id: media_player.wall_panel_adb
+        data:
+          command: input keyevent 224
+        continue_on_error: true
+
+automation:
+  - id: wall_panel_screen_off
+    alias: Wall panel screen off
+    description: Film playing, bedtime, or nobody home turns the panel's display off.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id:
+          - binary_sensor.wall_panel_bedtime
+          - binary_sensor.wall_panel_nobody_home
+          - binary_sensor.wall_panel_film_playing
+        to: "on"
+      # Re-assert now and then (the screen may have been woken by hand, or a
+      # command lost while the tablet was unreachable).
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: binary_sensor.wall_panel_bedtime
+            state: "on"
+          - condition: state
+            entity_id: binary_sensor.wall_panel_nobody_home
+            state: "on"
+          - condition: state
+            entity_id: binary_sensor.wall_panel_film_playing
+            state: "on"
+    actions:
+      - action: script.wall_panel_sleep
+
+  - id: wall_panel_screen_on_morning
+    alias: Wall panel screen on in the morning
+    triggers:
+      - trigger: time
+        at: "06:00:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.wall_panel_nobody_home
+        state: "off"
+    actions:
+      - action: script.wall_panel_wake
+
+  - id: wall_panel_screen_on_arrival
+    alias: Wall panel screen on when anyone arrives
+    description: Same rule as "Play music when anyone arrives" (sun up).
+    triggers:
+      - trigger: zone.entered
+        target:
+          entity_id:
+            - person.ruan
+            - person.mieks
+        options:
+          behavior: first
+          for:
+            hours: 0
+            minutes: 0
+            seconds: 5
+          zone: zone.home
+    conditions:
+      - condition: sun.is_up
+        options: {}
+    actions:
+      - action: script.wall_panel_wake
+
+  - id: wall_panel_screen_on_film_over
+    alias: Wall panel screen on when a film stops
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.wall_panel_film_playing
+        to: "off"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.wall_panel_nobody_home
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.wall_panel_bedtime
+        state: "off"
+    actions:
+      - action: script.wall_panel_wake

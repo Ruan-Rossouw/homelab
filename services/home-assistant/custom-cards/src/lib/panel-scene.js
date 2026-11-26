@@ -71,6 +71,23 @@ export function tvIsOff(tv, tvPower, now, timeoutMs) {
 
 export const DEFAULT_BROWSING_TIMEOUT_MS = 15 * 60 * 1000;
 
+// How long the music screen stays after music is paused, so a short pause does
+// not throw the panel back to the home screen.
+export const DEFAULT_MUSIC_LINGER_MS = 30 * 1000;
+
+// A music player that was paused moments ago (null if none).
+export function recentlyPausedMusic(players, now, lingerMs) {
+  if (!(lingerMs > 0)) return null;
+  return players.find((e) => {
+    if (!e || e.state !== "paused") return false;
+    const type = String(e.attributes?.media_content_type ?? "").toLowerCase();
+    const app = String(e.attributes?.app_name ?? "").toLowerCase();
+    if (!(MUSIC_TYPES.has(type) || /music|spotify|podcast|tidal|deezer/.test(app))) return false;
+    const since = Date.parse(e.last_changed);
+    return Number.isFinite(since) && now.getTime() - since < lingerMs;
+  }) || null;
+}
+
 // `input`:
 //   now          Date
 //   tv           media_player state object (or undefined)
@@ -82,6 +99,7 @@ export function computeScene(input) {
   const {
     now, tv, music = [], people = [], sleep, morning, tvPower,
     browsingTimeoutMs = DEFAULT_BROWSING_TIMEOUT_MS,
+    musicLingerMs = DEFAULT_MUSIC_LINGER_MS,
   } = input;
 
   const off = tvIsOff(tv, tvPower, now, browsingTimeoutMs);
@@ -93,6 +111,8 @@ export function computeScene(input) {
 
   const musicSource = [tv, ...music].find((e) => mediaKind(e) === "music");
   if (musicSource) return { scene: "music", source: musicSource };
+  const lingering = recentlyPausedMusic([tv, ...music], now, musicLingerMs);
+  if (lingering) return { scene: "music", source: lingering };
 
   if (tv && (tv.state === "paused" || tv.state === "idle") && !off) {
     return { scene: "browsing", source: tv };

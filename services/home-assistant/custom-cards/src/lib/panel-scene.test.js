@@ -165,3 +165,12 @@ test("a real power entity switches the panel off the info screen at once", () =>
   const playing = tvAt("playing", 1, now, { media_content_type: "movie" });
   assert.equal(computeScene({ ...base, now, tv: playing, tvPower: { state: "off" } }).scene, "day");
 });
+
+test("music paused moments ago keeps the music screen for the linger time", () => {
+  const now = at(15);
+  const hp = (state, min) => tvAt(state, min, now, { media_content_type: "music" });
+  const idle = player("idle");
+  assert.equal(computeScene({ ...base, now, tv: idle, music: [hp("paused", 0.2)] }).scene, "music");
+  assert.equal(computeScene({ ...base, now, tv: idle, music: [hp("paused", 1)] }).scene, "browsing");
+  assert.equal(computeScene({ ...base, now, tv: idle, music: [hp("paused", 1)], musicLingerMs: 0 }).scene, "browsing");
+});

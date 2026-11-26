@@ -84,6 +84,15 @@ key, otherwise Android refuses it (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)
 and the only way forward is an uninstall, which also wipes the panel's HA
 login. Keep that keystore somewhere safe outside the repo.
 
+## Wireless ADB (screen off/on from Home Assistant)
+
+With root, `setprop persist.internet.adb.enable 1` makes adbd listen on
+TCP 5555 after every boot (the vendor `init.rk30board.rc` reads this
+property, not `persist.adb.tcp.port`). Add the Home Assistant key's public
+half to `/data/misc/adb/adb_keys` (one key per line). Then
+`input keyevent 223` turns the display off and `224` on; the frame stays on
+Wi-Fi while the screen is off.
+
 ## Revert
 
 ```bash
