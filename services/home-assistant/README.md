@@ -565,7 +565,7 @@ After copying a changed package, `template.reload` (Developer Tools → YAML →
   charging/discharging via `battery_power`, grid state). Music stays on screen
   `music_linger_seconds` (30) after a pause.
 - **Geyser.** Tapping the geyser tile opens a sheet: On, Off and "heat for
-  <timer duration>". It reuses `script.toggle_geyser` and the existing
+  the timer's duration". It reuses `script.toggle_geyser` and the existing
   `timer.geaser_timer` (config keys `geyser_switch`, `geyser_timer`).
 
 ## Not Yet Built
