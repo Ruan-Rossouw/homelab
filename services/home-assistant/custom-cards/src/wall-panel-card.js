@@ -139,6 +139,7 @@ const STYLES = `
   .badge { display: inline-block; margin-top: 26px; padding: 8px 20px; border-radius: 22px;
            background: rgba(255,255,255,0.14); font-size: 24px; letter-spacing: 1px; }
   .corner { position: absolute; right: 72px; bottom: 44px; }
+  .content, .dots, .homebtn, .sheet-bg .sheet { transform: translate(var(--sx, 0px), var(--sy, 0px)); transition: transform 4s ease-in-out; }
   .content.enter { animation: wpenter 0.9s cubic-bezier(.2,.7,.2,1); }
   @keyframes wpenter { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: none; } }
   .row .tile.power { flex: 1.3; }
@@ -275,6 +276,9 @@ class WallPanelCard extends HTMLElement {
       auto_update: true,
       auto_update_minutes: 5,
       last_film_minutes: 2,
+      pixel_shift: true,
+      pixel_shift_minutes: 3,
+      pixel_shift_px: 3,
       music_linger_seconds: 30,
       nav_return_minutes: 5,
       ...config,
@@ -307,11 +311,13 @@ class WallPanelCard extends HTMLElement {
 
   connectedCallback() {
     this._timer = setInterval(() => this._tick(), 15000);
+    this._shiftTimer = setInterval(() => this._shiftPixels(), 60000);
     this._initSelfUpdate();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    clearInterval(this._shiftTimer);
     clearTimeout(this._holdTimer);
     clearInterval(this._updateTimer);
     this._updateTimer = null;
@@ -320,6 +326,22 @@ class WallPanelCard extends HTMLElement {
   }
 
   getCardSize() { return 12; }
+
+  // Burn-in / image-retention guard: nudge the static layout by a few pixels
+  // every few minutes (slowly, so it is not noticeable). The backgrounds stay put.
+  _shiftPixels() {
+    const c = this._config;
+    if (!c || !this._stage || c.pixel_shift === false) return;
+    const every = Math.max(1, Number(c.pixel_shift_minutes) || 3);
+    this._shiftTicks = (this._shiftTicks || 0) + 1;
+    if (this._shiftTicks % every !== 0) return;
+    const px = Number(c.pixel_shift_px) || 3;
+    const steps = [[0, 0], [1, 1], [-1, 1], [1, -1], [-1, -1], [0, 1], [1, 0], [-1, 0]];
+    this._shiftIdx = ((this._shiftIdx || 0) + 1) % steps.length;
+    const [x, y] = steps[this._shiftIdx];
+    this._stage.style.setProperty("--sx", `${x * px}px`);
+    this._stage.style.setProperty("--sy", `${y * px}px`);
+  }
 
   _entity(id) { return id ? this._hass?.states?.[id] : undefined; }
 

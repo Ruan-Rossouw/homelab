@@ -576,6 +576,15 @@ the packages into the config directory within about five minutes. Reload
 the changed package afterwards (or restart HA). The wall panel picks up a
 new card by itself.
 
+### Burn-in guard (pixel shift)
+
+Every few minutes the card slowly nudges the whole static layout (text, tiles,
+dots, buttons) by up to three pixels in a rotating pattern; the backgrounds
+stay put. Keys: `pixel_shift` (default on), `pixel_shift_minutes` (3),
+`pixel_shift_px` (3). The frame is an LCD, so the risk is temporary image
+retention rather than burn-in, and the screen is also off at night, when
+nobody is home and during films.
+
 ### Power details screen
 
 Tapping the Power tile opens a full screen (with a "Home" back button): battery (with time to full or time
