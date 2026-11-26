@@ -339,15 +339,16 @@ export function carouselPick(items, nowMs, stepMs = 15000) {
   return items[Math.floor(nowMs / stepMs) % items.length];
 }
 
-// Rough time the battery can carry the load: usable energy (capacity x volts x
-// charge above the reserve) over the load. Null when something is unknown or
+// Rough time the battery can carry the load: usable energy (the pack size, or
+// failing that amp-hours x volts, times the charge above the reserve) over the load. Null when something is unknown or
 // the load is negligible. `ah` and `volts` come from the inverter; the real
 // usable capacity depends on the battery bank, so treat the result as approximate.
-export function outageRuntimeMin({ soc, ah, volts, loadW, reservePct = 10 }) {
-  const n = [soc, ah, volts, loadW].map(Number);
-  if (n.some((v) => !Number.isFinite(v)) || n[3] < 20) return null;
-  const usableWh = n[1] * n[2] * Math.max(0, n[0] - reservePct) / 100;
-  return Math.round((usableWh / n[3]) * 60);
+export function outageRuntimeMin({ soc, ah, volts, loadW, reservePct = 10, capacityWh }) {
+  const cap = Number.isFinite(Number(capacityWh)) && Number(capacityWh) > 0 ? Number(capacityWh) : Number(ah) * Number(volts);
+  const n = [soc, cap, loadW].map(Number);
+  if (n.some((v) => !Number.isFinite(v)) || n[2] < 20) return null;
+  const usableWh = n[1] * Math.max(0, n[0] - reservePct) / 100;
+  return Math.round((usableWh / n[2]) * 60);
 }
 
 export function fmtMinutes(min) {

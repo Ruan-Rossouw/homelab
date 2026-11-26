@@ -451,11 +451,12 @@
     if (!items.length) return null;
     return items[Math.floor(nowMs / stepMs) % items.length];
   }
-  function outageRuntimeMin({ soc, ah, volts, loadW, reservePct = 10 }) {
-    const n = [soc, ah, volts, loadW].map(Number);
-    if (n.some((v) => !Number.isFinite(v)) || n[3] < 20) return null;
-    const usableWh = n[1] * n[2] * Math.max(0, n[0] - reservePct) / 100;
-    return Math.round(usableWh / n[3] * 60);
+  function outageRuntimeMin({ soc, ah, volts, loadW, reservePct = 10, capacityWh }) {
+    const cap = Number.isFinite(Number(capacityWh)) && Number(capacityWh) > 0 ? Number(capacityWh) : Number(ah) * Number(volts);
+    const n = [soc, cap, loadW].map(Number);
+    if (n.some((v) => !Number.isFinite(v)) || n[2] < 20) return null;
+    const usableWh = n[1] * Math.max(0, n[0] - reservePct) / 100;
+    return Math.round(usableWh / n[2] * 60);
   }
   function fmtMinutes(min) {
     if (!Number.isFinite(min) || min < 0) return "";
@@ -1212,6 +1213,13 @@
         ctx.fillRect(0, 0, W, H);
       });
     }
+    // Usable pack size in Wh from the `battery_kwh` card key (e.g. the Energy
+    // dashboard's battery capacity); null when not set, so callers fall back to
+    // amp-hours x volts.
+    _capacityWh() {
+      const k = Number(this._config.battery_kwh);
+      return Number.isFinite(k) && k > 0 ? k * 1e3 : null;
+    }
     // Power cut: how full the battery is, what is drawing from it, roughly how
     // long it will last, and what the grid has cost today so far. (The geyser is
     // never on the battery, so it is not part of this load.)
@@ -1225,7 +1233,7 @@
         if (d > 0) load = d;
       }
       const reserve = Number.isFinite(Number(c.battery_reserve_pct)) ? Number(c.battery_reserve_pct) : 10;
-      const run = outageRuntimeMin({ soc, ah: num(c.battery_ah), volts: num(c.battery_volts), loadW: load, reservePct: reserve });
+      const run = outageRuntimeMin({ soc, ah: num(c.battery_ah), volts: num(c.battery_volts), loadW: load, reservePct: reserve, capacityWh: this._capacityWh() });
       const grid = this._entity(c.grid);
       const since = grid && Date.parse(grid.last_changed);
       const out = Number.isFinite(since) ? fmtMinutes(Math.max(0, Math.round((now.getTime() - since) / 6e4))) : "";
@@ -1362,11 +1370,12 @@
       const reserve = Number.isFinite(Number(c.battery_reserve_pct)) ? Number(c.battery_reserve_pct) : 10;
       let batLine = "Idle";
       if (flow != null && flow < -30) {
-        const whLeft = ah != null && volts != null && soc != null ? ah * volts * (100 - soc) / 100 : null;
+        const capWh = this._capacityWh() || (ah != null && volts != null ? ah * volts : null);
+        const whLeft = capWh != null && soc != null ? capWh * (100 - soc) / 100 : null;
         const mins = whLeft != null ? Math.round(whLeft / Math.abs(flow) * 60) : null;
         batLine = mins != null && mins < 600 ? `Charging \xB7 full in ${fmtMinutes(mins)}` : `Charging ${Math.abs(Math.round(flow))} W`;
       } else if (flow != null && flow > 30) {
-        const mins = outageRuntimeMin({ soc, ah, volts, loadW: flow, reservePct: reserve });
+        const mins = outageRuntimeMin({ soc, ah, volts, loadW: flow, reservePct: reserve, capacityWh: this._capacityWh() });
         batLine = mins != null && mins < 6e3 ? `Discharging \xB7 ${fmtMinutes(mins)} left` : `Discharging ${Math.round(flow)} W`;
       }
       const gridOn = this._entity(c.grid)?.state !== "off";
