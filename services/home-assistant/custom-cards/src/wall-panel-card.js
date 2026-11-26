@@ -42,7 +42,7 @@ const STYLES = `
   :host { display: block; }
   .stage {
     position: fixed; inset: 0; z-index: 2147483000;
-    overflow: hidden; color: #f4f6fa;
+    overflow: hidden; color: #f4f6fa; touch-action: none;
     font-family: Roboto, "Noto Sans", sans-serif;
     background: #000;
   }
@@ -327,16 +327,28 @@ class WallPanelCard extends HTMLElement {
     return players.find((e) => e.state === "playing") || players.find((e) => e.state === "paused") || players[0] || null;
   }
 
+  // Swipes arrive as touch events on the kiosk's old WebView (a horizontal drag
+  // is otherwise taken over by the browser and the pointer stream is cancelled)
+  // and as pointer events with a mouse; both feed one handler.
   _initSwipe() {
     let start = null;
-    this._stage.addEventListener("pointerdown", (e) => { start = { x: e.clientX, y: e.clientY, t: Date.now() }; });
-    this._stage.addEventListener("pointerup", (e) => {
+    const down = (x, y) => { start = { x, y, t: Date.now() }; };
+    const up = (x, y) => {
       if (!start) return;
-      const dx = e.clientX - start.x, dy = e.clientY - start.y, dt = Date.now() - start.t;
+      const dx = x - start.x, dy = y - start.y, dt = Date.now() - start.t;
       start = null;
-      if (Math.abs(dx) > 80 && Math.abs(dx) > 1.6 * Math.abs(dy) && dt < 900) this._navigate(dx < 0 ? 1 : -1);
-    });
-    this._stage.addEventListener("pointercancel", () => { start = null; });
+      if (Math.abs(dx) > 80 && Math.abs(dx) > 1.6 * Math.abs(dy) && dt < 900
+          && Date.now() - (this._lastSwipe || 0) > 400) {
+        this._lastSwipe = Date.now();
+        this._navigate(dx < 0 ? 1 : -1);
+      }
+    };
+    const st = this._stage;
+    st.addEventListener("touchstart", (e) => { const t = e.changedTouches[0]; down(t.clientX, t.clientY); }, { passive: true });
+    st.addEventListener("touchend", (e) => { const t = e.changedTouches[0]; up(t.clientX, t.clientY); }, { passive: true });
+    st.addEventListener("touchcancel", () => { start = null; }, { passive: true });
+    st.addEventListener("pointerdown", (e) => { if (e.pointerType === "mouse") down(e.clientX, e.clientY); });
+    st.addEventListener("pointerup", (e) => { if (e.pointerType === "mouse") up(e.clientX, e.clientY); });
   }
 
   _navigate(dir) {
