@@ -31,6 +31,7 @@ import { signature, shouldReload, afterLoad } from "./lib/self-update.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, jellyfinFacts, sameText,
   mediaControls, controlCall, jellyfinForTv, carouselItems, carouselPick, carouselWanted, DEFAULT_LAST_FILM_MS,
+  DEFAULT_MUSIC_LINGER_MS,
 } from "./lib/panel-scene.js";
 
 const DEFAULT_BRIGHTNESS = {
@@ -127,6 +128,50 @@ const STYLES = `
   .badge { display: inline-block; margin-top: 26px; padding: 8px 20px; border-radius: 22px;
            background: rgba(255,255,255,0.14); font-size: 24px; letter-spacing: 1px; }
   .corner { position: absolute; right: 72px; bottom: 44px; }
+  .content.enter { animation: wpenter 0.9s cubic-bezier(.2,.7,.2,1); }
+  @keyframes wpenter { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: none; } }
+  .row .tile.power { flex: 1.3; }
+  .row .tile.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .pwr-line { display: flex; align-items: baseline; gap: 18px; }
+  .pwr-state { font-size: 24px; opacity: 0.8; }
+  .pwr-meta { display: flex; justify-content: space-between; font-size: 22px; opacity: 0.7; margin-top: 10px; }
+  .mini { flex: 1.5; display: flex; align-items: center; gap: 22px; padding: 18px 22px; cursor: pointer; }
+  .mini .mart { flex: none; width: 112px; height: 112px; border-radius: 18px; background-size: cover; background-position: center;
+                background-color: rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .mini .mtxt { min-width: 0; flex: 1; }
+  .mini .mtitle { font-size: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini .mart-sub { font-size: 22px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .mini .mbtns { display: flex; gap: 12px; margin-top: 12px; }
+  .mini .ctl { width: 58px; height: 58px; }
+  .mini .ctl svg { width: 26px; height: 26px; }
+  .mini.idle { opacity: 0.7; }
+  .minibar { display: flex; align-items: center; gap: 22px; margin-top: 22px; padding: 12px 26px 12px 14px; border-radius: 44px;
+             background: rgba(255,255,255,0.09); cursor: pointer; }
+  .minibar .mart { width: 72px; height: 72px; border-radius: 50%; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.1); flex: none; }
+  .minibar .mtxt { flex: 1; min-width: 0; font-size: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .minibar .mtxt span { opacity: 0.65; margin-left: 14px; font-size: 24px; }
+  .minibar .ctl { width: 60px; height: 60px; }
+  .minibar .ctl svg { width: 26px; height: 26px; }
+  .minibar.idle { opacity: 0.65; }
+  .orb { position: absolute; right: 72px; bottom: 210px; width: 132px; height: 132px; cursor: pointer; }
+  .orb .mart { position: absolute; inset: 10px; border-radius: 50%; background-size: cover; background-position: center;
+               background-color: rgba(255,255,255,0.12); box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+  .orb svg.ring { position: absolute; inset: 0; width: 132px; height: 132px; transform: rotate(-90deg); }
+  .orb.idle { opacity: 0.6; }
+  .dots { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; justify-content: center; gap: 14px; pointer-events: none; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.28); }
+  .dots i.on { background: rgba(255,255,255,0.85); }
+  .sheet-bg { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 5;
+              animation: wpfade 0.25s ease; }
+  .sheet { width: 620px; padding: 40px 48px; border-radius: 36px; background: rgba(28,34,46,0.96); box-shadow: 0 30px 80px rgba(0,0,0,0.6); }
+  .sheet h2 { margin: 0; font-size: 40px; font-weight: 300; }
+  .sheet .sstate { font-size: 26px; opacity: 0.75; margin-top: 8px; }
+  .sheet .srow { display: flex; gap: 18px; margin-top: 30px; }
+  .sheet .sbtn { flex: 1; height: 92px; border-radius: 28px; border: 0; color: #fff; font: 400 30px Roboto, "Noto Sans", sans-serif;
+                 background: rgba(255,255,255,0.12); touch-action: manipulation; }
+  .sheet .sbtn.on { background: #e8833a; }
+  .sheet .sbtn.sel { background: rgba(127,214,194,0.35); }
+  .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 `;
 
 const WX_TEXT = {
@@ -177,6 +222,8 @@ class WallPanelCard extends HTMLElement {
       auto_update: true,
       auto_update_minutes: 5,
       last_film_minutes: 2,
+      music_linger_seconds: 30,
+      nav_return_minutes: 5,
       ...config,
       brightness: { ...DEFAULT_BRIGHTNESS, ...(config.brightness || {}) },
       hold_ms: { ...DEFAULT_HOLD_MS, ...(config.hold_ms || {}) },
@@ -186,8 +233,11 @@ class WallPanelCard extends HTMLElement {
       this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="stage"></div>`;
       this._stage = this.shadowRoot.querySelector(".stage");
       this._stage.addEventListener("click", (e) => this._onTap(e));
+      this._initSwipe();
     }
     this._sceneState = { scene: null, candidate: null, candidateSince: 0 };
+    this._manual = null;
+    this._sheet = null;
     this._renderedKey = null;
     this._shapes = {};
     this._palettes = {};
@@ -233,6 +283,7 @@ class WallPanelCard extends HTMLElement {
       morning: c.morning,
       tvPower: this._entity(c.tv_power),
       browsingTimeoutMs: Number(c.browsing_timeout_min) * 60000,
+      musicLingerMs: Number(c.music_linger_seconds) * 1000,
     });
     const nowMs = Date.now();
     this._sceneState = stepScene(this._sceneState, scene, nowMs, c.hold_ms);
@@ -249,8 +300,62 @@ class WallPanelCard extends HTMLElement {
     this._lastSources = this._lastSources || {};
     if (source) this._lastSources[scene] = source;
     const shown = this._sceneState.scene;
-    this._render(shown, shown === scene ? source : (this._lastSources[shown] || null), now);
+    const autoSource = shown === scene ? source : (this._lastSources[shown] || null);
+    const manual = this._activeManual(shown);
+    if (manual) {
+      this._render(manual.scene, manual.scene === "music" ? this._musicSource() : this._entity(c.tv), now, { forceCar: manual.scene === "browsing", manual: true, auto: shown });
+    } else {
+      this._render(shown, autoSource, now, { auto: shown });
+    }
   }
+
+  // ---- Manual navigation ------------------------------------------------------
+  // Three pages (home, music, movies), reached by swiping. A manual page ends
+  // after `nav_return_minutes` without touch, or as soon as the automatic scene
+  // changes (a film starts, the music stops, bedtime).
+  _pageOf(scene) { return scene === "music" ? 1 : scene === "browsing" ? 2 : 0; }
+
+  _activeManual(shown) {
+    const m = this._manual;
+    if (!m) return null;
+    const navigable = ["day", "morning", "away", "music", "browsing"].includes(shown);
+    if (Date.now() > m.until || !navigable || shown !== m.base) { this._manual = null; return null; }
+    return m;
+  }
+
+  _musicSource() {
+    const players = (this._config.music || []).map((id) => this._entity(id)).filter(Boolean);
+    return players.find((e) => e.state === "playing") || players.find((e) => e.state === "paused") || players[0] || null;
+  }
+
+  _initSwipe() {
+    let start = null;
+    this._stage.addEventListener("pointerdown", (e) => { start = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+    this._stage.addEventListener("pointerup", (e) => {
+      if (!start) return;
+      const dx = e.clientX - start.x, dy = e.clientY - start.y, dt = Date.now() - start.t;
+      start = null;
+      if (Math.abs(dx) > 80 && Math.abs(dx) > 1.6 * Math.abs(dy) && dt < 900) this._navigate(dx < 0 ? 1 : -1);
+    });
+    this._stage.addEventListener("pointercancel", () => { start = null; });
+  }
+
+  _navigate(dir) {
+    if (!this._hass || this._config.navigation === false) return;
+    const shown = this._sceneState.scene;
+    if (!["day", "morning", "away", "music", "browsing"].includes(shown)) return;
+    const cur = this._manual ? this._pageOf(this._manual.scene) : this._pageOf(shown);
+    const next = Math.max(0, Math.min(2, cur + dir));
+    if (next === cur) return;
+    this._manual = {
+      scene: ["day", "music", "browsing"][next], base: shown,
+      until: Date.now() + Number(this._config.nav_return_minutes) * 60000,
+    };
+    this._renderedKey = null;
+    this._tick();
+  }
+
+  _touchNav() { if (this._manual) this._manual.until = Date.now() + Number(this._config.nav_return_minutes) * 60000; }
 
   // Jellyfin's description and poster, only when it is clearly what the TV shows.
   _matchedJellyfin(tv) {
@@ -288,7 +393,7 @@ class WallPanelCard extends HTMLElement {
     try { bridge.setBrightness(this._config.brightness[scene] ?? 0.4); } catch (e) { /* ignore */ }
   }
 
-  _render(scene, source, now) {
+  _render(scene, source, now, opts = {}) {
     const c = this._config;
     // The carousel takes over when the Apple TV is idle, or once Jellyfin has had
     // no playing item for `last_film_minutes` (see carouselWanted). With no
@@ -296,7 +401,7 @@ class WallPanelCard extends HTMLElement {
     const lastFilmMs = Number.isFinite(Number(this._config.last_film_minutes))
       ? Number(this._config.last_film_minutes) * 60000 : DEFAULT_LAST_FILM_MS;
     const wantCar = scene === "browsing"
-      && carouselWanted(this._entity(c.jellyfin), source, now.getTime(), lastFilmMs);
+      && (opts.forceCar || carouselWanted(this._entity(c.jellyfin), source, now.getTime(), lastFilmMs));
     const car = wantCar ? this._carouselItem(now) : null;
     const jf = scene === "browsing" && !car ? this._matchedJellyfin(source) : null;
     const art = (car && car.poster) || (jf && jf.poster) || this._artUrl(source);
@@ -306,7 +411,7 @@ class WallPanelCard extends HTMLElement {
       scene === "music" || scene === "browsing" ? progressBucket : 0,
       jf ? `${jf.title}|${jf.episode}|${(jf.overview || "").length}` : "",
       car ? `${car.label}|${car.title}` : "",
-      this._summaryKey(),
+      this._summaryKey(), opts.manual ? "m" : "", this._sheet ? this._sheetKey() : "",
     ].join("|");
     if (key === this._renderedKey) return;
     this._renderedKey = key;
@@ -332,6 +437,8 @@ class WallPanelCard extends HTMLElement {
     const carKey = car ? `${car.label}|${car.title}` : "";
     const fade = !!car && carKey !== this._lastCarKey;
     this._lastCarKey = carKey;
+    const entering = this._lastShownScene != null && this._lastShownScene !== scene;
+    this._lastShownScene = scene;
     // Music and the paused/browsing info screen share the Apple Music-style
     // fluid gradient, built from the artwork's palette. With no usable artwork
     // music uses a default palette and the info screen a calm one derived from
@@ -346,13 +453,13 @@ class WallPanelCard extends HTMLElement {
       : "";
     this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
-      <div class="content${fade ? " fade" : ""}">${body}</div>`;
-    if (fade) {
+      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}${this._sheet ? this._sheetHtml() : ""}`;
+    if (fade || entering) {
       // Never leave the content depending on the animation finishing: if the
       // animation clock stalls it would stay transparent. Drop the class after
       // the fade's duration so the content is back to normal either way.
       const content = this._stage.querySelector(".content");
-      setTimeout(() => { if (content) content.classList.remove("fade"); }, 1200);
+      setTimeout(() => { if (content) content.classList.remove("fade", "enter"); }, 1200);
     }
     if (useFluid) this._startFluid(art, fallback);
     // Set via the DOM, not inline HTML, so quotes in a URL can't break the CSS.
@@ -570,8 +677,8 @@ class WallPanelCard extends HTMLElement {
 
   _summaryKey() {
     const c = this._config;
-    return [c.weather, c.battery, c.grid, c.geyser, ...(c.people || [])]
-      .map((id) => { const e = this._entity(id); return e ? `${e.state}/${e.attributes?.temperature ?? ""}` : ""; })
+    return [c.weather, c.battery, c.battery_power, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...(c.music || []), ...(c.people || [])]
+      .map((id) => { const e = this._entity(id); return e ? `${e.state}/${e.attributes?.temperature ?? ""}/${e.attributes?.media_title ?? ""}/${e.attributes?.finishes_at ?? ""}` : ""; })
       .join(",");
   }
 
@@ -592,37 +699,141 @@ class WallPanelCard extends HTMLElement {
 
     const tiles = [];
     const bat = this._entity(c.battery);
+    const grid = this._entity(c.grid);
     if (bat && !Number.isNaN(Number(bat.state))) {
       const pct = Math.max(0, Math.min(100, Number(bat.state)));
       const accent = pct < 25 ? "#ff7a59" : pct < 50 ? "#ffc857" : "#7fd6c2";
-      tiles.push(`<div class="tile" style="--accent:${accent}"><div class="label">Battery</div><div class="value">${Math.round(pct)}<small>%</small></div><div class="bar"><i style="width:${pct}%"></i></div></div>`);
-    }
-    const grid = this._entity(c.grid);
-    if (grid) {
+      const w = Number(this._entity(c.battery_power)?.state);
+      // Positive power means the battery is discharging.
+      const flow = Number.isFinite(w) ? (w > 30 ? "Discharging" : w < -30 ? "Charging" : "Idle") : "";
+      const flowW = Number.isFinite(w) && Math.abs(w) > 30 ? ` ${Math.abs(Math.round(w))} W` : "";
+      const gridOn = grid ? grid.state === "on" : null;
+      tiles.push(`<div class="tile power" style="--accent:${accent}"><div class="label">Power</div>
+        <div class="pwr-line"><div class="value">${Math.round(pct)}<small>%</small></div>${flow ? `<div class="pwr-state">${flow}${flowW}</div>` : ""}</div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        ${gridOn === null ? "" : `<div class="pwr-meta"><span><span class="dot ${gridOn ? "" : "warn"}"></span>${gridOn ? "Grid on" : "Running on battery"}</span></div>`}</div>`);
+    } else if (grid) {
       const on = grid.state === "on";
       tiles.push(`<div class="tile"><div class="label">Grid</div><div class="value"><span class="dot ${on ? "" : "warn"}"></span>${on ? "On" : "Off"}</div><div class="sub">${on ? "Mains available" : "Running on battery"}</div></div>`);
     }
     const gey = this._entity(c.geyser);
     if (gey && !Number.isNaN(Number(gey.state))) {
-      const w = Number(gey.state);
-      const heating = w > 100;
-      tiles.push(`<div class="tile"><div class="label">Geyser</div><div class="value"><span class="dot ${heating ? "warn" : "off"}"></span>${heating ? (w / 1000).toFixed(1) : "Idle"}<small>${heating ? "kW" : ""}</small></div><div class="sub">${heating ? "Heating" : "Not heating"}</div></div>`);
+      const g = this._geyserState();
+      tiles.push(`<div class="tile tap" data-act="geyser"><div class="label">Geyser</div><div class="value"><span class="dot ${g.heating ? "warn" : g.on ? "" : "off"}"></span>${g.heating ? (g.watts / 1000).toFixed(1) : g.on ? "On" : "Off"}<small>${g.heating ? "kW" : ""}</small></div><div class="sub">${esc(g.sub)}</div></div>`);
     }
+    const mini = this._miniPlayer() || {};
+    if (mini.tile) tiles.push(mini.tile);
 
     return `
       <div class="top">
         <div>${greeting ? `<div class="greeting">${greeting}</div>` : ""}<div class="clock hero">${fmtTime(now)}</div><div class="date">${esc(fmtDate(now))}</div></div>
         ${weather}
       </div>
-      ${tiles.length ? `<div class="row">${tiles.join("")}</div>` : ""}`;
+      ${mini.floating || ""}
+      ${tiles.length ? `<div class="row">${tiles.join("")}</div>` : ""}${mini.after || ""}`;
+  }
+
+  // Geyser: power draw says whether it is heating; the switch says whether it is
+  // allowed to; the timer (the one already configured in HA) says for how long.
+  _geyserState() {
+    const c = this._config;
+    const watts = Number(this._entity(c.geyser)?.state) || 0;
+    const sw = this._entity(c.geyser_switch);
+    const on = sw ? sw.state === "on" : watts > 100;
+    const heating = watts > 100;
+    const timer = this._entity(c.geyser_timer);
+    let left = "";
+    if (timer && timer.state === "active") {
+      const ms = Date.parse(timer.attributes?.finishes_at) - Date.now();
+      if (Number.isFinite(ms) && ms > 0) {
+        const m = Math.ceil(ms / 60000);
+        left = m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m left` : `${m} min left`;
+      }
+    }
+    const sub = left || (heating ? "Heating" : on ? "On, not heating" : "Off");
+    return { watts, on, heating, timerActive: timer?.state === "active", left, sub, hasTimer: !!timer, hasSwitch: !!sw };
+  }
+
+  _sheetKey() {
+    const g = this._geyserState();
+    return `${g.on}|${g.heating}|${g.left}|${g.timerActive}`;
+  }
+
+  _sheetHtml() {
+    const g = this._geyserState();
+    const timer = this._entity(this._config.geyser_timer);
+    const dur = String(timer?.attributes?.duration || "1:00:00").split(":");
+    const mins = Number(dur[0]) * 60 + Number(dur[1]);
+    const durText = mins >= 60 && mins % 60 === 0 ? `${mins / 60} hour${mins === 60 ? "" : "s"}` : `${mins} min`;
+    const status = g.heating ? `Heating, ${(g.watts / 1000).toFixed(1)} kW` : g.on ? "On, not heating" : "Off";
+    return `<div class="sheet-bg" data-act="g_close"><div class="sheet" data-act="noop">
+      <h2>Geyser</h2><div class="sstate">${esc(status)}${g.left ? " · " + esc(g.left) : ""}</div>
+      <div class="srow">
+        <button class="sbtn ${g.on ? "on" : ""}" data-act="g_on">On</button>
+        <button class="sbtn ${!g.on ? "sel" : ""}" data-act="g_off">Off</button>
+      </div>
+      ${g.hasTimer ? `<div class="srow">${g.timerActive
+        ? `<button class="sbtn" data-act="g_cancel">Cancel timer</button>`
+        : `<button class="sbtn" data-act="g_timer">Heat for ${esc(durText)}</button>`}</div>` : ""}
+      <div class="sclose">tap outside to close</div></div></div>`;
+  }
+
+  _dotsHtml(scene) {
+    if (this._config.navigation === false || !["day", "morning", "away", "music", "browsing"].includes(scene)) return "";
+    const i = this._pageOf(scene);
+    return `<div class="dots">${[0, 1, 2].map((n) => `<i class="${n === i ? "on" : ""}"></i>`).join("")}</div>`;
+  }
+
+  // The always-there music tile on the home screen: artwork, title, play/pause
+  // and next. Tapping the rest of the tile opens the music screen.
+  _miniPlayer() {
+    const c = this._config;
+    if (!(c.music || []).length || c.mini_player === false) return "";
+    const src = this._musicSource();
+    if (!src) return "";
+    const a = src.attributes || {};
+    const live = src.state === "playing" || src.state === "paused";
+    const art = live ? this._artUrl(src) : "";
+    const ctl = mediaControls(src);
+    const id = esc(src.entity_id);
+    const icon = src.state === "playing"
+      ? '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    const next = '<svg viewBox="0 0 24 24"><path d="M6 5l9 7-9 7zM17 5h2v14h-2z"/></svg>';
+    const btns = `${ctl.playPause ? `<button class="ctl" data-act="playpause" data-ent="${id}">${icon}</button>` : ""}${live && ctl.next ? `<button class="ctl" data-act="next" data-ent="${id}">${next}</button>` : ""}`;
+    this._miniArt = art;
+    if (art) this._fetchArt(art);
+    const known = art ? this._artBlobs[art] : undefined;
+    const bg = art ? `style="background-image:url(${esc(JSON.stringify(known || art))})"` : "";
+    const style = c.mini_style || "tile";
+    const title = live ? (a.media_title || "Playing") : "Nothing playing";
+    const artist = live ? (a.media_artist || "") : "";
+    if (style === "bar") {
+      return { after: `<div class="minibar${live ? "" : " idle"}" data-act="open_music"><div class="mart" ${bg}></div>
+        <div class="mtxt">${esc(title)}${artist ? `<span>${esc(artist)}</span>` : ""}</div>${btns}</div>` };
+    }
+    if (style === "orb") {
+      const dur = Number(a.media_duration), pos = Number(a.media_position);
+      const frac = live && dur > 0 && Number.isFinite(pos) ? Math.max(0, Math.min(1, pos / dur)) : 0;
+      const C = 2 * Math.PI * 62;
+      return { floating: `<div class="orb${live ? "" : " idle"}" data-act="open_music"><div class="mart" ${bg}></div>
+        <svg class="ring" viewBox="0 0 132 132"><circle cx="66" cy="66" r="62" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="4"/>
+        <circle cx="66" cy="66" r="62" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/></svg></div>` };
+    }
+    return { tile: `<div class="tile mini${live ? "" : " idle"}" data-act="open_music"><div class="mart" ${bg}></div>
+      <div class="mtxt"><div class="label">${src.state === "playing" ? "Playing" : src.state === "paused" ? "Paused" : "Music"}</div>
+      <div class="mtitle">${esc(live ? (a.media_title || "Playing") : "Nothing playing")}</div>
+      <div class="mart-sub">${esc(live ? (a.media_artist || "") : "")}</div>
+      <div class="mbtns">${btns}</div></div></div>` };
   }
 
   _nowPlaying(source, now, kind, jf = null) {
     const a = source?.attributes || {};
-    const art = this._artUrl(source);
     const isMusic = kind === "music";
+    const art = isMusic && source && source.state !== "playing" && source.state !== "paused" ? "" : this._artUrl(source);
     const facts = jf ? jellyfinFacts(jf) : null;
-    const title = jf ? jf.title : (a.media_title || (isMusic ? "Playing" : (a.app_name || "Apple TV")));
+    const idleMusic = isMusic && source && source.state !== "playing" && source.state !== "paused";
+    const title = jf ? jf.title : idleMusic ? "Nothing playing" : (a.media_title || (isMusic ? "Playing" : (a.app_name || "Apple TV")));
     const sub = facts
       ? facts.line
       : (isMusic
@@ -639,7 +850,7 @@ class WallPanelCard extends HTMLElement {
     }
     const showBar = Number.isFinite(dur) && dur > 0 && Number.isFinite(pos);
     const pct = showBar ? Math.max(0, Math.min(100, (pos / dur) * 100)) : 0;
-    const kicker = isMusic ? "Now playing" : (source?.state === "paused" ? "Paused" : (a.app_name || "Apple TV"));
+    const kicker = isMusic ? (source?.state === "paused" ? "Paused" : source?.state === "playing" ? "Now playing" : "Music") : (source?.state === "paused" ? "Paused" : (a.app_name || "Apple TV"));
     const shape = !art ? "none" : (this._shapes[art] || (isMusic ? "square" : "poster"));
     return `
       <div class="media ${shape}${jf ? " desc" : ""}">
@@ -726,11 +937,55 @@ class WallPanelCard extends HTMLElement {
     const now = Date.now();
     if (now - (this._lastTap || 0) < 350) return; // ignore a double-tap / bounce
     this._lastTap = now;
+    this._touchNav();
+    const act = el.dataset.act;
+    if (act === "noop") return;
+    if (act === "geyser") return this._openSheet();
+    if (act === "g_close") return this._closeSheet();
+    if (act.startsWith("g_")) return this._geyserAction(act);
+    if (act === "open_music") {
+      this._manual = { scene: "music", base: this._sceneState.scene,
+        until: Date.now() + Number(this._config.nav_return_minutes) * 60000 };
+      this._renderedKey = null;
+      return this._tick();
+    }
     const entity = this._hass.states[el.dataset.ent];
-    const call = controlCall(el.dataset.act, entity);
+    const call = controlCall(act, entity);
     if (!call) return;
     el.classList.add("pressed");
     this._hass.callService(call[0], call[1], call[2]);
+  }
+
+  _openSheet() {
+    this._sheet = true;
+    clearTimeout(this._sheetTimer);
+    this._sheetTimer = setTimeout(() => this._closeSheet(), 20000);
+    this._renderedKey = null;
+    this._tick();
+  }
+
+  _closeSheet() {
+    this._sheet = null;
+    clearTimeout(this._sheetTimer);
+    this._renderedKey = null;
+    this._tick();
+  }
+
+  // Uses the geyser's existing HA pieces: script.toggle_geyser (which also
+  // verifies the state) and the existing timer, whose own automations switch
+  // the geyser on when it starts and off when it finishes.
+  _geyserAction(act) {
+    const c = this._config;
+    const svc = (d, s, data) => this._hass.callService(d, s, data);
+    const script = (state) => svc("script", "toggle_geyser", { target_state: state });
+    clearTimeout(this._sheetTimer);
+    this._sheetTimer = setTimeout(() => this._closeSheet(), 20000);
+    const timerOn = this._entity(c.geyser_timer)?.state === "active";
+    if (act === "g_on") script("on");
+    else if (act === "g_off") { if (timerOn) svc("timer", "cancel", { entity_id: c.geyser_timer }); script("off"); }
+    else if (act === "g_timer") svc("timer", "start", { entity_id: c.geyser_timer });
+    else if (act === "g_cancel") { svc("timer", "cancel", { entity_id: c.geyser_timer }); script("off"); }
+    setTimeout(() => { this._renderedKey = null; this._tick(); }, 1500);
   }
 }
 
