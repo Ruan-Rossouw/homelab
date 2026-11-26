@@ -28,6 +28,7 @@
 
 import { extractPalette, blobs, DEFAULT_PALETTE, paletteFromText } from "./lib/fluid-palette.js";
 import { signature, shouldReload, afterLoad } from "./lib/self-update.js";
+import { skyPalette, skyCss, skyKey } from "./lib/sky.js";
 import {
   computeScene, stepScene, DEFAULT_HOLD_MS, jellyfinFacts, sameText,
   mediaControls, controlCall, jellyfinForTv, carouselItems, carouselPick, carouselWanted, DEFAULT_LAST_FILM_MS,
@@ -283,6 +284,8 @@ class WallPanelCard extends HTMLElement {
       auto_update: true,
       auto_update_minutes: 5,
       last_film_minutes: 2,
+      sky: true,
+      sun: "sun.sun",
       pixel_shift: true,
       pixel_shift_minutes: 3,
       pixel_shift_px: 3,
@@ -506,7 +509,7 @@ class WallPanelCard extends HTMLElement {
       scene === "music" || scene === "browsing" ? progressBucket : 0,
       jf ? `${jf.title}|${jf.episode}|${(jf.overview || "").length}` : "",
       car ? `${car.label}|${car.title}` : "",
-      this._summaryKey(), opts.manual ? "m" : "",
+      this._summaryKey(), opts.manual ? "m" : "", this._skyFor(scene) ? skyKey(this._skyArgs()) : "",
     ].join("|");
     this._syncSheet();
     if (key === this._renderedKey) return;
@@ -549,7 +552,7 @@ class WallPanelCard extends HTMLElement {
       ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>`
       : "";
     this._stage.innerHTML = `
-      <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
+      <div class="layer ${this._skyFor(scene) ? "" : layerFor || ""} on"${this._skyFor(scene) ? ` style="background:${skyCss(this._skyFor(scene))}"` : ""}>${layerFor === "bg-art" ? backdrop : ""}</div>
       <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}${this._homeBtnHtml(scene)}`;
     this._sheetHtmlLast = null; // the rebuild dropped the sheet element
     this._syncSheet();
@@ -805,6 +808,17 @@ class WallPanelCard extends HTMLElement {
       ${tiles.length ? `<div class="row">${tiles.join("")}</div>` : ""}
     </div>
     <div class="corner clock small">${fmtTime(now)}</div>`;
+  }
+
+  // Sun height and weather for the sky background (home and morning screens).
+  _skyArgs() {
+    const sun = this._entity(this._config.sun);
+    return { elevation: sun?.attributes?.elevation, rising: sun?.attributes?.rising, weather: this._entity(this._config.weather)?.state };
+  }
+
+  _skyFor(scene) {
+    if (this._config.sky === false || (scene !== "day" && scene !== "morning")) return null;
+    return skyPalette(this._skyArgs());
   }
 
   _clockOnly(now, small) {

@@ -576,6 +576,19 @@ the packages into the config directory within about five minutes. Reload
 the changed package afterwards (or restart HA). The wall panel picks up a
 new card by itself.
 
+### Sky background
+
+The home and morning screens use a sky-coloured background that follows the
+sun and the weather (`lib/sky.js`, unit-tested). Colours blend smoothly with the
+sun's height (`sun.sun` elevation, with separate sunrise and sunset tones):
+deep navy with a few faint stars at night, peach and mauve at dawn, blue by day,
+orange and mauve at dusk, plus a soft glow near the horizon. Weather mixes the
+sky toward a grey-blue (more for rain than for cloud) and softens the glow.
+Every colour is kept dark enough for the white text (a test fails otherwise),
+and it is plain CSS gradients, with no blur or animation, so it is light for the
+frame's GPU. Keys: `sky` (default on) and `sun` (default `sun.sun`); with no
+sun entity it falls back to the old fixed gradients.
+
 ### Burn-in guard (pixel shift)
 
 Every few minutes the card slowly nudges the whole static layout (text, tiles,
