@@ -194,3 +194,9 @@ test("outage runtime: usable energy over the load", () => {
   assert.equal(fmtMinutes(210), "3 h 30 min");
   assert.equal(fmtMinutes(45), "45 min");
 });
+
+test("outage runtime prefers a stated pack size over amp-hours x volts", () => {
+  // 3600 Wh pack, 80% charge, 10% reserve -> 2520 Wh; 500 W -> 5.04 h
+  assert.equal(outageRuntimeMin({ soc: 80, ah: 50, volts: 50, loadW: 500, capacityWh: 3600 }), 302);
+  assert.equal(outageRuntimeMin({ soc: 80, ah: 50, volts: 50, loadW: 500, capacityWh: undefined }), 210);
+});

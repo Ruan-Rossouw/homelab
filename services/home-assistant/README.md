@@ -624,7 +624,8 @@ When the inverter's grid sensor (`grid`) reads off, the panel shows the battery
 percentage, roughly how long it will last, what is drawing from it and what
 the grid has cost today. Extra card keys: `load_power` (the inverter's backup
 output power in W), `battery_ah`, `battery_volts`, `battery_reserve_pct`
-(default 10) and `grid_cost` (grid cost today). The runtime is usable energy
+(default 10), `battery_kwh` (usable pack size, e.g. 3.6 as in the Energy dashboard; preferred
+over Ah x V when set) and `grid_cost` (grid cost today). The runtime is usable energy
 (Ah x V x charge above the reserve) over the load, so it is approximate and
 depends on the Ah value matching the whole battery bank. The geyser is never
 on the battery. Sleep, music and nobody-home screens still take priority.
