@@ -828,6 +828,22 @@ through the same `ntfy` contact point every other alert in this repo
 already uses. This also means deploy failures show up alongside every
 other host signal in Grafana, not in a channel of their own.
 
+**Post-deploy hooks (added 2026-11-26).** If a service directory has a
+`deploy-hook.sh`, the poller runs it after `docker compose up -d`. Home
+Assistant uses this (`services/home-assistant/deploy-hook.sh`): its cards and
+packages are read from `/DATA/AppData/home-assistant/config`, not from the
+checkout, so the hook copies the changed files across. That needs `ruan` to
+own the two target directories: `sudo chown -R ruan:samba
+/DATA/AppData/home-assistant/config/www/custom-cards
+/DATA/AppData/home-assistant/config/packages`. The hook only copies; a
+changed package still needs an HA reload. To add hook support to an
+already-installed poller, insert the `deploy-hook.sh` block above before the
+loop's `done`:
+
+```bash
+sudo sed -i '/^done$/i\  if [ -f "$svc_dir/deploy-hook.sh" ]; then sh "$svc_dir/deploy-hook.sh" || { logger -t homelab-deploy "$svc deploy-hook.sh failed"; FAILED=1; }; fi' /etc/systemd/system/homelab-deploy.sh
+```
+
 Recreate on a rebuild:
 
 ```bash
@@ -909,6 +925,11 @@ for svc in $CHANGED_SERVICES; do
   if [ -n "$(cd "$svc_dir" && docker compose ps --status exited --status dead -q)" ]; then
     logger -t homelab-deploy "$svc has exited/dead containers after deploy"
     FAILED=1
+  fi
+  # Optional per-service step (e.g. copying files into a bind-mounted
+  # config directory); see "Post-deploy hooks" below.
+  if [ -f "$svc_dir/deploy-hook.sh" ]; then
+    sh "$svc_dir/deploy-hook.sh" || { logger -t homelab-deploy "$svc deploy-hook.sh failed"; FAILED=1; }
   fi
 done
 
