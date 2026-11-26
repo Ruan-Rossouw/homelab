@@ -566,7 +566,7 @@ After copying a changed package, `template.reload` (Developer Tools → YAML →
   `music_linger_seconds` (30) after a pause.
 - **Geyser.** Tapping the geyser tile opens a sheet: On, Off and "heat for
   the timer's duration". It reuses `script.toggle_geyser` and the existing
-  `timer.geaser_timer` (config keys `geyser_switch`, `geyser_timer`).
+  `timer.geyser_timer` (config keys `geyser_switch`, `geyser_timer`).
 
 ### Deploying cards and packages
 
