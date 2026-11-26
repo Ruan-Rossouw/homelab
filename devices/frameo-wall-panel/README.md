@@ -93,6 +93,19 @@ half to `/data/misc/adb/adb_keys` (one key per line). Then
 `input keyevent 223` turns the display off and `224` on; the frame stays on
 Wi-Fi while the screen is off.
 
+## Network: Static IP, Not a DHCP Reservation
+
+The frame joins the `M&R_IoT` network. Its Wi-Fi driver picks a **random MAC
+address on every boot** (a pinned `wifimac.txt` is ignored), so a router
+reservation can never match. Set a static IP on the frame itself instead:
+Settings > Wi-Fi > long-press the network > Modify network > Advanced >
+IP settings: Static. Current values: IP `192.168.68.201`, gateway
+`192.168.68.1`, prefix 24, DNS `192.168.68.110` (AdGuard, which answers the
+`.home` names the dashboard needs). Leave the password as "(unchanged)".
+After saving, toggle Wi-Fi once (`svc wifi disable; svc wifi enable` as root)
+if the default route is missing. The Home Assistant ADB integration connects
+to that address.
+
 ## Revert
 
 ```bash
