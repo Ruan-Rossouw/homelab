@@ -191,7 +191,8 @@
       morning,
       tvPower,
       browsingTimeoutMs = DEFAULT_BROWSING_TIMEOUT_MS,
-      musicLingerMs = DEFAULT_MUSIC_LINGER_MS
+      musicLingerMs = DEFAULT_MUSIC_LINGER_MS,
+      grid
     } = input;
     const off = tvIsOff(tv, tvPower, now, browsingTimeoutMs);
     const tvKind = mediaKind(tv);
@@ -212,6 +213,9 @@
     if (people.length > 0 && people.every((p) => p.state !== "home")) {
       return { scene: "away", source: null };
     }
+    if (grid && grid.state === "off") {
+      return { scene: "outage", source: null };
+    }
     if (morning && inWindow(now, morning.start, morning.end)) {
       return { scene: "morning", source: null };
     }
@@ -223,6 +227,7 @@
     browsing: 8e3,
     sleep: 0,
     away: 3e4,
+    outage: 5e3,
     morning: 0,
     day: 3e3
   };
@@ -371,12 +376,24 @@
     if (!items.length) return null;
     return items[Math.floor(nowMs / stepMs) % items.length];
   }
+  function outageRuntimeMin({ soc, ah, volts, loadW, reservePct = 10 }) {
+    const n = [soc, ah, volts, loadW].map(Number);
+    if (n.some((v) => !Number.isFinite(v)) || n[3] < 20) return null;
+    const usableWh = n[1] * n[2] * Math.max(0, n[0] - reservePct) / 100;
+    return Math.round(usableWh / n[3] * 60);
+  }
+  function fmtMinutes(min) {
+    if (!Number.isFinite(min) || min < 0) return "";
+    const h = Math.floor(min / 60), m = min % 60;
+    return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`;
+  }
 
   // src/wall-panel-card.js
   var DEFAULT_BRIGHTNESS = {
     cinema: 0,
     sleep: 0,
     away: 0.12,
+    outage: 0.3,
     music: 0.3,
     browsing: 0.2,
     morning: 0.5,
@@ -394,6 +411,18 @@
   .bg-day { background: linear-gradient(160deg, #0b1f3a 0%, #123a5e 55%, #1b5a73 100%); }
   .bg-morning { background: linear-gradient(160deg, #3a1d3f 0%, #8a3e55 50%, #e0955a 100%); }
   .bg-away { background: #05070b; }
+  .bg-outage { background: linear-gradient(160deg, #1a1208 0%, #2b1d0c 60%, #3a2610 100%); }
+  .outage { display: flex; flex-direction: column; height: 100%; }
+  .outage .oh { display: flex; justify-content: space-between; align-items: baseline; }
+  .outage .otitle { font-size: 40px; font-weight: 300; color: #ffc857; letter-spacing: 1px; }
+  .outage .osince { font-size: 28px; opacity: 0.7; }
+  .outage .obig { display: flex; align-items: baseline; gap: 28px; margin-top: 30px; }
+  .outage .opct { font-size: 190px; font-weight: 200; line-height: 1; font-variant-numeric: tabular-nums; }
+  .outage .opct small { font-size: 60px; opacity: 0.7; margin-left: 6px; }
+  .outage .orun { font-size: 44px; font-weight: 300; }
+  .outage .orun span { display: block; font-size: 24px; opacity: 0.6; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .outage .bar { height: 14px; margin-top: 24px; }
+  .outage .row { margin-right: 230px; }
   .bg-art { background: #080a10; }
   .bg-art canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.85; }
   .bg-art .veil { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.38); }
@@ -629,6 +658,7 @@
         sleep: c.sleep,
         morning: c.morning,
         tvPower: this._entity(c.tv_power),
+        grid: this._entity(c.grid),
         browsingTimeoutMs: Number(c.browsing_timeout_min) * 6e4,
         musicLingerMs: Number(c.music_linger_seconds) * 1e3
       });
@@ -791,6 +821,7 @@
         cinema: () => "",
         sleep: () => c.sleep_clock ? this._clockOnly(now, true) : "",
         away: () => this._clockOnly(now, true),
+        outage: () => this._outage(now),
         day: () => this._summary(now, false),
         morning: () => this._summary(now, true),
         music: () => this._nowPlaying(source, now, "music"),
@@ -800,6 +831,7 @@
         day: "bg-day",
         morning: "bg-morning",
         away: "bg-away",
+        outage: "bg-outage",
         music: "bg-art",
         browsing: "bg-art"
       }[scene];
@@ -1032,12 +1064,50 @@
         ctx.fillRect(0, 0, W, H);
       });
     }
+    // Power cut: how full the battery is, what is drawing from it, roughly how
+    // long it will last, and what the grid has cost today so far. (The geyser is
+    // never on the battery, so it is not part of this load.)
+    _outage(now) {
+      const c = this._config;
+      const num = (id) => Number(this._entity(id)?.state);
+      const soc = num(c.battery);
+      let load = num(c.load_power);
+      if (!(load > 0)) {
+        const d = num(c.battery_power);
+        if (d > 0) load = d;
+      }
+      const reserve = Number.isFinite(Number(c.battery_reserve_pct)) ? Number(c.battery_reserve_pct) : 10;
+      const run = outageRuntimeMin({ soc, ah: num(c.battery_ah), volts: num(c.battery_volts), loadW: load, reservePct: reserve });
+      const grid = this._entity(c.grid);
+      const since = grid && Date.parse(grid.last_changed);
+      const out = Number.isFinite(since) ? fmtMinutes(Math.max(0, Math.round((now.getTime() - since) / 6e4))) : "";
+      const pct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
+      const accent = pct < 25 ? "#ff7a59" : pct < 50 ? "#ffc857" : "#7fd6c2";
+      const cost = this._entity(c.grid_cost);
+      const unit = cost?.attributes?.unit_of_measurement;
+      const money = Number.isFinite(Number(cost?.state)) ? `${unit === "ZAR" ? "R" : unit ? unit + " " : ""}${Number(cost.state).toFixed(2)}` : "";
+      const tiles = [];
+      if (Number.isFinite(load) && load > 0) {
+        tiles.push(`<div class="tile"><div class="label">Using</div><div class="value">${load >= 1e3 ? (load / 1e3).toFixed(1) : Math.round(load)}<small>${load >= 1e3 ? "kW" : "W"}</small></div><div class="sub">from the battery</div></div>`);
+      }
+      if (money) tiles.push(`<div class="tile"><div class="label">Grid today</div><div class="value">${esc(money)}</div><div class="sub">so far</div></div>`);
+      return `<div class="outage">
+      <div class="oh"><div class="otitle">Power cut</div>${out ? `<div class="osince">out for ${esc(out)}</div>` : ""}</div>
+      <div class="obig" style="--accent:${accent}">
+        <div class="opct">${Math.round(pct)}<small>%</small></div>
+        ${run != null ? `<div class="orun"><span>Battery lasts about</span>${esc(fmtMinutes(run))}</div>` : ""}
+      </div>
+      <div class="bar" style="--accent:${accent}"><i style="width:${pct}%"></i></div>
+      ${tiles.length ? `<div class="row">${tiles.join("")}</div>` : ""}
+    </div>
+    <div class="corner clock small">${fmtTime(now)}</div>`;
+    }
     _clockOnly(now, small) {
       return `<div class="clock ${small ? "small" : "hero"}">${fmtTime(now)}</div>`;
     }
     _summaryKey() {
       const c = this._config;
-      return [c.weather, c.battery, c.battery_power, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...c.music || [], ...c.people || []].map((id) => {
+      return [c.weather, c.battery, c.battery_power, c.load_power, c.grid_cost, c.battery_ah, c.battery_volts, c.grid, c.geyser, c.geyser_switch, c.geyser_timer, ...c.music || [], ...c.people || []].map((id) => {
         const e = this._entity(id);
         return e ? `${e.state}/${e.attributes?.temperature ?? ""}/${e.attributes?.media_title ?? ""}/${e.attributes?.finishes_at ?? ""}` : "";
       }).join(",");

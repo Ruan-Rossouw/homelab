@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  computeScene, inWindow, parseClock, mediaKind, stepScene, DEFAULT_HOLD_MS,
+  computeScene, inWindow, parseClock, mediaKind, stepScene, DEFAULT_HOLD_MS, outageRuntimeMin, fmtMinutes,
 } from "./panel-scene.js";
 
 const at = (hh, mm = 0) => new Date(2026, 10, 23, hh, mm);
@@ -173,4 +173,24 @@ test("music paused moments ago keeps the music screen for the linger time", () =
   assert.equal(computeScene({ ...base, now, tv: idle, music: [hp("paused", 0.2)] }).scene, "music");
   assert.equal(computeScene({ ...base, now, tv: idle, music: [hp("paused", 1)] }).scene, "browsing");
   assert.equal(computeScene({ ...base, now, tv: idle, music: [hp("paused", 1)], musicLingerMs: 0 }).scene, "browsing");
+});
+
+test("grid off shows the power-cut screen, but sleep, away and music keep priority", () => {
+  const grid = { state: "off" };
+  assert.equal(computeScene({ ...base, now: at(14), grid }).scene, "outage");
+  assert.equal(computeScene({ ...base, now: at(14), grid: { state: "on" } }).scene, "day");
+  assert.equal(computeScene({ ...base, now: at(23), grid }).scene, "sleep");
+  assert.equal(computeScene({ ...base, now: at(14), grid, people: [person("not_home")] }).scene, "away");
+  const hp = [player("playing", { media_content_type: "music" })];
+  assert.equal(computeScene({ ...base, now: at(14), grid, music: hp }).scene, "music");
+});
+
+test("outage runtime: usable energy over the load", () => {
+  // 50 Ah x 50 V = 2500 Wh; (80-10)% usable = 1750 Wh; 500 W -> 3.5 h
+  assert.equal(outageRuntimeMin({ soc: 80, ah: 50, volts: 50, loadW: 500 }), 210);
+  assert.equal(outageRuntimeMin({ soc: 5, ah: 50, volts: 50, loadW: 500 }), 0);
+  assert.equal(outageRuntimeMin({ soc: 80, ah: 50, volts: 50, loadW: 5 }), null);
+  assert.equal(outageRuntimeMin({ soc: "x", ah: 50, volts: 50, loadW: 500 }), null);
+  assert.equal(fmtMinutes(210), "3 h 30 min");
+  assert.equal(fmtMinutes(45), "45 min");
 });

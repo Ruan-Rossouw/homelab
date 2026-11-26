@@ -576,6 +576,17 @@ the packages into the config directory within about five minutes. Reload
 the changed package afterwards (or restart HA). The wall panel picks up a
 new card by itself.
 
+### Power cut screen
+
+When the inverter's grid sensor (`grid`) reads off, the panel shows the battery
+percentage, roughly how long it will last, what is drawing from it and what
+the grid has cost today. Extra card keys: `load_power` (the inverter's backup
+output power in W), `battery_ah`, `battery_volts`, `battery_reserve_pct`
+(default 10) and `grid_cost` (grid cost today). The runtime is usable energy
+(Ah x V x charge above the reserve) over the load, so it is approximate and
+depends on the Ah value matching the whole battery bank. The geyser is never
+on the battery. Sleep, music and nobody-home screens still take priority.
+
 ## Not Yet Built
 
 - **HomeKit Bridge** — deliberately not set up, see above. Exposing Home
