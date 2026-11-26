@@ -390,8 +390,7 @@
     font-family: Roboto, "Noto Sans", sans-serif;
     background: #000;
   }
-  .layer { position: absolute; inset: 0; opacity: 0; transition: opacity 0.8s ease; }
-  .layer.on { opacity: 1; }
+  .layer { position: absolute; inset: 0; }
   .bg-day { background: linear-gradient(160deg, #0b1f3a 0%, #123a5e 55%, #1b5a73 100%); }
   .bg-morning { background: linear-gradient(160deg, #3a1d3f 0%, #8a3e55 50%, #e0955a 100%); }
   .bg-away { background: #05070b; }
@@ -760,9 +759,9 @@
         jf ? `${jf.title}|${jf.episode}|${(jf.overview || "").length}` : "",
         car ? `${car.label}|${car.title}` : "",
         this._summaryKey(),
-        opts.manual ? "m" : "",
-        this._sheet ? this._sheetKey() : ""
+        opts.manual ? "m" : ""
       ].join("|");
+      this._syncSheet();
       if (key === this._renderedKey) return;
       this._renderedKey = key;
       this._currentArt = art;
@@ -795,7 +794,9 @@
       const backdrop = useFluid ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>` : "";
       this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
-      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}${this._sheet ? this._sheetHtml() : ""}`;
+      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}`;
+      this._sheetHtmlLast = null;
+      this._syncSheet();
       if (fade || entering) {
         const content = this._stage.querySelector(".content");
         setTimeout(() => {
@@ -1269,15 +1270,34 @@
     _openSheet() {
       this._sheet = true;
       clearTimeout(this._sheetTimer);
-      this._sheetTimer = setTimeout(() => this._closeSheet(), 2e4);
-      this._renderedKey = null;
-      this._tick();
+      this._sheetTimer = setTimeout(() => this._closeSheet(), 3e4);
+      this._syncSheet();
     }
     _closeSheet() {
       this._sheet = null;
       clearTimeout(this._sheetTimer);
-      this._renderedKey = null;
-      this._tick();
+      this._syncSheet();
+    }
+    // Add, update or remove the geyser sheet in place, so opening it or pressing
+    // a button never rebuilds (and flashes) the whole screen.
+    _syncSheet() {
+      if (!this._stage) return;
+      const cur = this._stage.querySelector(".sheet-bg");
+      if (!this._sheet) {
+        if (cur) cur.remove();
+        this._sheetHtmlLast = null;
+        return;
+      }
+      const html = this._sheetHtml();
+      if (cur && this._sheetHtmlLast === html) return;
+      this._sheetHtmlLast = html;
+      const holder = document.createElement("div");
+      holder.innerHTML = html;
+      const fresh = holder.firstElementChild;
+      if (cur) {
+        fresh.style.animation = "none";
+        cur.replaceWith(fresh);
+      } else this._stage.appendChild(fresh);
     }
     // Uses the geyser's existing HA pieces: script.toggle_geyser (which also
     // verifies the state) and the existing timer, whose own automations switch
@@ -1287,7 +1307,7 @@
       const svc = (d, s, data) => this._hass.callService(d, s, data);
       const script = (state) => svc("script", "toggle_geyser", { target_state: state });
       clearTimeout(this._sheetTimer);
-      this._sheetTimer = setTimeout(() => this._closeSheet(), 2e4);
+      this._sheetTimer = setTimeout(() => this._closeSheet(), 3e4);
       const timerOn = this._entity(c.geyser_timer)?.state === "active";
       if (act === "g_on") script("on");
       else if (act === "g_off") {
@@ -1298,10 +1318,7 @@
         svc("timer", "cancel", { entity_id: c.geyser_timer });
         script("off");
       }
-      setTimeout(() => {
-        this._renderedKey = null;
-        this._tick();
-      }, 1500);
+      setTimeout(() => this._syncSheet(), 1500);
     }
   };
   customElements.define("wall-panel-card", WallPanelCard);
