@@ -571,6 +571,20 @@
   .sheet .sgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
   .sheet .sgrid .pt { padding: 14px 18px; }
   .sheet .sgrid .pt .value { font-size: 38px; }
+  .sheet-bg.full { background: linear-gradient(160deg, #0b1f3a 0%, #123a5e 55%, #1b5a73 100%); align-items: stretch; justify-content: stretch; animation: wpfade 0.35s ease; }
+  .sheet-bg.full .sheet { width: auto; flex: 1; border-radius: 0; background: transparent; box-shadow: none; padding: 44px 72px 40px; display: flex; flex-direction: column; }
+  .sheet-bg.full .sheet.wide { width: auto; padding: 44px 72px 40px; }
+  .sheet-bg.full .pgrid { margin-top: 30px; gap: 22px; }
+  .sheet-bg.full .pt { background: rgba(255,255,255,0.09); }
+  .sheet-bg.full .sheet.wide .pt .value { font-size: 60px; }
+  .sheet-bg.full svg.graph { height: 300px; }
+  .sheet-bg.full .dbig { font-size: 92px; }
+  .homebtn { position: absolute; left: 26px; top: 22px; z-index: 4; border: 0; padding: 0; color: #fff; background: rgba(255,255,255,0.1);
+             width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0.55;
+             touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .homebtn svg { width: 28px; height: 28px; fill: currentColor; }
+  .homebtn.pill { width: auto; height: 48px; border-radius: 24px; padding: 0 22px 0 16px; gap: 10px; font: 400 22px Roboto, "Noto Sans", sans-serif; }
+  .homebtn.pill svg { width: 24px; height: 24px; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 `;
   var WX_TEXT = {
@@ -767,7 +781,7 @@
       });
     }
     _navigate(dir) {
-      if (!this._hass || this._config.navigation === false) return;
+      if (!this._hass || this._config.navigation === false || this._sheet) return;
       const shown = this._sceneState.scene;
       if (!["day", "morning", "away", "music", "browsing"].includes(shown)) return;
       const cur = this._manual ? this._pageOf(this._manual.scene) : this._pageOf(shown);
@@ -875,7 +889,7 @@
       const backdrop = useFluid ? `<canvas class="fluid" width="96" height="60"></canvas><div class="veil ${scene === "music" ? "light" : "dim"}"></div>` : "";
       this._stage.innerHTML = `
       <div class="layer ${layerFor || ""} on">${layerFor === "bg-art" ? backdrop : ""}</div>
-      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}`;
+      <div class="content${entering ? " enter" : fade ? " fade" : ""}">${body}</div>${this._dotsHtml(scene)}${this._homeBtnHtml(scene)}`;
       this._sheetHtmlLast = null;
       this._syncSheet();
       if (fade || entering) {
@@ -1253,8 +1267,8 @@
         num(c.battery_temp) != null ? `${Math.round(num(c.battery_temp))}\xB0C` : "",
         num(c.grid_volts) != null ? `Grid ${Math.round(num(c.grid_volts))} V` : ""
       ].filter(Boolean).join("  \xB7  ");
-      return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
-      <div class="phead"><h2>Power</h2><div class="sstate">${gridOn ? "Grid on" : "Power cut, running on battery"}</div></div>
+      return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
+      <div class="dhead"><button class="back" data-act="g_close">\u2039 Home</button><h2>Power</h2><div class="sstate">${gridOn ? "Grid on" : "Power cut, running on battery"}</div></div>
       <div class="pgrid">
         <div class="pt tap" data-act="pd_battery" style="--accent:${accent}"><div class="label">Battery</div><div class="value">${soc != null ? Math.round(soc) : "\u2013"}<small>%</small></div><div class="bar"><i style="width:${soc ?? 0}%"></i></div><div class="sub" style="margin-top:10px">${esc(batLine)}</div></div>
         ${tile("Home using", home != null ? this._kw(home) : "\u2013", "right now", "pd_home")}
@@ -1263,8 +1277,7 @@
         ${tile("Grid today", money ? esc(money) : inK != null ? inK.toFixed(1) + "<small>kWh</small>" : "\u2013", `${inK != null ? inK.toFixed(1) + " kWh in" : ""}${outK != null && outK > 0 ? " \xB7 " + outK.toFixed(1) + " out" : ""}`)}
         ${tile("Geyser", g.heating ? this._kw(g.watts) : g.on ? "On" : "Off", g.left || (g.heating ? "heating" : g.on ? "not heating" : "off"))}
       </div>
-      ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}
-      <div class="sclose">tap outside to close</div></div></div>`;
+      ${foot ? `<div class="pfoot">${esc(foot)}</div>` : ""}</div></div>`;
     }
     // ---- Power detail graphs --------------------------------------------------
     // Home Assistant keeps 5-minute averages, so a day is ~288 points: cheap to
@@ -1400,7 +1413,7 @@
         sub = "using right now";
         tiles = tile("Peak", st ? w(st.max) : "\u2013", st ? "at " + st.maxAt : "") + tile("Average", st ? w(st.avg) : "\u2013", `over ${hours} h`) + tile("Lowest", st ? w(st.min) : "\u2013", st ? "at " + st.minAt : "") + tile("Geyser", this._geyserState().heating ? this._kw(this._geyserState().watts) : "Off", "right now");
       }
-      return `<div class="sheet-bg" data-act="g_close"><div class="sheet wide" data-act="noop">
+      return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
       <div class="dhead"><button class="back" data-act="pd_back">\u2039 Power</button><h2>${title}</h2>
         <div class="rng"><button class="${hours === 6 ? "sel" : ""}" data-act="pr_6">6 h</button><button class="${hours === 24 ? "sel" : ""}" data-act="pr_24">24 h</button></div></div>
       <div class="dbig">${big}<small>${esc(sub)}</small></div>
@@ -1422,6 +1435,13 @@
       </div>
       ${g.hasTimer ? `<div class="srow">${g.timerActive ? `<button class="sbtn" data-act="g_cancel">Cancel timer</button>` : `<button class="sbtn" data-act="g_timer">Heat for ${esc(durText)}</button>`}</div>` : ""}
       <div class="sclose">tap outside to close</div></div></div>`;
+    }
+    // A faint way back to the home page from the music and movies screens.
+    _homeBtnHtml(scene) {
+      const style = this._config.home_button;
+      if (style === false || style === "off" || !["music", "browsing"].includes(scene)) return "";
+      const house = '<svg viewBox="0 0 24 24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg>';
+      return style === "pill" ? `<button class="homebtn pill" data-act="nav_home" aria-label="Home">${house}Home</button>` : `<button class="homebtn" data-act="nav_home" aria-label="Home">${house}</button>`;
     }
     _dotsHtml(scene) {
       if (this._config.navigation === false || !["day", "morning", "away", "music", "browsing"].includes(scene)) return "";
@@ -1582,6 +1602,12 @@
       }
       if (act === "g_close") return this._closeSheet();
       if (act.startsWith("g_")) return this._geyserAction(act);
+      if (act === "nav_home") {
+        const base = this._sceneState.scene;
+        this._manual = base === "day" || base === "morning" || base === "away" ? null : { scene: "day", base, until: Date.now() + Number(this._config.nav_return_minutes) * 6e4 };
+        this._renderedKey = null;
+        return this._tick();
+      }
       if (act === "open_music") {
         this._manual = {
           scene: "music",
@@ -1600,7 +1626,7 @@
     _openSheet(name = "geyser") {
       this._sheet = name;
       clearTimeout(this._sheetTimer);
-      this._sheetTimer = setTimeout(() => this._closeSheet(), 3e4);
+      this._sheetTimer = setTimeout(() => this._closeSheet(), name === "power" ? 6e4 : 3e4);
       this._syncSheet();
     }
     _armSheet(ms) {
