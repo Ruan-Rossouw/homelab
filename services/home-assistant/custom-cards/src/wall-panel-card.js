@@ -845,9 +845,9 @@ class WallPanelCard extends HTMLElement {
     const home = (c.people || []).map((id) => this._entity(id))
       .filter((p) => p && p.state === "home").map(firstName).filter(Boolean);
     const hour = now.getHours();
-    const greeting = morning
-      ? `Good morning${home.length ? ", " + esc(joinNames(home)) : ""}`
-      : (hour >= 17 ? "Good evening" : "");
+    // Whoever Home Assistant shows as home is greeted by first name.
+    const salute = morning ? "Good morning" : hour >= 17 ? "Good evening" : "";
+    const greeting = salute && home.length ? `${salute}, ${esc(joinNames(home))}` : salute;
 
     const wx = this._entity(c.weather);
     const temp = wx?.attributes?.temperature;
