@@ -1,5 +1,5 @@
-// Pure helpers for the wall panel's to-do list (a Home Assistant `todo`
-// entity, here synced with Apple Reminders). No DOM, no hass.
+// Pure helpers for the wall panel's lists (Home Assistant `todo` entities:
+// to-dos and shopping). No DOM, no hass.
 
 // "YYYY-MM-DD" is a whole day in local time; anything longer is a moment.
 function parseDue(due) {
@@ -38,4 +38,20 @@ export function openTodos(items, now) {
     .filter((i) => i && i.status === "needs_action" && (i.summary || "").trim())
     .map((i, order) => ({ uid: i.uid, summary: i.summary.trim(), order, ...dueInfo(i.due, now) }))
     .sort((a, b) => RANK[a.when] - RANK[b.when] || (a.at === b.at ? a.order - b.order : a.at - b.at));
+}
+
+// Split the panel's rows between lists of the given lengths: dealt out one at a
+// time, in order, so each list gets a fair share and a short one's spare rows
+// go to the others.
+export function shareRows(counts, total) {
+  const rows = counts.map(() => 0);
+  let left = total;
+  let dealt = true;
+  while (left > 0 && dealt) {
+    dealt = false;
+    counts.forEach((n, i) => {
+      if (left > 0 && rows[i] < n) { rows[i] += 1; left -= 1; dealt = true; }
+    });
+  }
+  return rows;
 }

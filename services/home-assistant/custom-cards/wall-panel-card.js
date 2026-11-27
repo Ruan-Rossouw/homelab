@@ -235,6 +235,22 @@
   function openTodos(items, now) {
     return (items || []).filter((i) => i && i.status === "needs_action" && (i.summary || "").trim()).map((i, order) => ({ uid: i.uid, summary: i.summary.trim(), order, ...dueInfo(i.due, now) })).sort((a, b) => RANK[a.when] - RANK[b.when] || (a.at === b.at ? a.order - b.order : a.at - b.at));
   }
+  function shareRows(counts, total) {
+    const rows = counts.map(() => 0);
+    let left = total;
+    let dealt = true;
+    while (left > 0 && dealt) {
+      dealt = false;
+      counts.forEach((n, i) => {
+        if (left > 0 && rows[i] < n) {
+          rows[i] += 1;
+          left -= 1;
+          dealt = true;
+        }
+      });
+    }
+    return rows;
+  }
 
   // src/lib/panel-scene.js
   var VIDEO_TYPES = /* @__PURE__ */ new Set(["video", "movie", "tvshow", "episode", "tv_show"]);
@@ -700,12 +716,17 @@
   .homebtn.pill svg { width: 24px; height: 24px; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 
-  .todos { position: absolute; right: 72px; top: 218px; width: 400px; padding: 20px 26px 16px; border-radius: 28px;
-           background: rgba(255,255,255,0.09); cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .todos .th { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .todos { position: absolute; right: 72px; top: 218px; width: 400px; padding: 14px 26px 10px; border-radius: 28px;
+           background: rgba(255,255,255,0.09); }
+  .todos .tsec { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .todos .tsec + .tsec { border-top: 1px solid rgba(255,255,255,0.16); margin-top: 6px; padding-top: 8px; }
+  .todos .th { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
   .todos .label { font-size: 22px; opacity: 0.65; text-transform: uppercase; letter-spacing: 2px; }
   .todos .th span { font-size: 22px; opacity: 0.55; }
   .todos .ti { display: flex; align-items: center; gap: 16px; height: 52px; }
+  .todos.split .ti { height: 41px; }
+  .todos.split .tt { font-size: 26px; }
+  .todos.split .label { font-size: 20px; }
   .todos .ti i { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.55); }
   .todos .ti.overdue i { border-color: #ff7a59; }
   .todos .ti.today i { border-color: #ffc857; }
@@ -713,7 +734,6 @@
   .todos .td { flex: none; font-size: 20px; opacity: 0.65; }
   .todos .ti.overdue .td { color: #ff9a80; opacity: 1; }
   .todos .ti.today .td { color: #ffd27a; opacity: 1; }
-  .todos .tm { font-size: 22px; opacity: 0.55; margin-top: 4px; padding-left: 34px; }
 
   .tlist { margin-top: 22px; display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
   .tlist.two { grid-template-columns: 1fr 1fr; column-gap: 18px; }
@@ -816,7 +836,7 @@
       this._manual = null;
       this._sheet = null;
       this._renderedKey = null;
-      this._todoItems = null;
+      this._todoItems = {};
       this._todoDone = {};
       this._unwatchTodos();
       this._shapes = {};
@@ -849,44 +869,55 @@
     getCardSize() {
       return 12;
     }
-    // ---- To-do list ------------------------------------------------------------
-    // The entity's state is only a count, so subscribe to the items themselves:
-    // edits made on a phone (the list is synced with Reminders) show up at once.
+    // ---- Lists: to-dos and shopping ---------------------------------------------
+    _lists() {
+      const c = this._config || {};
+      return [{ key: "todo", id: c.todo, title: "To do" }, { key: "shopping", id: c.shopping, title: "Shopping" }].filter((l) => l.id);
+    }
+    // An entity's state is only a count, so subscribe to the items themselves:
+    // edits made elsewhere (a phone, the HA app) show up at once.
     _watchTodos() {
-      const id = this._config?.todo;
       const conn = this._hass?.connection;
-      if (!id || !conn?.subscribeMessage || this._todoSub || Date.now() < (this._todoRetryAt || 0)) return;
-      this._todoSub = conn.subscribeMessage((msg) => {
-        this._todoItems = msg?.items || [];
-        this._renderedKey = null;
-        this._tick();
-      }, { type: "todo/item/subscribe", entity_id: id });
-      this._todoSub.catch(() => {
-        this._todoSub = null;
-        this._todoRetryAt = Date.now() + 6e4;
-      });
+      if (!conn?.subscribeMessage) return;
+      this._todoSubs = this._todoSubs || {};
+      this._todoRetryAt = this._todoRetryAt || {};
+      for (const { id } of this._lists()) {
+        if (this._todoSubs[id] || Date.now() < (this._todoRetryAt[id] || 0)) continue;
+        const sub = conn.subscribeMessage((msg) => {
+          this._todoItems[id] = msg?.items || [];
+          this._renderedKey = null;
+          this._tick();
+        }, { type: "todo/item/subscribe", entity_id: id });
+        this._todoSubs[id] = sub;
+        sub.catch(() => {
+          delete this._todoSubs[id];
+          this._todoRetryAt[id] = Date.now() + 6e4;
+        });
+      }
     }
     _unwatchTodos() {
-      const sub = this._todoSub;
-      this._todoSub = null;
-      if (sub) sub.then((off) => off && off()).catch(() => {
-      });
+      const subs = Object.values(this._todoSubs || {});
+      this._todoSubs = {};
+      subs.forEach((sub) => sub.then((off) => off && off()).catch(() => {
+      }));
     }
-    _todos(now) {
-      return this._config.todo ? openTodos(this._todoItems, now) : [];
+    _todos(id, now) {
+      return openTodos(this._todoItems[id], now);
     }
     _todoPanel(now) {
-      const list = this._todos(now);
-      if (!list.length) return "";
-      const rows = list.slice(0, TODO_PANEL_ROWS).map((t) => `<div class="ti ${t.when}"><i></i><span class="tt">${esc(t.summary)}</span>${t.label ? `<span class="td">${esc(t.label)}</span>` : ""}</div>`).join("");
-      const more = list.length - TODO_PANEL_ROWS;
-      return `<div class="todos" data-act="todo"><div class="th"><div class="label">To do</div><span>${list.length}</span></div>${rows}${more > 0 ? `<div class="tm">+${more} more</div>` : ""}</div>`;
+      const lists = this._lists().map((l) => ({ ...l, items: this._todos(l.id, now) })).filter((l) => l.items.length);
+      if (!lists.length) return "";
+      const share = shareRows(lists.map((l) => l.items.length), TODO_PANEL_ROWS);
+      const section = (l, n) => `<div class="tsec" data-act="list" data-list="${l.key}"><div class="th"><div class="label">${l.title}</div><span>${l.items.length > n ? `${n} of ${l.items.length}` : l.items.length}</span></div>${l.items.slice(0, n).map((t) => `<div class="ti ${t.when}"><i></i><span class="tt">${esc(t.summary)}</span>${t.label ? `<span class="td">${esc(t.label)}</span>` : ""}</div>`).join("")}</div>`;
+      return `<div class="todos${lists.length > 1 ? " split" : ""}">${lists.map((l, i) => section(l, share[i])).join("")}</div>`;
     }
-    // The whole list. It does not scroll (swipes belong to page navigation), so
+    // One whole list. It does not scroll (swipes belong to page navigation), so
     // it shows as many as fit, most pressing first.
-    _todoSheetHtml() {
-      const rows = this._todos(/* @__PURE__ */ new Date()).filter((t) => !this._todoDone[t.uid]);
-      Object.values(this._todoDone).sort((a, b) => a.index - b.index).forEach((d) => rows.splice(Math.min(d.index, rows.length), 0, { ...d.item, done: true }));
+    _todoSheetHtml(key) {
+      const list = this._lists().find((l) => l.key === key);
+      if (!list) return "";
+      const rows = this._todos(list.id, /* @__PURE__ */ new Date()).filter((t) => !this._todoDone[t.uid]);
+      Object.values(this._todoDone).filter((d) => d.id === list.id).sort((a, b) => a.index - b.index).forEach((d) => rows.splice(Math.min(d.index, rows.length), 0, { ...d.item, done: true }));
       const max = TODO_SHEET_ROWS * 2;
       const shown = rows.slice(0, max);
       const open = rows.filter((t) => !t.done).length;
@@ -895,14 +926,16 @@
       <span class="tt">${esc(t.summary)}</span>${t.done ? `<button class="undo" data-act="td_undo" data-uid="${esc(t.uid)}">Undo</button>` : t.label ? `<span class="td">${esc(t.label)}</span>` : ""}</div>`;
       const overdue = rows.filter((t) => !t.done && t.when === "overdue").length;
       return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
-      <div class="dhead"><button class="back" data-act="g_close">\u2039 Home</button><h2>To do</h2><div class="sstate">${open} open${overdue ? ` \xB7 ${overdue} overdue` : ""}</div></div>
+      <div class="dhead"><button class="back" data-act="g_close">\u2039 Home</button><h2>${list.title}</h2><div class="sstate">${open} open${overdue ? ` \xB7 ${overdue} overdue` : ""}</div></div>
       ${shown.length ? `<div class="tlist${shown.length > TODO_SHEET_ROWS ? " two" : ""}">${shown.map(row).join("")}</div>` : `<div class="tempty">All done</div>`}
       ${rows.length > max ? `<div class="pfoot">+${rows.length - max} more on your phone</div>` : ""}</div></div>`;
     }
     // Ticking completes the item straight away; the row stays for a few seconds
     // with an Undo, for a tap that was not meant.
     _todoTick(uid, undo) {
-      const id = this._config.todo;
+      const list = this._lists().find((l) => this._sheet === `list:${l.key}`);
+      if (!list) return;
+      const id = list.id;
       const set = (status) => this._hass.callService("todo", "update_item", { entity_id: id, item: uid, status });
       const forget = () => {
         const d = this._todoDone[uid];
@@ -912,15 +945,16 @@
       if (undo) {
         if (!this._todoDone[uid]) return;
         forget();
-        this._todoItems = (this._todoItems || []).map((i) => i.uid === uid ? { ...i, status: "needs_action" } : i);
+        this._todoItems[id] = (this._todoItems[id] || []).map((i) => i.uid === uid ? { ...i, status: "needs_action" } : i);
         Promise.resolve(set("needs_action")).catch(() => {
         });
       } else {
-        const list = this._todos(/* @__PURE__ */ new Date()).filter((t) => !this._todoDone[t.uid]);
-        const index = list.findIndex((t) => t.uid === uid);
+        const open = this._todos(id, /* @__PURE__ */ new Date()).filter((t) => !this._todoDone[t.uid]);
+        const index = open.findIndex((t) => t.uid === uid);
         if (index < 0) return;
         this._todoDone[uid] = {
-          item: list[index],
+          id,
+          item: open[index],
           index,
           timer: setTimeout(() => {
             forget();
@@ -1507,7 +1541,7 @@
       return `${g.on}|${g.heating}|${g.left}|${g.timerActive}`;
     }
     _sheetHtml() {
-      if (this._sheet === "todo") return this._todoSheetHtml();
+      if (this._sheet.indexOf("list:") === 0) return this._todoSheetHtml(this._sheet.slice(5));
       if (typeof this._sheet === "string" && this._sheet.indexOf("power:") === 0) return this._powerDetailHtml(this._sheet.slice(6));
       return this._sheet === "power" ? this._powerSheetHtml() : this._geyserSheetHtml();
     }
@@ -1889,7 +1923,7 @@
       if (act === "noop") return;
       if (act === "geyser") return this._openSheet("geyser");
       if (act === "power") return this._openSheet("power");
-      if (act === "todo") return this._openSheet("todo");
+      if (act === "list") return this._openSheet(`list:${el.dataset.list}`);
       if (act === "td_done" || act === "td_undo") return this._todoTick(el.dataset.uid, act === "td_undo");
       if (act.indexOf("pd_") === 0) {
         this._sheet = act === "pd_back" ? "power" : "power:" + act.slice(3);
