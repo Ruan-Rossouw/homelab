@@ -90,8 +90,21 @@ With root, `setprop persist.internet.adb.enable 1` makes adbd listen on
 TCP 5555 after every boot (the vendor `init.rk30board.rc` reads this
 property, not `persist.adb.tcp.port`). Add the Home Assistant key's public
 half to `/data/misc/adb/adb_keys` (one key per line). Then
-`input keyevent 223` turns the display off and `224` on; the frame stays on
-Wi-Fi while the screen is off.
+`input keyevent 223` turns the display off and `224` on.
+
+By default Android 7 lets Wi-Fi sleep some time after the screen goes off.
+The frame then drops off the network (about 19 minutes in, when measured), so
+screen-on commands are lost and Home Assistant reports it unreachable. Turn
+that off once:
+
+```bash
+adb -s <serial> shell settings put global wifi_sleep_policy 2
+```
+
+`2` means never sleep; `0` is the value this frame had before. With `2` the
+frame answered on port 5555 at every check, once a minute, for 35 minutes
+with the screen off, and then woke on command. Re-check the value after a
+factory reset.
 
 ## Network: Static IP, Not a DHCP Reservation
 
