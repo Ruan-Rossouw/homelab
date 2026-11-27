@@ -207,6 +207,35 @@
     return Number.isFinite(el) ? `${Math.round(el * 2) / 2}${rising === false ? "s" : "r"}${weather || ""}` : "";
   }
 
+  // src/lib/todo.js
+  function parseDue(due) {
+    if (!due) return null;
+    const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(due);
+    const date = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(due);
+    return Number.isNaN(date.getTime()) ? null : { date, allDay: !!day };
+  }
+  var startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  var pad = (n) => String(n).padStart(2, "0");
+  function dueInfo(due, now) {
+    const p = parseDue(due);
+    if (!p) return { when: "none", label: "", at: Infinity };
+    const days = Math.round((startOfDay(p.date) - startOfDay(now)) / 864e5);
+    const time = p.allDay ? "" : `${pad(p.date.getHours())}:${pad(p.date.getMinutes())}`;
+    const overdue = p.allDay ? days < 0 : p.date.getTime() < now.getTime();
+    let day;
+    if (days === 0) day = "Today";
+    else if (days === 1) day = "Tomorrow";
+    else if (days === -1) day = "Yesterday";
+    else if (days > 1 && days < 7) day = p.date.toLocaleDateString("en-GB", { weekday: "long" });
+    else day = p.date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    const when = overdue ? "overdue" : days === 0 ? "today" : "later";
+    return { when, label: time ? `${day} ${time}` : day, at: p.date.getTime() };
+  }
+  var RANK = { overdue: 0, today: 1, later: 2, none: 3 };
+  function openTodos(items, now) {
+    return (items || []).filter((i) => i && i.status === "needs_action" && (i.summary || "").trim()).map((i, order) => ({ uid: i.uid, summary: i.summary.trim(), order, ...dueInfo(i.due, now) })).sort((a, b) => RANK[a.when] - RANK[b.when] || (a.at === b.at ? a.order - b.order : a.at - b.at));
+  }
+
   // src/lib/panel-scene.js
   var VIDEO_TYPES = /* @__PURE__ */ new Set(["video", "movie", "tvshow", "episode", "tv_show"]);
   var MUSIC_TYPES = /* @__PURE__ */ new Set(["music", "track", "album", "playlist", "podcast"]);
@@ -670,7 +699,46 @@
   .homebtn.pill { width: auto; height: 48px; border-radius: 24px; padding: 0 22px 0 16px; gap: 10px; font: 400 22px Roboto, "Noto Sans", sans-serif; }
   .homebtn.pill svg { width: 24px; height: 24px; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
+
+  .todos { position: absolute; right: 72px; top: 218px; width: 400px; padding: 20px 26px 16px; border-radius: 28px;
+           background: rgba(255,255,255,0.09); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .todos .th { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .todos .label { font-size: 22px; opacity: 0.65; text-transform: uppercase; letter-spacing: 2px; }
+  .todos .th span { font-size: 22px; opacity: 0.55; }
+  .todos .ti { display: flex; align-items: center; gap: 16px; height: 52px; }
+  .todos .ti i { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.55); }
+  .todos .ti.overdue i { border-color: #ff7a59; }
+  .todos .ti.today i { border-color: #ffc857; }
+  .todos .tt { flex: 1; min-width: 0; font-size: 28px; font-weight: 300; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .todos .td { flex: none; font-size: 20px; opacity: 0.65; }
+  .todos .ti.overdue .td { color: #ff9a80; opacity: 1; }
+  .todos .ti.today .td { color: #ffd27a; opacity: 1; }
+  .todos .tm { font-size: 22px; opacity: 0.55; margin-top: 4px; padding-left: 34px; }
+
+  .tlist { margin-top: 22px; display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
+  .tlist.two { grid-template-columns: 1fr 1fr; column-gap: 18px; }
+  .trow { display: flex; align-items: center; gap: 8px; min-height: 76px; padding: 0 20px 0 6px; border-radius: 24px;
+          background: rgba(255,255,255,0.09); min-width: 0; }
+  .trow .tick { flex: none; width: 76px; height: 76px; border: 0; padding: 0; background: transparent; display: flex;
+                align-items: center; justify-content: center; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .trow .tick i { width: 36px; height: 36px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.6); position: relative; }
+  .trow.overdue .tick i { border-color: #ff7a59; }
+  .trow.today .tick i { border-color: #ffc857; }
+  .trow .tt { flex: 1; min-width: 0; font-size: 30px; font-weight: 300; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trow .td { flex: none; font-size: 22px; opacity: 0.65; }
+  .trow.overdue .td { color: #ff9a80; opacity: 1; }
+  .trow.today .td { color: #ffd27a; opacity: 1; }
+  .trow.done .tt { text-decoration: line-through; opacity: 0.5; }
+  .trow.done .tick i { border-color: #5fdc8c; background: #5fdc8c; }
+  .trow.done .tick i::after { content: ""; position: absolute; left: 9px; top: 3px; width: 8px; height: 17px;
+                              border: solid #10261a; border-width: 0 4px 4px 0; transform: rotate(45deg); }
+  .trow .undo { flex: none; border: 0; background: rgba(255,255,255,0.16); color: #fff; font: 400 24px Roboto, "Noto Sans", sans-serif;
+                padding: 12px 24px; border-radius: 26px; touch-action: manipulation; }
+  .tempty { margin-top: 140px; text-align: center; font-size: 40px; font-weight: 300; opacity: 0.7; }
 `;
+  var TODO_PANEL_ROWS = 4;
+  var TODO_SHEET_ROWS = 6;
+  var TODO_UNDO_MS = 8e3;
   var WX_TEXT = {
     "clear-night": "Clear",
     cloudy: "Cloudy",
@@ -748,6 +816,9 @@
       this._manual = null;
       this._sheet = null;
       this._renderedKey = null;
+      this._todoItems = null;
+      this._todoDone = {};
+      this._unwatchTodos();
       this._shapes = {};
       this._palettes = {};
       this._artBlobs = {};
@@ -757,6 +828,7 @@
     set hass(hass) {
       this._hass = hass;
       this._initSelfUpdate();
+      this._watchTodos();
       this._tick();
     }
     connectedCallback() {
@@ -771,10 +843,98 @@
       clearInterval(this._updateTimer);
       this._updateTimer = null;
       this._updateStarted = false;
+      this._unwatchTodos();
       this._stopFluid();
     }
     getCardSize() {
       return 12;
+    }
+    // ---- To-do list ------------------------------------------------------------
+    // The entity's state is only a count, so subscribe to the items themselves:
+    // edits made on a phone (the list is synced with Reminders) show up at once.
+    _watchTodos() {
+      const id = this._config?.todo;
+      const conn = this._hass?.connection;
+      if (!id || !conn?.subscribeMessage || this._todoSub || Date.now() < (this._todoRetryAt || 0)) return;
+      this._todoSub = conn.subscribeMessage((msg) => {
+        this._todoItems = msg?.items || [];
+        this._renderedKey = null;
+        this._tick();
+      }, { type: "todo/item/subscribe", entity_id: id });
+      this._todoSub.catch(() => {
+        this._todoSub = null;
+        this._todoRetryAt = Date.now() + 6e4;
+      });
+    }
+    _unwatchTodos() {
+      const sub = this._todoSub;
+      this._todoSub = null;
+      if (sub) sub.then((off) => off && off()).catch(() => {
+      });
+    }
+    _todos(now) {
+      return this._config.todo ? openTodos(this._todoItems, now) : [];
+    }
+    _todoPanel(now) {
+      const list = this._todos(now);
+      if (!list.length) return "";
+      const rows = list.slice(0, TODO_PANEL_ROWS).map((t) => `<div class="ti ${t.when}"><i></i><span class="tt">${esc(t.summary)}</span>${t.label ? `<span class="td">${esc(t.label)}</span>` : ""}</div>`).join("");
+      const more = list.length - TODO_PANEL_ROWS;
+      return `<div class="todos" data-act="todo"><div class="th"><div class="label">To do</div><span>${list.length}</span></div>${rows}${more > 0 ? `<div class="tm">+${more} more</div>` : ""}</div>`;
+    }
+    // The whole list. It does not scroll (swipes belong to page navigation), so
+    // it shows as many as fit, most pressing first.
+    _todoSheetHtml() {
+      const rows = this._todos(/* @__PURE__ */ new Date()).filter((t) => !this._todoDone[t.uid]);
+      Object.values(this._todoDone).sort((a, b) => a.index - b.index).forEach((d) => rows.splice(Math.min(d.index, rows.length), 0, { ...d.item, done: true }));
+      const max = TODO_SHEET_ROWS * 2;
+      const shown = rows.slice(0, max);
+      const open = rows.filter((t) => !t.done).length;
+      const row = (t) => `<div class="trow ${t.done ? "done" : t.when}">
+      <button class="tick" data-act="${t.done ? "td_undo" : "td_done"}" data-uid="${esc(t.uid)}" aria-label="${t.done ? "Undo" : "Done"}"><i></i></button>
+      <span class="tt">${esc(t.summary)}</span>${t.done ? `<button class="undo" data-act="td_undo" data-uid="${esc(t.uid)}">Undo</button>` : t.label ? `<span class="td">${esc(t.label)}</span>` : ""}</div>`;
+      const overdue = rows.filter((t) => !t.done && t.when === "overdue").length;
+      return `<div class="sheet-bg full" data-act="noop"><div class="sheet wide" data-act="noop">
+      <div class="dhead"><button class="back" data-act="g_close">\u2039 Home</button><h2>To do</h2><div class="sstate">${open} open${overdue ? ` \xB7 ${overdue} overdue` : ""}</div></div>
+      ${shown.length ? `<div class="tlist${shown.length > TODO_SHEET_ROWS ? " two" : ""}">${shown.map(row).join("")}</div>` : `<div class="tempty">All done</div>`}
+      ${rows.length > max ? `<div class="pfoot">+${rows.length - max} more on your phone</div>` : ""}</div></div>`;
+    }
+    // Ticking completes the item straight away; the row stays for a few seconds
+    // with an Undo, for a tap that was not meant.
+    _todoTick(uid, undo) {
+      const id = this._config.todo;
+      const set = (status) => this._hass.callService("todo", "update_item", { entity_id: id, item: uid, status });
+      const forget = () => {
+        const d = this._todoDone[uid];
+        if (d) clearTimeout(d.timer);
+        delete this._todoDone[uid];
+      };
+      if (undo) {
+        if (!this._todoDone[uid]) return;
+        forget();
+        this._todoItems = (this._todoItems || []).map((i) => i.uid === uid ? { ...i, status: "needs_action" } : i);
+        Promise.resolve(set("needs_action")).catch(() => {
+        });
+      } else {
+        const list = this._todos(/* @__PURE__ */ new Date()).filter((t) => !this._todoDone[t.uid]);
+        const index = list.findIndex((t) => t.uid === uid);
+        if (index < 0) return;
+        this._todoDone[uid] = {
+          item: list[index],
+          index,
+          timer: setTimeout(() => {
+            forget();
+            this._syncSheet();
+          }, TODO_UNDO_MS)
+        };
+        Promise.resolve(set("completed")).catch(() => {
+          forget();
+          this._syncSheet();
+        });
+      }
+      this._armSheet(6e4);
+      this._renderedKey = null;
+      this._tick();
     }
     // Burn-in / image-retention guard: nudge the static layout by a few pixels
     // every few minutes (slowly, so it is not noticeable). The backgrounds stay put.
@@ -1313,12 +1473,13 @@
       }
       const mini = this._miniPlayer() || {};
       if (mini.tile) tiles.push(mini.tile);
+      const todos = this._todoPanel(now);
       return `
       <div class="top">
         <div>${greeting ? `<div class="greeting">${greeting}</div>` : ""}<div class="clock hero">${fmtTime(now)}</div><div class="date">${esc(fmtDate(now))}</div></div>
         ${weather}
       </div>
-      ${mini.floating || ""}
+      ${todos}${mini.floating || ""}
       ${tiles.length ? `<div class="row">${tiles.join("")}</div>` : ""}${mini.after || ""}`;
     }
     // Geyser: power draw says whether it is heating; the switch says whether it is
@@ -1346,6 +1507,7 @@
       return `${g.on}|${g.heating}|${g.left}|${g.timerActive}`;
     }
     _sheetHtml() {
+      if (this._sheet === "todo") return this._todoSheetHtml();
       if (typeof this._sheet === "string" && this._sheet.indexOf("power:") === 0) return this._powerDetailHtml(this._sheet.slice(6));
       return this._sheet === "power" ? this._powerSheetHtml() : this._geyserSheetHtml();
     }
@@ -1727,6 +1889,8 @@
       if (act === "noop") return;
       if (act === "geyser") return this._openSheet("geyser");
       if (act === "power") return this._openSheet("power");
+      if (act === "todo") return this._openSheet("todo");
+      if (act === "td_done" || act === "td_undo") return this._todoTick(el.dataset.uid, act === "td_undo");
       if (act.indexOf("pd_") === 0) {
         this._sheet = act === "pd_back" ? "power" : "power:" + act.slice(3);
         this._armSheet(6e4);
@@ -1763,7 +1927,7 @@
     _openSheet(name = "geyser") {
       this._sheet = name;
       clearTimeout(this._sheetTimer);
-      this._sheetTimer = setTimeout(() => this._closeSheet(), name === "power" ? 6e4 : 3e4);
+      this._sheetTimer = setTimeout(() => this._closeSheet(), name === "geyser" ? 3e4 : 6e4);
       this._syncSheet();
     }
     _armSheet(ms) {
@@ -1783,6 +1947,7 @@
       if (!this._sheet) {
         if (cur) cur.remove();
         this._sheetHtmlLast = null;
+        this._sheetShown = null;
         return;
       }
       const html = this._sheetHtml();
@@ -1791,10 +1956,10 @@
       const holder = document.createElement("div");
       holder.innerHTML = html;
       const fresh = holder.firstElementChild;
-      if (cur) {
-        fresh.style.animation = "none";
-        cur.replaceWith(fresh);
-      } else this._stage.appendChild(fresh);
+      if (cur || this._sheetShown === this._sheet) fresh.style.animation = "none";
+      this._sheetShown = this._sheet;
+      if (cur) cur.replaceWith(fresh);
+      else this._stage.appendChild(fresh);
     }
     // Uses the geyser's existing HA pieces: script.toggle_geyser (which also
     // verifies the state) and the existing timer, whose own automations switch

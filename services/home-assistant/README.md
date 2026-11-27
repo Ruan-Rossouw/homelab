@@ -631,6 +631,15 @@ over Ah x V when set) and `grid_cost` (grid cost today). The runtime is usable e
 depends on the Ah value matching the whole battery bank. The geyser is never
 on the battery. Sleep, music and nobody-home screens still take priority.
 
+- **To-do list.** `todo: todo.todo` (any Home Assistant `todo` entity; here
+  one synced with Apple Reminders) adds a panel under the weather on the home
+  and morning screens: up to four open items, overdue first, then due today,
+  later, and undated in the list's own order. Tapping it opens the full list
+  (up to 12, no scrolling). Tapping a circle completes the item at once, with
+  Undo for 8 seconds. Items are added on a phone, not on the panel. With
+  nothing open the panel is hidden. The list is visible to anyone who can see
+  the wall panel. Sorting lives in `custom-cards/src/lib/todo.js`.
+
 ## Stage 8: Alerts and Tariff Block
 
 **Alerts** (`packages/alerts.yaml`, sent through the shared
