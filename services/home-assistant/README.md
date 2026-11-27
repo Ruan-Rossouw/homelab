@@ -551,7 +551,8 @@ After copying a changed package, `template.reload` (Developer Tools → YAML →
   display off and on through the Android Debug Bridge integration
   (`KEYCODE_SLEEP` 223 / `KEYCODE_WAKEUP` 224). Android keeps running, so
   there is no boot screen. Off: a film is playing, bedtime (after 20:00, Apple
-  TV idle, every home person's phone charging), or nobody home for 10 minutes.
+  TV idle, every home person's phone charging; from 23:00 the phones no longer
+  matter, the Apple TV just must not be playing), or nobody home for 10 minutes.
   On: 06:00, first arrival while the sun is up (same rule as "Play music when
   anyone arrives"), or a film stopping. The integration entity must be named
   `media_player.wall_panel_adb`; its key lives in the HA config directory
