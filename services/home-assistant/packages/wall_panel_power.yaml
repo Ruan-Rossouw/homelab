@@ -10,6 +10,9 @@
 #   * a film is playing (the screen is only a distraction in a dark room)
 #   * it is between 20:00 and 06:00, the Apple TV is idle, and the phone of
 #     everyone who is home is charging (bedtime)
+#   * it is between 23:00 and 06:00, somebody is home and the Apple TV is not
+#     playing, whatever the phones report (late fallback: a phone that never
+#     reports charging must not keep the screen on all night)
 #   * nobody has been home for 10 minutes
 #
 # It comes on:
@@ -27,7 +30,8 @@
 template:
   - binary_sensor:
       # Bedtime: late, TV idle, every phone that is home is on charge (a phone
-      # that reports nothing is not held against it).
+      # that reports nothing is not held against it). From 23:00 the phones no
+      # longer matter: the TV not playing is enough.
       - name: Wall Panel Bedtime
         unique_id: wall_panel_bedtime
         state: >-
@@ -40,6 +44,7 @@ template:
           {% set stale = tv_obj is not none and (now() - tv_obj.last_changed).total_seconds() > 900 %}
           {% set tv_idle = tv in ['idle', 'standby', 'off', 'unavailable', 'unknown'] or (tv == 'paused' and stale) %}
           {% set night = now().hour >= 20 or now().hour < 6 %}
+          {% set late = now().hour >= 23 or now().hour < 6 %}
           {% set ns = namespace(home=0, charging=0) %}
           {% for person, battery in phones.items() %}
           {% if is_state(person, 'home') %}
@@ -50,7 +55,7 @@ template:
           {% endif %}
           {% endif %}
           {% endfor %}
-          {{ night and tv_idle and ns.home > 0 and ns.charging == ns.home }}
+          {{ tv_idle and ns.home > 0 and ((night and ns.charging == ns.home) or late) }}
 
       # Nobody home for 10 minutes (so a quick trip out does not flip the panel).
       - name: Wall Panel Nobody Home
