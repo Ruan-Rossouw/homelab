@@ -631,14 +631,18 @@ over Ah x V when set) and `grid_cost` (grid cost today). The runtime is usable e
 depends on the Ah value matching the whole battery bank. The geyser is never
 on the battery. Sleep, music and nobody-home screens still take priority.
 
-- **To-do list.** `todo: todo.todo` (any Home Assistant `todo` entity; here
-  one synced with Apple Reminders) adds a panel under the weather on the home
-  and morning screens: up to four open items, overdue first, then due today,
-  later, and undated in the list's own order. Tapping it opens the full list
-  (up to 12, no scrolling). Tapping a circle completes the item at once, with
-  Undo for 8 seconds. Items are added on a phone, not on the panel. With
-  nothing open the panel is hidden. The list is visible to anyone who can see
-  the wall panel. Sorting lives in `custom-cards/src/lib/todo.js`.
+- **To-do and shopping lists.** `todo:` and `shopping:` (Home Assistant `todo`
+  entities; here `todo.todo`, which reminders are synced into, and
+  `todo.shopping_list`) add one panel under the weather on the home and
+  morning screens, with a section per list. The two share four rows: two each,
+  or more for one when the other is short. A section header shows the list's
+  total (for example "2 of 5"). Items sort overdue first, then due today,
+  later, and undated in the list's own order. Tapping a section opens that
+  whole list (up to 12, no scrolling). Tapping a circle completes the item at
+  once, with Undo for 8 seconds. Items are not added on the panel. An empty
+  list's section is hidden, and with both empty so is the panel. The lists are
+  visible to anyone who can see the wall panel. Sorting and row sharing live
+  in `custom-cards/src/lib/todo.js`.
 
 ## Stage 8: Alerts and Tariff Block
 
