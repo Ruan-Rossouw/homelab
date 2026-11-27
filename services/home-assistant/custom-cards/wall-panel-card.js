@@ -716,15 +716,15 @@
   .homebtn.pill svg { width: 24px; height: 24px; }
   .sheet .sclose { margin-top: 26px; text-align: center; font-size: 22px; opacity: 0.5; }
 
-  .todos { position: absolute; right: 72px; top: 218px; width: 400px; padding: 14px 26px 10px; border-radius: 28px;
+  .todos { position: absolute; right: 72px; top: 214px; width: 400px; padding: 14px 26px 10px; border-radius: 28px;
            background: rgba(255,255,255,0.09); }
   .todos .tsec { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .todos .tsec + .tsec { border-top: 1px solid rgba(255,255,255,0.16); margin-top: 6px; padding-top: 8px; }
+  .todos .tsec + .tsec { border-top: 1px solid rgba(255,255,255,0.16); margin-top: 4px; padding-top: 6px; }
   .todos .th { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
   .todos .label { font-size: 22px; opacity: 0.65; text-transform: uppercase; letter-spacing: 2px; }
   .todos .th span { font-size: 22px; opacity: 0.55; }
-  .todos .ti { display: flex; align-items: center; gap: 16px; height: 52px; }
-  .todos.split .ti { height: 41px; }
+  .todos .ti { display: flex; align-items: center; gap: 16px; height: 48px; }
+  .todos.split .ti { height: 37px; }
   .todos.split .tt { font-size: 26px; }
   .todos.split .label { font-size: 20px; }
   .todos .ti i { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.55); }
