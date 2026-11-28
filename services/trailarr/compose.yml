@@ -1,6 +1,6 @@
 services:
   trailarr:
-    image: nandyalu/trailarr:0.13.0
+    image: nandyalu/trailarr:0.14.2
     container_name: trailarr
     restart: unless-stopped
     # No cAdvisor history yet -- a guess, not a measurement. Higher than
